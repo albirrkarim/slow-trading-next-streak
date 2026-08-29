@@ -423,6 +423,8 @@ Guard:
   missing-role re-entry marks only that role's flag after its order succeeds.
 - `used` remains the legacy/one-way flag and may also be set once both BOTH
   role flags are true.
+- The dashboard `Reset used vPoints` action clears `used`, `usedByMain`, and
+  `usedByCounter` together in each selected symbol's persisted volatility file.
 - Only successful entry can mark it used. Signal preview/building should not consume the volatility point.
 - The used flag is persisted through the per-symbol volatility cache JSON, so the next SLOW cycle still knows the point has been consumed.
 - Production must not use `item.model_memory.positionsSell` for this guard because `positionsSell` is deprecated for production closed-trade history. It may still exist for legacy/backtest flows only.

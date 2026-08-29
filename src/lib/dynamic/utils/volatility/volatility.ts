@@ -116,6 +116,15 @@ export interface VolatilityPoint<
   lvl: number;
 }
 
+/** Clears every persisted entry-consumption flag from a volatility point. */
+export function resetVolatilityPointEntryUsage(
+  point: VolatilityPoint,
+): void {
+  delete point.used;
+  delete point.usedByMain;
+  delete point.usedByCounter;
+}
+
 /**
  * Memory object used by the predictor. Can be persisted between runs.
  */

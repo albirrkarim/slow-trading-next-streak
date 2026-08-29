@@ -1,4 +1,7 @@
-import type { VolatilityPoint } from "@/lib/dynamic";
+import {
+  resetVolatilityPointEntryUsage,
+  type VolatilityPoint,
+} from "@/lib/dynamic";
 import slowTrading from "@/lib/slowTrading";
 import {
   buildDashboardVolatilityCacheWindow,
@@ -21,6 +24,23 @@ function point(id: string, t: number): VolatilityPoint {
 }
 
 describe("dashboard volatility response", () => {
+  it("resets legacy and role-specific entry usage together", () => {
+    const usedPoint = {
+      ...point("used", 100),
+      used: true,
+      usedByMain: true,
+      usedByCounter: true,
+    };
+
+    resetVolatilityPointEntryUsage(usedPoint);
+
+    // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
+    expect(usedPoint).not.toHaveProperty("used");
+    expect(usedPoint).not.toHaveProperty("usedByMain");
+    expect(usedPoint).not.toHaveProperty("usedByCounter");
+    expect(usedPoint.id).toBe("used");
+  });
+
   it("returns only the selected range plus each symbol's latest point", () => {
     const response = slowTrading.entrySequences.range.crop({
       startTimeMs: 200,

@@ -11,7 +11,10 @@ import {
   DEFAULT_DYNAMIC_TRADING_MEMORY,
   generateInitialPriceNorm,
 } from "..";
-import type { VolatilityPoint } from "./volatility";
+import {
+  resetVolatilityPointEntryUsage,
+  type VolatilityPoint,
+} from "./volatility";
 import { tradeLog } from "@/lib/trading";
 import moment from "moment-timezone";
 
@@ -35,9 +38,7 @@ export async function getHistoricalEntrySignal({
 
   for (const symbol of symbols) {
     for (const point of volatilityMapForHistory[symbol] ?? []) {
-      delete point.used;
-      delete point.usedByMain;
-      delete point.usedByCounter;
+      resetVolatilityPointEntryUsage(point);
     }
   }
 

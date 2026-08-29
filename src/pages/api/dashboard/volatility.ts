@@ -3,6 +3,7 @@ import {
   type PredictionEngineMemory,
   type VolatilityPoint,
   predictionEngine,
+  resetVolatilityPointEntryUsage,
 } from "@/lib/dynamic";
 import { DEFAULT_EXCHANGE } from "@/lib/exchange/constants";
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
@@ -252,7 +253,7 @@ async function keepTheVolatilityUpdated(
         tradeLog.debug("Remove used vpoint ", symbol);
 
         for (const item of volatilityMap[symbol]) {
-          delete item.used;
+          resetVolatilityPointEntryUsage(item);
         }
 
         const vMemory: PredictionEngineMemory = {
