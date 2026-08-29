@@ -68,11 +68,17 @@ Examples from Scenario 1:
 
 its like two snake trading in coin.
 
-# C. UI
+# C. Updates
+
+## C.1 UI
 
 The open position list will always showing the all coins.
 
 when some leg is not open, show why it not entry whats the blocking, we have "Entry Decisions" section in the UI see it.
+
+## C.2 Backtest and Quick backtest
+
+It should be updated too
 
 # D. FAQ
 
@@ -119,3 +125,22 @@ Example:
    The question is: should LONG still wait for the price to return near B.price, or discard B and use the newer C anchor?
 
 use the newest confirmed unused vPoint which is C
+
+8. What does an “unused vPoint” mean—unused by that specific leg, by that direction, or by either leg?  
+   It cannot be globally unused because at `TOP[1]-B`, `SHORT` may use B for averaging while `LONG` also uses B as its new entry anchor.
+
+   unused mean its unused for entry for some leg. i dont care about the averaging
+
+   i think we should introduce something like this
+
+```ts
+vpoint.usedByMain = true;
+vpoint.usedByCounter = true;
+```
+
+9. Should usedByMain or usedByCounter become true only after the entry order succeeds?
+   mark only when success place order
+
+10. If both legs are separately closed by other exit rules, there is no surviving leg from which to derive the opposite direction. At the next eligible vPoint, should SLOW restart a fresh two-leg pair using the normal MAIN direction derived from that vPoint?
+
+yes
