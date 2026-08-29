@@ -199,9 +199,8 @@ function formatDuration(ms: number) {
 /** Returns the stable worker identity shared by a MAIN/COUNTER position pair. */
 function getQuickWorkerIdentity(symbol: string, position: Position): string {
   const normalizedSymbol = (position.symbol ?? symbol).trim().toUpperCase();
-  return [normalizedSymbol, position.opened.vPoint.id, position.opened.t].join(
-    ":",
-  );
+  return position.pairId ??
+    [normalizedSymbol, position.opened.vPoint.id, position.opened.t].join(":");
 }
 
 /** Counts simulated entries as workers, not as individual MAIN/COUNTER legs. */

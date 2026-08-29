@@ -38,7 +38,7 @@ import { buildSlowWatchReserveState } from "../../slowTrading/watch-reserve";
 import tradingPosition from "../position";
 import bothDirection from "../both-direction";
 
-interface ExecuteEntryProps {
+export interface ExecuteEntryProps {
   investAmount: number;
   entrySignal: EntryRecommendation;
   current?: Kline;
@@ -64,6 +64,8 @@ interface ExecuteEntryProps {
   internalLeg?: {
     direction: Position["direction"];
     fundingWorkerLegs?: number;
+    pairId?: string;
+    replenishPair?: boolean;
     role: PositionRole;
     suppressNotification?: boolean;
   };
@@ -93,6 +95,25 @@ function buildEmptyAveragingState(
     reservedRemainingMarginUsdt: 0,
     steps: [],
   };
+}
+
+function removeRetainedClosedRole(params: {
+  modelMemory: TradingModelMemory;
+  pairId?: string;
+  role?: PositionRole;
+}) {
+  if (!params.pairId || !params.role) {
+    return;
+  }
+
+  params.modelMemory.positions = (params.modelMemory.positions ?? []).filter(
+    (position) =>
+      !(
+        position.closed &&
+        bothDirection.pair.resolveId(position) === params.pairId &&
+        bothDirection.position.role.resolve(position) === params.role
+      ),
+  );
 }
 
 function resolveEntrySource(
@@ -189,15 +210,19 @@ export async function executeEntry({
     });
   }
   const activePositions =
-    allModelMemories?.flatMap((memory) => memory.positions ?? []) ??
-    modelMemory.positions;
+    (allModelMemories?.flatMap((memory) => memory.positions ?? []) ??
+      modelMemory.positions).filter((position) => !position.closed);
   const openPositionGuard = entryOpenPositionGuard.evaluate({
     maxOpenPositions: dynamicTradeConfig.maxOpenPositions,
     positions: activePositions,
   });
 
   // BOTH:MAX_OPEN_POSITIONS_ENTRY_GUARD
-  if (openPositionGuard.blocked && internalLeg?.role !== "COUNTER") {
+  if (
+    openPositionGuard.blocked &&
+    internalLeg?.role !== "COUNTER" &&
+    !internalLeg?.replenishPair
+  ) {
     return {
       symbol: entrySignal.symbol,
       message: openPositionGuard.reason!,
@@ -389,9 +414,12 @@ export async function executeEntry({
     bypass,
   });
 
-  const entryVPoint = decision.entryVPoint ?? {
-    id: entrySignal.id,
-    lvl: entrySignal.lvl ?? 0,
+  const entryVPoint = {
+    ...(decision.entryVPoint ?? {
+      id: entrySignal.id,
+      lvl: entrySignal.lvl ?? 0,
+    }),
+    t: entrySignal.t,
   };
 
   tradeLog.log("\n\n Decision ", decision);
@@ -503,8 +531,14 @@ export async function executeEntry({
 
     // Update position (sandbox simulation)
     if (isTest) {
+      removeRetainedClosedRole({
+        modelMemory,
+        pairId: internalLeg?.pairId,
+        role: internalLeg?.role,
+      });
       modelMemory.positions.push({
         symbol,
+        pairId: internalLeg?.pairId,
         role: internalLeg?.role ?? "MAIN",
         executionMode,
         tradingMode,
@@ -677,8 +711,14 @@ export async function executeEntry({
         | ${exchangeType}:${tradingMode}
         `;
 
+        removeRetainedClosedRole({
+          modelMemory,
+          pairId: internalLeg?.pairId,
+          role: internalLeg?.role,
+        });
         modelMemory.positions.push({
           symbol,
+          pairId: internalLeg?.pairId,
           role: internalLeg?.role ?? "MAIN",
           executionMode,
           tradingMode,
@@ -858,28 +898,25 @@ export async function executeEntry({
   };
 }
 
-async function executeBothDirectionEntry(
-  params: ExecuteEntryProps,
-): Promise<TradingReturn> {
-  const symbol = params.entrySignal.symbol ?? "";
+async function validateBothDirectionEntry(
+  params: Pick<
+    ExecuteEntryProps,
+    | "exchangeType"
+    | "futuresPositionMode"
+    | "simulate"
+    | "tradingMode"
+  >,
+): Promise<string | undefined> {
   if (
     params.tradingMode !== TradingMode.FUTURES ||
     params.exchangeType !== "binance"
   ) {
-    return {
-      symbol,
-      message:
-        "[ENTRY_BOTH_DIRECTION] Both-direction entry requires Binance Futures",
-    };
+    return "[ENTRY_BOTH_DIRECTION] Both-direction entry requires Binance Futures";
   }
 
   // PROD:VALIDATE_HEDGE_POSITION_MODE_SANDBOX
   if (params.futuresPositionMode !== "HEDGE") {
-    return {
-      symbol,
-      message:
-        "[VALIDATE_HEDGE_POSITION_MODE] Both-direction entry requires account futuresPositionMode HEDGE",
-    };
+    return "[VALIDATE_HEDGE_POSITION_MODE] Both-direction entry requires account futuresPositionMode HEDGE";
   }
 
   const exchange = getExchange(params.exchangeType, {
@@ -892,25 +929,43 @@ async function executeBothDirectionEntry(
     try {
       authoritativeMode = await exchange.getFuturesPositionMode?.();
     } catch (error) {
-      return {
-        symbol,
-        message:
-          `[VALIDATE_HEDGE_POSITION_MODE] Unable to validate Binance Hedge Mode: ${error instanceof Error ? error.message : String(error)}`,
-      };
+      return `[VALIDATE_HEDGE_POSITION_MODE] Unable to validate Binance Hedge Mode: ${error instanceof Error ? error.message : String(error)}`;
     }
     if (authoritativeMode !== "HEDGE") {
-      return {
-        symbol,
-        message:
-          `[VALIDATE_HEDGE_POSITION_MODE] Binance account mode is ${authoritativeMode ?? "unavailable"}; expected HEDGE`,
-      };
+      return `[VALIDATE_HEDGE_POSITION_MODE] Binance account mode is ${authoritativeMode ?? "unavailable"}; expected HEDGE`;
     }
   }
+
+  return undefined;
+}
+
+async function executeBothDirectionEntry(
+  params: ExecuteEntryProps,
+): Promise<TradingReturn> {
+  const symbol = params.entrySignal.symbol ?? "";
+  const validationError = await validateBothDirectionEntry(params);
+  if (validationError) {
+    return { symbol, message: validationError };
+  }
+
+  const exchange = getExchange(params.exchangeType, {
+    defaultTradingMode: params.tradingMode,
+    futuresPositionMode: params.futuresPositionMode,
+  });
 
   const mainDirection = params.entrySignal.l === "T" ? "SHORT" : "LONG";
   const legs = bothDirection.entry.resolveLegs({
     mainDirection,
     openDirection: "BOTH",
+  });
+  const pairId = bothDirection.entry.pairId.build({
+    symbol,
+    opened: {
+      t: params.entrySignal.t,
+      vPoint: {
+        id: params.entrySignal.id,
+      },
+    },
   });
   const positionsBefore = cloneJson(params.modelMemory.positions ?? []);
   const reports: TradingReturn[] = [];
@@ -935,6 +990,7 @@ async function executeBothDirectionEntry(
       internalLeg: {
         direction: leg.direction,
         fundingWorkerLegs: index === 0 ? legs.length : 1,
+        pairId,
         role: leg.role,
         suppressNotification: true,
       },
@@ -1035,4 +1091,39 @@ async function executeBothDirectionEntry(
     tradingDetail,
     tradingResult: reports.map((report) => report.tradingResult),
   };
+}
+
+export interface ExecutePairLegEntryProps extends Omit<
+  ExecuteEntryProps,
+  "internalLeg"
+> {
+  direction: Position["direction"];
+  pairId: string;
+  role: PositionRole;
+}
+
+/** Opens one missing role inside an existing streak-break worker pair. */
+export async function executePairLegEntry(
+  params: ExecutePairLegEntryProps,
+): Promise<TradingReturn> {
+  const symbol = params.entrySignal.symbol ?? "";
+  const validationError = await validateBothDirectionEntry(params);
+  if (validationError) {
+    return { symbol, message: validationError };
+  }
+
+  return executeEntry({
+    ...params,
+    dynamicTradeConfig: {
+      ...params.dynamicTradeConfig,
+      openDirection: "BOTH",
+    },
+    internalLeg: {
+      direction: params.direction,
+      fundingWorkerLegs: 1,
+      pairId: params.pairId,
+      replenishPair: true,
+      role: params.role,
+    },
+  });
 }

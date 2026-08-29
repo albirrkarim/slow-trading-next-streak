@@ -526,27 +526,26 @@ balance without exposing an editable assumption.
 
 When `openDirection` is `BOTH`, the preview labels the entry budget as a worker
 pair and shows that it contains two legs. At every projected exit stage it
-shows the `MAIN` loss and the fixed-entry-margin `COUNTER` profit if the counter
-is closed at that stage. When the percentage hard SL is the first stop, it also
-shows the pair loss remaining after applying that realized counter profit.
-Only `MAIN` accumulates projected averaging margins; the counter estimate keeps
-its original entry margin and notional.
+shows the `MAIN` loss and the fixed-entry-margin `COUNTER` profit at that
+simulated move. The counter profit is informational and is not subtracted from
+the MAIN stop because automatic stops close only the triggering leg. Only
+`MAIN` accumulates projected averaging margins; the counter estimate keeps its
+original entry margin and notional.
 The counter's simulated favorable move is
 `completed averaging levels * VOLATILITY_THRESHOLD`: entry-only uses `0%`,
 after averaging once uses one threshold, and each later row adds one threshold.
 This is a stage preview, not a promise that live execution will fill at the
 exact simulated percentage.
-Each stage groups calculations by `MAIN LEG`, `COUNTER LEG`, and an outcome
-group labeled `PAIR STOP OUTCOME` or `FIRST STOP OUTCOME`. The main and counter
-groups use distinct semantic colors and explicit text headings; color is not
-the only indication of leg ownership.
+Each stage groups calculations by `MAIN LEG`, `COUNTER LEG`, and a
+`FIRST STOP OUTCOME` group. The main and counter groups use distinct semantic
+colors and explicit text headings; color is not the only indication of leg
+ownership.
 The stage outcome shows only the first unconditional PnL stop. When the
 projected percentage hard SL is smaller than `stopLossUSDT`, it labels the
-counter-adjusted amount as the maximum pair loss at the hard SL and omits the
-unreachable later net-USDT row. The traditional hard SL coordinates both leg
-closures. When `stopLossUSDT` is less than or equal to the projected hard-SL
-amount, the net-USDT rule is evaluated first and the preview states that only
-`MAIN` closes while `COUNTER` remains open under current runtime behavior.
+MAIN hard-SL amount and omits the unreachable later net-USDT row. When
+`stopLossUSDT` is less than or equal to the projected hard-SL amount, the
+net-USDT rule is evaluated first. Hard SL, net-USDT stop, and post-average stop
+all close only `MAIN`; `COUNTER` remains open under its independent lifecycle.
 
 TC: `PROD:TRADING_ENTRY_LIVE_PREVIEW`
 
@@ -589,11 +588,14 @@ preceding pivot to the outward vPoint.
 TC: `PROD:VPOINTS_LEVEL_MAX_DD`
 
 The dashboard shows an `Entry Decisions` section immediately below VPoints
-Frequency. It evaluates the latest point for every configured coin whose
-absolute level meets `config.minAbsLevelToEntry`. Each row identifies
-the coin, level, and whether it is ready or blocked, followed by the same
-server-generated reason used by the entry decision flow. The browser does not
-reimplement or translate decision reasons.
+Frequency. It evaluates every configured coin, including explicit blocked
+states when no confirmed vPoint exists or the latest point is outside the
+configured entry range. Each row identifies the coin, optional role and level,
+and whether it is ready or blocked, followed by the same server-generated
+reason used by the entry decision flow. The browser does not reimplement or
+translate decision reasons. In BOTH mode, a missing MAIN or COUNTER card shows
+that shared role-specific reason inline and is expanded by default; it never
+redirects the user to `Entry Decisions` to discover the reason.
 
 For decision.v19, diagnostics distinguish an already-used vPoint, missing BTC
 market context, classifier rejection, waiting for a projected faster exit,

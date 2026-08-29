@@ -36,6 +36,8 @@ export async function getHistoricalEntrySignal({
   for (const symbol of symbols) {
     for (const point of volatilityMapForHistory[symbol] ?? []) {
       delete point.used;
+      delete point.usedByMain;
+      delete point.usedByCounter;
     }
   }
 

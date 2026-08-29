@@ -581,7 +581,7 @@ function replayPosition(params: {
       vPointIndex += 1;
     }
 
-    hasReachedVolatilityTarget = bothDirection.volatilityTarget.resolve({
+    hasReachedVolatilityTarget = bothDirection.volatilityTarget.levelZero.resolve({
       position,
       volatilityPoints: orderedVPoints
         .slice(0, vPointIndex)

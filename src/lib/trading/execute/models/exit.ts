@@ -216,8 +216,12 @@ export async function dynamicExit({
   // C. EXIT LOGIC (Stop Loss / Trailing Stop) =================================================================================
   const positions = memory.positions as Position[];
   const activePositions = positions.filter((position) => !position.closed);
+  const allPairPositions = [
+    ...positions,
+    ...(memory.positionsSell ?? []),
+  ];
   const hasPair = activePositions.some((position) =>
-    bothDirection.pair.hasCounterpart(position, positions),
+    bothDirection.pair.isLeg(position, allPairPositions),
   );
   const mergeOneWayPositions = !positionRole && !hasPair;
   const lastPosition = mergeOneWayPositions
@@ -258,10 +262,19 @@ export async function dynamicExit({
   const hasHitProfitZone = memory.volatility.lastVolatility.some(
     (point) => point.l === profitZoneLabel && point.t > entryTime,
   );
-  const volatilityTarget = bothDirection.volatilityTarget.resolve({
-    position: lastPosition,
-    volatilityPoints: memory.volatility.lastVolatility,
-  });
+  const isPairPosition = bothDirection.pair.isLeg(
+    lastPosition,
+    allPairPositions,
+  );
+  const volatilityTarget = isPairPosition
+    ? bothDirection.volatilityTarget.directional.resolve({
+        position: lastPosition,
+        volatilityPoints: memory.volatility.lastVolatility,
+      })
+    : bothDirection.volatilityTarget.levelZero.resolve({
+        position: lastPosition,
+        volatilityPoints: memory.volatility.lastVolatility,
+      });
 
   // C.1 Exit at configured absolute vPoint level
   // BOTH:EXIT_ON_VPOINT_LEVEL
@@ -318,18 +331,6 @@ export async function dynamicExit({
       2,
     )} reached -${stopLossUSDT.toFixed(2)} USDT`;
 
-    // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
-    if (hasPair) {
-      for (const sibling of positions) {
-        if (sibling === lastPosition || sibling.closed) continue;
-        sibling.control ??= {};
-        sibling.control.forceExit = {
-          reason: "Counterpart hit net USDT stop loss",
-          closeReason: "STOP_LOSS_BY_USDT_LOSS",
-        };
-      }
-    }
-
     sellPosition({
       currentKline: current,
       memory,
@@ -359,18 +360,6 @@ export async function dynamicExit({
         TRADE_MESSAGE.sell.SL
       } Stop loss hit at ${(netGain * 100).toFixed(2)}%`;
 
-      // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
-      if (hasPair) {
-        for (const sibling of positions) {
-          if (sibling === lastPosition || sibling.closed) continue;
-          sibling.control ??= {};
-          sibling.control.forceExit = {
-            reason: "Counterpart hit traditional hard stop loss",
-            closeReason: "STOP_LOSS",
-          };
-        }
-      }
-
       sellPosition({
         currentKline: current,
         memory,
@@ -394,19 +383,8 @@ export async function dynamicExit({
   }
 
   // BOTH:VOLATILITY_TARGET_EXIT
-  if (
-    bothDirection.pair.hasCounterpart(lastPosition, positions) &&
-    volatilityTarget.hasReached
-  ) {
+  if (isPairPosition && volatilityTarget.hasReached) {
     const reason = `[SELL] ${readableTime} BOTH:VOLATILITY_TARGET_EXIT after reaching volatility target ${volatilityTarget.targetPoint?.id ?? "L0"} | Net PnL ${(netGain * 100).toFixed(2)}%`;
-    for (const sibling of positions) {
-      if (sibling === lastPosition || sibling.closed) continue;
-      sibling.control ??= {};
-      sibling.control.forceExit = {
-        reason: "BOTH:VOLATILITY_TARGET_EXIT",
-        closeReason: "VOLATILITY_TARGET_EXIT",
-      };
-    }
     sellPosition({
       currentKline: current,
       memory,
@@ -491,18 +469,6 @@ export async function dynamicExit({
         postAverageLoss.hitPercent && postAverageLoss.hitUsdt ? "+" : ""
       }${postAverageLoss.hitUsdt ? "usdt" : ""}`;
 
-    // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
-    if (hasPair) {
-      for (const sibling of positions) {
-        if (sibling === lastPosition || sibling.closed) continue;
-        sibling.control ??= {};
-        sibling.control.forceExit = {
-          reason: "Counterpart hit post-average stop loss",
-          closeReason: "POST_AVERAGE_STOP_LOSS",
-        };
-      }
-    }
-
     sellPosition({
       closeReason: "POST_AVERAGE_STOP_LOSS",
       currentKline: current,
@@ -576,12 +542,7 @@ export async function dynamicExit({
   // C.2 STOP LOSS PLUS
   // PROD:SL_PLUS
   const allowProfitProtection =
-    // PROD:REENABLE_TP_LOGIC_AFTER_AT_LEAST_ONE_LEVEL_TO_PROFIT_DIRECTION_PASSED_AND_OTHER_SIDE_WAS_CLOSED
-    bothDirection.profitProtection.counterAllowed({
-      position: lastPosition,
-      positions,
-      volatilityPoints: memory.volatility.lastVolatility,
-    });
+    !isPairPosition;
   const useSLPlus =
     allowProfitProtection &&
     (config.useStopLossPlus === undefined ? true : config.useStopLossPlus);

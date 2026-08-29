@@ -629,7 +629,7 @@ describe("slow quick backtest report helpers", () => {
       result.tradeHistory.map((position) => position.closed?.reason),
     ).toEqual([
       "STOP_LOSS_BY_USDT_LOSS",
-      "STOP_LOSS_BY_USDT_LOSS",
+      "VOLATILITY_TARGET_EXIT",
     ]);
   });
 

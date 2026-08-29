@@ -1,4 +1,9 @@
-import { fitBacktestEntryMargin, tryOpenBacktestEntry } from "@/lib/dynamic/backtest-volatility/trading";
+import {
+  fitBacktestEntryMargin,
+  tryOpenBacktestEntry,
+  tryOpenBacktestStreakReentry,
+} from "@/lib/dynamic/backtest-volatility/trading";
+import { tryToExit } from "@/lib/dynamic/backtest-volatility/exit";
 import type { BacktestConfigDynamic } from "@/lib/dynamic/type-backtest";
 import type { DynamicTradeMemory } from "@/lib/dynamic";
 import { TradingMode } from "@/lib/exchange";
@@ -400,6 +405,95 @@ describe("slow specs entry", () => {
     expect(runtime.dynamicTradeMemory.quoteAsset).toBeCloseTo(980);
   });
 
+  it("reopens each role across the documented streak-break rail sequence", () => {
+    const runtime = createRuntime();
+    const config = createBacktestConfig({
+      enableWatchLogic: false,
+      maxEntryMargin: 10,
+      minAbsLevelToEntry: 0,
+      openDirection: "BOTH",
+      tradingMode: TradingMode.FUTURES,
+    });
+    const modelConfig = {
+      postAverageRescueExit: { enabled: false, thresholds: [] },
+      postAverageStopLoss: { enabled: false, thresholds: [] },
+      stopLossPercent: 90,
+      stopLossUSDT: 0,
+      takeProfitPercent: 100,
+      useStopLossPlus: false,
+    };
+    const rails = [
+      createEntryRecommendation({ id: "A", l: "T", lvl: 0, p: 100, t: 1 }),
+      createEntryRecommendation({ id: "B", l: "T", lvl: 1, p: 102, t: 2 }),
+      createEntryRecommendation({ id: "C", l: "T", lvl: 2, p: 104, t: 3 }),
+      createEntryRecommendation({ id: "D", l: "T", lvl: 3, p: 106, t: 4 }),
+      createEntryRecommendation({ id: "E", l: "B", lvl: 0, p: 100, t: 5 }),
+      createEntryRecommendation({ id: "F", l: "B", lvl: -1, p: 98, t: 6 }),
+      createEntryRecommendation({ id: "G", l: "T", lvl: 0, p: 102, t: 7 }),
+    ];
+    runtime.modelMemoryMap.SUI.volatility = {
+      symbol: "SUI",
+      lastVolatility: [rails[0]],
+    } as any;
+
+    expect(
+      tryOpenBacktestEntry({
+        ...runtime,
+        config,
+        currentTimeMs: 1,
+        recommend: rails[0],
+      }),
+    ).toBe(true);
+
+    for (const rail of rails.slice(1)) {
+      const visibleRails = rails.filter((point) => point.t <= rail.t);
+      runtime.modelMemoryMap.SUI.volatility!.lastVolatility = visibleRails;
+      runtime.dynamicTradeMemory.quoteAsset += tryToExit({
+        currentTimeMs: rail.t,
+        volatilityMap: { SUI: visibleRails },
+        modelMemoryMap: runtime.modelMemoryMap,
+        backtestPack: runtime.backtestPack,
+        config,
+        modelConfig,
+        dynamicTradeMemory: runtime.dynamicTradeMemory,
+      });
+      tryOpenBacktestStreakReentry({
+        ...runtime,
+        config,
+        currentTimeMs: rail.t,
+        symbol: "SUI",
+        volatilityPoints: visibleRails,
+      });
+    }
+
+    // BOTH:VOLATILITY_TARGET_EXIT
+    // BOTH:STREAK_BREAK_REENTRY
+    const railExits = runtime.modelMemoryMap.SUI.positionsSell ?? [];
+    expect(railExits.map((position) => position.closed?.vPoint?.id)).toEqual([
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+    ]);
+    expect(railExits.map((position) => position.role)).toEqual([
+      "COUNTER",
+      "COUNTER",
+      "COUNTER",
+      "MAIN",
+      "MAIN",
+      "COUNTER",
+    ]);
+    expect(runtime.modelMemoryMap.SUI.positions).toHaveLength(2);
+    expect(
+      new Set([
+        ...railExits,
+        ...runtime.modelMemoryMap.SUI.positions,
+      ].map((position) => position.pairId)).size,
+    ).toBe(1);
+  });
+
   it("blocks the entire worker pair when only one leg can be funded", () => {
     const fundingPlan = entryFunding.plan.calculate({
       activePositions: [],
@@ -619,6 +713,64 @@ describe("slow specs entry", () => {
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
     expect(didOpen).toBe(true);
     expect(volatilityPoint.used).toBe(true);
+  });
+
+  it("tracks BOTH entry usage independently for MAIN and COUNTER", () => {
+    const point = createEntryRecommendation({ id: "entry-role" });
+    const volatilityPoints = [point] as any;
+
+    slowTrading.watchReserve.volatilityPoint.markUsed({
+      entrySignal: point,
+      roles: ["COUNTER"],
+      volatilityPoints,
+    });
+
+    // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
+    expect(point.used).not.toBe(true);
+    expect(point.usedByMain).not.toBe(true);
+    expect(point.usedByCounter).toBe(true);
+    expect(
+      slowTrading.watchReserve.volatilityPoint.isUsed({
+        entrySignal: point,
+        roles: ["MAIN"],
+        volatilityPoints,
+      }),
+    ).toBe(false);
+    expect(
+      slowTrading.watchReserve.volatilityPoint.isUsed({
+        entrySignal: point,
+        roles: ["COUNTER"],
+        volatilityPoints,
+      }),
+    ).toBe(true);
+  });
+
+  it("marks both role flags only after a successful BOTH backtest entry", () => {
+    const runtime = createRuntime();
+    const volatilityPoint = createEntryRecommendation({ id: "entry-pair" });
+    runtime.modelMemoryMap.SUI.volatility = {
+      symbol: "SUI",
+      lastVolatility: [volatilityPoint],
+    } as any;
+
+    const didOpen = tryOpenBacktestEntry({
+      ...runtime,
+      currentTimeMs: 1,
+      config: createBacktestConfig({
+        enableWatchLogic: false,
+        openDirection: "BOTH",
+        tradingMode: TradingMode.FUTURES,
+      }),
+      recommend: volatilityPoint,
+    });
+
+    // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
+    expect(didOpen).toBe(true);
+    expect(volatilityPoint).toMatchObject({
+      used: true,
+      usedByCounter: true,
+      usedByMain: true,
+    });
   });
 
   it("blocks unreserved watch spending when only reserved balance remains", () => {

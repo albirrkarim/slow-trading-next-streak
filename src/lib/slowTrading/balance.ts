@@ -65,10 +65,12 @@ export function getOpenReservedQuoteAsset(
   return slowTradingWatchReserve.money.roundUsdt(
     (modelMemory?.positions ?? []).reduce(
       (sum, position) =>
-        sum +
-        slowTradingWatchReserve.reserve.getReservedRemainingUsdt(
-          position.strategy.averaging,
-        ),
+        position.closed
+          ? sum
+          : sum +
+            slowTradingWatchReserve.reserve.getReservedRemainingUsdt(
+              position.strategy.averaging,
+            ),
       0,
     ),
   );

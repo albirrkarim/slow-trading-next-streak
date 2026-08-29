@@ -2,6 +2,7 @@
 
 import type { DynamicTradeConfig, VolatilityPoint } from "@/lib/dynamic";
 import type {
+  SlowTradingEntryDiagnostic,
   SlowTradingHistoryPosition,
   SlowTradingMode,
 } from "@/lib/slowTrading";
@@ -36,6 +37,9 @@ interface OpenPositionsProps {
   config: DynamicTradeConfig;
   mode: SlowTradingMode;
   exchangeType: DynamicTradeConfig["exchangeType"];
+  entryDiagnostics?: SlowTradingEntryDiagnostic[];
+  entryDiagnosticsError?: string;
+  entryDiagnosticsLoading?: boolean;
   positions: SlowTradingHistoryPosition[];
   spendableQuoteAsset: number;
   exitingPosition?: { role?: PositionRole; symbol: string } | null;
@@ -96,6 +100,9 @@ export default function OpenPositions({
   config,
   mode,
   exchangeType,
+  entryDiagnostics,
+  entryDiagnosticsError,
+  entryDiagnosticsLoading,
   positions,
   spendableQuoteAsset,
   exitingPosition,
@@ -126,6 +133,9 @@ export default function OpenPositions({
         coinDescriptions={coinDescriptions}
         coinTags={coinTags}
         config={config}
+        entryDiagnostics={entryDiagnostics}
+        entryDiagnosticsError={entryDiagnosticsError}
+        entryDiagnosticsLoading={entryDiagnosticsLoading}
         exchangeType={exchangeType}
         exitingPosition={exitingPosition}
         mode={mode}
@@ -261,19 +271,33 @@ export default function OpenPositions({
 }
 
 function PairedOpenPositions(props: OpenPositionsProps) {
+  const configuredPairs = new Map<
+    string,
+    {
+      symbol: string;
+      main?: SlowTradingHistoryPosition;
+      counter?: SlowTradingHistoryPosition;
+    }
+  >(
+    (props.config.symbols ?? []).map((symbol) => [
+      symbol.trim().toUpperCase(),
+      { symbol: symbol.trim().toUpperCase() },
+    ]),
+  );
   const pairs = Array.from(
     props.positions.reduce((map, position) => {
-      const current = map.get(position.symbol) ?? {
-        symbol: position.symbol,
+      const symbol = position.symbol.trim().toUpperCase();
+      const current = map.get(symbol) ?? {
+        symbol,
       };
       if (position.role === "COUNTER") {
         current.counter = position;
       } else {
         current.main = position;
       }
-      map.set(position.symbol, current);
+      map.set(symbol, current);
       return map;
-    }, new Map<string, { symbol: string; main?: SlowTradingHistoryPosition; counter?: SlowTradingHistoryPosition }>()),
+    }, configuredPairs),
   ).map(([, pair]) => pair);
 
   const totalAbsolutePnlUsdt = openPositionPnlContribution.totalAbsolute(
@@ -281,12 +305,54 @@ function PairedOpenPositions(props: OpenPositionsProps) {
   );
   const renderPosition = (
     title: string,
+    role: PositionRole,
+    symbol: string,
     position?: SlowTradingHistoryPosition,
   ) => {
     if (!position) {
+      const diagnostic =
+        props.entryDiagnostics?.find(
+          (item) =>
+            item.symbol.trim().toUpperCase() === symbol && item.role === role,
+        ) ??
+        props.entryDiagnostics?.find(
+          (item) =>
+            item.symbol.trim().toUpperCase() === symbol && !item.role,
+        );
+      const reason = props.entryDiagnosticsLoading
+        ? `Evaluating why ${role} is not open...`
+        : props.entryDiagnosticsError
+          ? `Unable to load the ${role} entry reason: ${props.entryDiagnosticsError}`
+          : diagnostic?.reason ??
+            `No current ${role} entry decision is available.`;
+      const diagnosticMeta = diagnostic
+        ? [
+            diagnostic.code,
+            diagnostic.pointId,
+            typeof diagnostic.level === "number"
+              ? `Level ${diagnostic.level}`
+              : undefined,
+          ].filter(Boolean).join(" · ")
+        : "";
+
       return (
         <HeaderMetrics
+          defaultExpanded
           title={<Typography fontWeight={700}>{title}</Typography>}
+          titleRight={
+            diagnostic && (
+              <Chip
+                color={
+                  diagnostic.status === "ready" ? "success" : "warning"
+                }
+                label={
+                  diagnostic.status === "ready" ? "Ready" : "Blocked"
+                }
+                size="small"
+                variant="outlined"
+              />
+            )
+          }
           toggleLabel={`${title} details`}
           sx={{ border: 1, borderColor: "divider" }}
           headerSx={{ p: 0.5 }}
@@ -295,8 +361,17 @@ function PairedOpenPositions(props: OpenPositionsProps) {
             expanded && (
               <Box sx={{ borderTop: 1, borderColor: "divider", p: 1.5 }}>
                 <Typography color="text.secondary" variant="body2">
-                  Leg unavailable
+                  {reason}
                 </Typography>
+                {diagnostic && (
+                  <Typography
+                    color="text.disabled"
+                    sx={{ display: "block", mt: 0.5 }}
+                    variant="caption"
+                  >
+                    {diagnosticMeta}
+                  </Typography>
+                )}
               </Box>
             )
           }
@@ -429,10 +504,20 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                         }}
                       >
                         <Grid size={{ xs: 12, sm: 12, md: 6, lg: 6 }}>
-                          {renderPosition("Main", pair.main)}
+                          {renderPosition(
+                            "Main",
+                            "MAIN",
+                            pair.symbol,
+                            pair.main,
+                          )}
                         </Grid>
                         <Grid size={{ xs: 12, sm: 12, md: 6, lg: 6 }}>
-                          {renderPosition("Counter", pair.counter)}
+                          {renderPosition(
+                            "Counter",
+                            "COUNTER",
+                            pair.symbol,
+                            pair.counter,
+                          )}
                         </Grid>
                       </Grid>
                     </Box>

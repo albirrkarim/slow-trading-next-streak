@@ -115,6 +115,15 @@ values. Missing legacy roles resolve to `MAIN`. Paired legs can share symbol,
 entry vPoint id, and entry time, so durable history identity and history API
 mutations additionally use role and direction to distinguish them.
 
+New BOTH workers also persist `position.pairId`. The id remains stable while
+MAIN and COUNTER independently close and re-enter from newer vPoint anchors.
+Legacy pairs without it continue to resolve from their shared original symbol,
+entry vPoint id, and entry time.
+
+New positions also persist the compact optional `opened.vPoint.t` anchor time.
+Target resolution prefers this vPoint time over the later order-execution time,
+while legacy records without it continue to use `opened.t`.
+
 The hard-cutover migration is exposed at `/api/alter/position`:
 
 - `GET /api/alter/position?dryRun=true` scans and validates without writing.

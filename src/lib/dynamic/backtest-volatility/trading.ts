@@ -35,8 +35,13 @@ import { resolveEntryLeverage } from "@/lib/trading/execute/entry-leverage";
 import entryOpenPositionGuard from "@/lib/trading/execute/entry-open-position-guard";
 import { tradeLog } from "@/lib/trading/helper/log";
 import { TRADE_MESSAGE } from "@/lib/trading/message";
-import type { Position, TradingModelMemory } from "@/lib/trading/models";
+import type {
+  Position,
+  PositionRole,
+  TradingModelMemory,
+} from "@/lib/trading/models";
 import bothDirection from "@/lib/trading/both-direction";
+import streakBreak from "@/lib/trading/streak-break";
 import { resolveBacktestFeeRatio } from "./constants";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -171,9 +176,15 @@ export function tryOpenBacktestEntry({
   dynamicTradeMemory,
   backtestPack,
   config,
+  pairLeg,
   recommend,
   volume24hBySymbol,
 }: BacktestTradeRuntimeProps & {
+  pairLeg?: {
+    direction: Position["direction"];
+    pairId: string;
+    role: PositionRole;
+  };
   recommend: EntryRecommendation;
 }): boolean {
   const symbol = recommend.symbol ?? "";
@@ -183,7 +194,7 @@ export function tryOpenBacktestEntry({
   }
 
   const activePositions = Object.values(modelMemoryMap).flatMap(
-    (memory) => memory.positions ?? [],
+    (memory) => (memory.positions ?? []).filter((position) => !position.closed),
   );
   const openPositionGuard = entryOpenPositionGuard.evaluate({
     maxOpenPositions: config.maxOpenPositions,
@@ -191,11 +202,11 @@ export function tryOpenBacktestEntry({
   });
 
   // BOTH:MAX_OPEN_POSITIONS_ENTRY_GUARD
-  if (openPositionGuard.blocked) {
+  if (openPositionGuard.blocked && !pairLeg) {
     return false;
   }
 
-  if ((modelMemory.positions?.length ?? 0) > 0) {
+  if (!pairLeg && (modelMemory.positions?.length ?? 0) > 0) {
     // BOTH:ONLY_ONE_ACTIVE_POSITION_PER_COIN
     return false;
   }
@@ -214,6 +225,11 @@ export function tryOpenBacktestEntry({
     isEntrySignalVolatilityPointUsed({
       entrySignal: recommend,
       modelMemory,
+      roles: pairLeg
+        ? [pairLeg.role]
+        : bothDirection.config.isEnabled(config.openDirection)
+          ? ["MAIN", "COUNTER"]
+          : undefined,
     })
   ) {
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
@@ -224,11 +240,25 @@ export function tryOpenBacktestEntry({
     return false;
   }
 
-  const direction = recommend.l === "B" ? "LONG" : "SHORT";
-  const legs = bothDirection.entry.resolveLegs({
-    mainDirection: direction,
-    openDirection: config.openDirection,
-  });
+  const direction =
+    pairLeg?.direction ?? (recommend.l === "B" ? "LONG" : "SHORT");
+  const legs = pairLeg
+    ? [pairLeg]
+    : bothDirection.entry.resolveLegs({
+        mainDirection: direction,
+        openDirection: config.openDirection,
+      });
+  const pairId =
+    pairLeg?.pairId ??
+    (bothDirection.config.isEnabled(config.openDirection)
+      ? bothDirection.entry.pairId.build({
+          symbol,
+          opened: {
+            t: recommend.t,
+            vPoint: { id: recommend.id },
+          },
+        })
+      : undefined);
   const leverage = resolveEntryLeverage({
     entrySignal: recommend,
     tradingMode: config.tradingMode,
@@ -291,13 +321,14 @@ export function tryOpenBacktestEntry({
     const entryFeeUsdt = notionalUsdt * entryFeeRates[index];
     return {
       symbol,
+      pairId,
       role: leg.role,
       executionMode: "sandbox",
       tradingMode: config.tradingMode,
       direction: leg.direction,
       opened: {
         t: recommend.t,
-        vPoint: { id: recommend.id, lvl: recommend.lvl ?? 0 },
+        vPoint: { id: recommend.id, lvl: recommend.lvl ?? 0, t: recommend.t },
         reason: "COMMON",
         message: entryMessage,
         price: recommend.p,
@@ -322,6 +353,16 @@ export function tryOpenBacktestEntry({
       pnl: {},
     };
   });
+  if (pairLeg) {
+    modelMemory.positions = modelMemory.positions.filter(
+      (position) =>
+        !(
+          position.closed &&
+          bothDirection.pair.resolveId(position) === pairId &&
+          bothDirection.position.role.resolve(position) === pairLeg.role
+        ),
+    );
+  }
   modelMemory.positions.push(...positions);
 
   backtestPack.tradeHistoryMap[symbol].push({
@@ -358,6 +399,11 @@ export function tryOpenBacktestEntry({
   markEntrySignalVolatilityPointUsed({
     entrySignal: recommend,
     modelMemory,
+    roles: pairLeg
+      ? [pairLeg.role]
+      : bothDirection.config.isEnabled(config.openDirection)
+        ? ["MAIN", "COUNTER"]
+        : undefined,
   });
 
   tradeLog.log("\n\n");
@@ -366,6 +412,47 @@ export function tryOpenBacktestEntry({
   );
 
   return true;
+}
+
+/** Reopens one missing BOTH role after its directional target has formed. */
+export function tryOpenBacktestStreakReentry(
+  params: BacktestTradeRuntimeProps & {
+    symbol: string;
+    volatilityPoints: VolatilityPoint[];
+  },
+): boolean {
+  const modelMemory = params.modelMemoryMap[params.symbol];
+  if (!modelMemory) {
+    return false;
+  }
+
+  const decision = streakBreak.reentry.resolve({
+    positions: [
+      ...(modelMemory.positions ?? []),
+      ...(modelMemory.positionsSell ?? []),
+    ],
+    volatilityPoints: params.volatilityPoints,
+  });
+  if (decision?.status !== "READY" || !decision.point) {
+    return false;
+  }
+
+  decision.survivor.pairId = decision.pairId;
+  return tryOpenBacktestEntry({
+    ...params,
+    pairLeg: {
+      direction: decision.direction,
+      pairId: decision.pairId,
+      role: decision.role,
+    },
+    recommend: {
+      ...decision.point,
+      amountProbab: decision.point.probability ?? 1,
+      maxLeverage: decision.survivor.exposure.leverage,
+      message: decision.reason,
+      symbol: params.symbol,
+    },
+  });
 }
 
 export function tryExecuteBacktestAveraging({
@@ -396,6 +483,10 @@ export function tryExecuteBacktestAveraging({
 
   if (
     hasPositionHitTargetVolatilityPoint({
+      directional: bothDirection.pair.isLeg(position, [
+        ...(modelMemory.positions ?? []),
+        ...(modelMemory.positionsSell ?? []),
+      ]),
       position,
       volatilityPoints,
     })

@@ -1,6 +1,7 @@
 import { VOLATILITY_THRESHOLD } from "@/lib/brain/constants";
 import type { VolatilityPoint } from "@/lib/dynamic";
 import type { Position } from "@/lib/trading/models";
+import bothDirection from "@/lib/trading/both-direction";
 import postAverageRescue from "@/lib/trading/post-average-rescue";
 import { hasPositionHitTargetVolatilityPoint } from "./watch-reserve";
 import type {
@@ -107,12 +108,13 @@ function normalizeSpeedupPercent(value: unknown, fallback: number): number {
 function getSpeedupReasons(params: {
   latestVolatilityPoint?: Pick<VolatilityPoint, "p">;
   negativePnlThresholdPct?: number;
+  pairPositions?: Position[];
   positivePnlThresholdPct?: number;
   position: Position;
   takeProfitOffsetPct?: number;
   takeProfitPercent?: number;
   useStopLossPlus?: boolean;
-  volatilityPoints?: Array<Pick<VolatilityPoint, "id" | "lvl" | "t">>;
+  volatilityPoints?: Array<Pick<VolatilityPoint, "id" | "l" | "lvl" | "t">>;
   volatilityThresholdPct?: number;
 }): SpeedupStageReason[] {
   const reasons: SpeedupStageReason[] = [];
@@ -166,6 +168,10 @@ function getSpeedupReasons(params: {
   }
   if (
     hasPositionHitTargetVolatilityPoint({
+      directional: bothDirection.pair.isLeg(
+        params.position,
+        params.pairPositions ?? [params.position],
+      ),
       position: params.position,
       volatilityPoints: params.volatilityPoints ?? [],
     })
@@ -208,12 +214,13 @@ function isApproachingPostAverageTarget(params: {
 function isSpeedupPosition(params: {
   latestVolatilityPoint?: Pick<VolatilityPoint, "p">;
   negativePnlThresholdPct?: number;
+  pairPositions?: Position[];
   positivePnlThresholdPct?: number;
   position: Position;
   takeProfitOffsetPct?: number;
   takeProfitPercent?: number;
   useStopLossPlus?: boolean;
-  volatilityPoints?: Array<Pick<VolatilityPoint, "id" | "lvl" | "t">>;
+  volatilityPoints?: Array<Pick<VolatilityPoint, "id" | "l" | "lvl" | "t">>;
   volatilityThresholdPct?: number;
 }): boolean {
   return getSpeedupReasons(params).length > 0;
@@ -282,6 +289,10 @@ function selectStageSymbols(params: {
       isSpeedupPosition({
         latestVolatilityPoint,
         negativePnlThresholdPct: params.speedupNegativePnlThresholdPct,
+        pairPositions: [
+          ...positions,
+          ...(tradeSetting.model_memory.positionsSell ?? []),
+        ],
         positivePnlThresholdPct: params.speedupPositivePnlThresholdPct,
         position,
         takeProfitOffsetPct: params.speedupTakeProfitOffsetPct,

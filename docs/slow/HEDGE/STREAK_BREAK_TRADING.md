@@ -74,7 +74,9 @@ its like two snake trading in coin.
 
 The open position list will always showing the all coins.
 
-when some leg is not open, show why it not entry whats the blocking, we have "Entry Decisions" section in the UI see it.
+When a leg is not open, its own MAIN or COUNTER card must show the current
+role-specific blocking reason inline. Do not make the user open or find another
+section. The `Entry Decisions` section may show the same shared diagnostic.
 
 ## C.2 Backtest and Quick backtest
 

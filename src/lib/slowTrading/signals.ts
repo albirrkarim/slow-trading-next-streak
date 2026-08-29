@@ -17,6 +17,10 @@ import { getExchange, TradingMode } from "@/lib/exchange";
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
 import { MINIMAL_USDT_TO_TRADE } from "@/lib/trading/constants";
 import bothDirection from "@/lib/trading/both-direction";
+import type { PositionRole } from "@/lib/trading/models";
+import streakBreak, {
+  type StreakBreakReentryDecision,
+} from "@/lib/trading/streak-break";
 import { resolveEntryLeverage } from "@/lib/trading/execute/entry-leverage";
 import entryFunding from "@/lib/trading/execute/entry-funding";
 import entryMarket from "@/lib/trading/execute/entry-market";
@@ -36,6 +40,13 @@ import type {
   SlowTradingStorageData,
 } from "./types";
 import slowTradingWatchReserve from "./watch-reserve";
+
+/** Returns the role-specific vPoint usage required by a fresh entry. */
+function resolveFreshEntryRoles(openDirection: unknown): PositionRole[] | undefined {
+  return bothDirection.config.isEnabled(openDirection)
+    ? ["MAIN", "COUNTER"]
+    : undefined;
+}
 
 /**
  * Remove entry signals for symbols that already have open positions.
@@ -174,6 +185,7 @@ export function filterSignalsWithUnusedVolatilityPointId(
   modeState: SlowTradingModeState,
   entrySignals: EntryRecommendation[],
   modelMemoryMap?: Record<string, any>,
+  roles?: PositionRole[],
 ): EntryRecommendation[] {
   return entrySignals.filter((item) => {
     const symbol = String(item.symbol || "")
@@ -195,6 +207,7 @@ export function filterSignalsWithUnusedVolatilityPointId(
     return !slowTradingWatchReserve.volatilityPoint.isUsed({
       entrySignal: item,
       modelMemory,
+      roles,
     });
   });
 }
@@ -324,6 +337,7 @@ export async function buildSlowTradingSignals(params?: {
           modeState,
           entrySignals,
           modelMemoryMap,
+          resolveFreshEntryRoles(storage.config.openDirection),
         );
         const volatilityPointsMap = Object.fromEntries(
           Object.entries(modelMemoryMap).map(([symbol, modelMemory]) => [
@@ -495,6 +509,7 @@ export async function buildSlowTradingSignals(params?: {
         modeState,
         entrySignals,
         modelMemoryMap,
+        resolveFreshEntryRoles(storage.config.openDirection),
       );
 
       return {
@@ -521,6 +536,31 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
   });
   const { storage, activeMode, modelMemoryMap } = result;
   const modeState = storage.modes[activeMode];
+  const volatilityPointsMap =
+    result.volatilityPointsMap ??
+    Object.fromEntries(
+      Object.entries(modelMemoryMap).map(([symbol, modelMemory]) => [
+        symbol,
+        modelMemory.volatility?.lastVolatility ?? [],
+      ]),
+    );
+  const reentryBySymbol = new Map<string, StreakBreakReentryDecision>();
+  if (bothDirection.config.isEnabled(storage.config.openDirection)) {
+    for (const rawSymbol of storage.config.symbols) {
+      const symbol = rawSymbol.toUpperCase();
+      const modelMemory = modelMemoryMap[symbol];
+      const decision = streakBreak.reentry.resolve({
+        positions: [
+          ...(modelMemory?.positions ?? []),
+          ...(modelMemory?.positionsSell ?? []),
+        ],
+        volatilityPoints: volatilityPointsMap[symbol] ?? [],
+      });
+      if (decision) {
+        reentryBySymbol.set(symbol, decision);
+      }
+    }
+  }
   const engineDiagnosticBySymbol = new Map(
     (result.engineDiagnostics ?? []).map((item) => [
       item.symbol.toUpperCase(),
@@ -532,6 +572,11 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
       .map((item) => String(item.symbol || "").toUpperCase())
       .filter(Boolean),
   );
+  for (const [symbol, decision] of reentryBySymbol) {
+    if (decision.status === "READY") {
+      signalSymbols.add(symbol);
+    }
+  }
   const entrySignalBySymbol = new Map(
     result.entrySignals
       .filter((item) => item.symbol)
@@ -593,20 +638,15 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
       },
     );
   const activePositions = modeState.tradeSettings.flatMap(
-    (item) => item.model_memory.positions ?? [],
+    (item) =>
+      (item.model_memory.positions ?? []).filter(
+        (position) => !position.closed,
+      ),
   );
   const dynamicTradeMemory: DynamicTradeMemory = {
     ...slowTradingShared.clone(dynamic.defaults.tradingMemory),
     ...slowTradingShared.clone(modeState.dynamicTradeMemory),
   };
-  const volatilityPointsMap =
-    result.volatilityPointsMap ??
-    Object.fromEntries(
-      Object.entries(modelMemoryMap).map(([symbol, modelMemory]) => [
-        symbol,
-        modelMemory.volatility?.lastVolatility ?? [],
-      ]),
-    );
   const currentBalance = dynamic.balance.countGrowthOvertime({
     timeMs: result.currentTimeMs ?? Date.now(),
     dynamicTradeMemory,
@@ -614,12 +654,20 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
     volatilityMap: volatilityPointsMap,
   });
   let investAmount =
-    result.entrySignals.length > 0
+    result.entrySignals.length +
+        [...reentryBySymbol.values()].filter(
+          (decision) => decision.status === "READY",
+        ).length >
+      0
       ? brain.algorithms.runtime.getInvestmentAmount({
           dynamicTradeMemory,
           currentBalance,
           allocationPercent: 1,
-          recommendedPositionsLength: result.entrySignals.length,
+          recommendedPositionsLength:
+            result.entrySignals.length +
+            [...reentryBySymbol.values()].filter(
+              (decision) => decision.status === "READY",
+            ).length,
         })
       : 0;
   if (storage.runtime.entrySignalBypass) {
@@ -634,19 +682,50 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
     }),
   );
 
-  return storage.config.symbols.flatMap((rawSymbol) => {
+  const diagnostics: SlowTradingEntryDiagnostic[] =
+    storage.config.symbols.flatMap<SlowTradingEntryDiagnostic>((rawSymbol) => {
     const symbol = rawSymbol.toUpperCase();
+    if (reentryBySymbol.has(symbol)) {
+      return [];
+    }
     const modelMemory = modelMemoryMap[symbol];
     const point = modelMemory?.volatility?.lastVolatility?.at(-1);
+    if (!point) {
+      return [
+        {
+          code: "NO_CONFIRMED_VPOINT",
+          reason:
+            "Blocked because no confirmed volatility point is available for entry.",
+          status: "blocked" as const,
+          symbol,
+        },
+      ];
+    }
     if (
-      !point ||
       !decisionEngineLevelConfig.isEntryLevel(
         point,
         storage.config.minAbsLevelToEntry,
         storage.config.maxAbsLevelToEntry,
       )
     ) {
-      return [];
+      const minLevel = decisionEngineLevelConfig.resolveMinAbsLevelToEntry(
+        storage.config.minAbsLevelToEntry,
+      );
+      const maxLevel = decisionEngineLevelConfig.resolveMaxAbsLevelToEntry(
+        storage.config.maxAbsLevelToEntry,
+      );
+      return [
+        {
+          code: "ENTRY_OUTSIDE_ABS_LEVEL_RANGE",
+          level: point.lvl,
+          pointId: point.id,
+          reason:
+            `Blocked because the latest vPoint ${point.id} at level ${point.lvl} ` +
+            `is outside the configured absolute entry range ${minLevel}-${maxLevel}.`,
+          status: "blocked" as const,
+          symbol,
+        },
+      ];
     }
 
     let code = "DECISION_ENGINE_REJECTED";
@@ -813,7 +892,123 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
         symbol,
       },
     ];
-  });
+    });
+
+  for (const [symbol, decision] of reentryBySymbol) {
+    const point = decision.point ?? volatilityPointsMap[symbol]?.at(-1);
+    let code = "STREAK_REENTRY_WAITING";
+    let reason = decision.reason;
+    let status: SlowTradingEntryDiagnostic["status"] = "blocked";
+
+    if (!storage.runtime.runnerEnabled) {
+      code = "RUNNER_DISABLED";
+      reason = "Blocked because the SLOW runner is disabled.";
+    } else if (!storage.runtime.autoEntryEnabled) {
+      code = "AUTO_ENTRY_DISABLED";
+      reason = "Blocked because automatic entry is disabled.";
+    } else if (decision.status === "READY" && point) {
+      if (
+        !decisionEngineLevelConfig.isEntryLevel(
+          point,
+          storage.config.minAbsLevelToEntry,
+          storage.config.maxAbsLevelToEntry,
+        )
+      ) {
+        code = "ENTRY_OUTSIDE_ABS_LEVEL_RANGE";
+        reason =
+          `Blocked because ${decision.role} re-entry point ${point.id} at level ` +
+          `${point.lvl} is outside the configured entry range.`;
+      } else {
+        const currentKline = marketContext.latestEntryKlineBySymbol.get(symbol);
+        const currentPrice = Number.parseFloat(currentKline?.[4] ?? "");
+        if (!currentKline || !Number.isFinite(currentPrice)) {
+          code = "CURRENT_ENTRY_KLINE_UNAVAILABLE";
+          reason =
+            "Blocked because the current market candle required by entry guards is unavailable.";
+        } else if (
+          slowTradingAutoRemoveSymbols.price.isBelowMinimum({
+            price: currentPrice,
+            minimumPrice: storage.runtime.autoRemoveSymbolMinPrice,
+          })
+        ) {
+          code = "AUTO_REMOVE_MIN_PRICE";
+          reason =
+            `Blocked because ${symbol}'s current price ${currentPrice} USDT is below ` +
+            `the configured coin-management minimum of ` +
+            `${storage.runtime.autoRemoveSymbolMinPrice} USDT.`;
+        } else {
+          const lateEntryGuard = lateEntryVPointDrift.evaluateEntry({
+            bothDirection: true,
+            currentPrice,
+            direction: decision.direction,
+            vPointPrice: point.p,
+          });
+          if (lateEntryGuard.blocked) {
+            code = "LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT";
+            reason = lateEntryGuard.reason!;
+          } else {
+            const requestedMarginUsdt =
+              entryFunding.requestedMargin.resolve({
+                bypass: storage.runtime.entrySignalBypass,
+                exchangeType: storage.config.exchangeType,
+                investAmount,
+                maxUsdtEntry: point.maxUsdtEntry,
+                probability: point.probability ?? 1,
+              });
+            const entrySignal: EntryRecommendation = {
+              ...point,
+              amountProbab: point.probability ?? 1,
+              maxLeverage: decision.survivor.exposure.leverage,
+              symbol,
+            };
+            const leverage = resolveEntryLeverage({
+              entrySignal,
+              tradingMode: storage.config.tradingMode,
+              config: storage.config,
+            });
+            const fundingPlan = entryFunding.plan.calculate({
+              activePositions,
+              config: storage.config,
+              direction: decision.direction,
+              entryLevel: point.lvl,
+              feeRate: marketContext.feeRate,
+              leverage,
+              requestedMarginUsdt,
+              reservedQuoteAsset:
+                dynamicTradeMemory.reservedQuoteAsset ?? 0,
+              spendableQuoteAsset: dynamicTradeMemory.quoteAsset ?? 0,
+              tradingMode: storage.config.tradingMode,
+              volume24h: marketContext.volume24hBySymbol[symbol],
+              workerLegs: 1,
+            });
+
+            if (fundingPlan.blockReason) {
+              code = fundingPlan.blockCode ?? "ENTRY_FUNDING_BLOCKED";
+              reason = fundingPlan.blockReason;
+            } else {
+              code = "STREAK_REENTRY_READY";
+              reason =
+                `${decision.reason}. Entry guards passed; final exchange ` +
+                "account, precision, and order checks run during execution.";
+              status = "ready";
+            }
+          }
+        }
+      }
+    }
+
+    diagnostics.push({
+      code,
+      level: point?.lvl ?? decision.survivor.opened.vPoint.lvl,
+      pointId: point?.id ?? decision.survivor.opened.vPoint.id,
+      reason,
+      role: decision.role,
+      status,
+      symbol,
+    });
+  }
+
+  return diagnostics;
 }
 
 /**

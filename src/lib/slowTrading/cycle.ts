@@ -12,6 +12,7 @@ import trading, { type TradingReturn } from "@/lib/trading";
 import blackSwan from "@/lib/trading/black-swan";
 import bothDirection from "@/lib/trading/both-direction";
 import type { Position, PositionRole } from "@/lib/trading/models";
+import streakBreak from "@/lib/trading/streak-break";
 import slowTradingReporting from "./reporting";
 import slowTradingStorage from "./storage";
 import slowTradingWatchReserve from "./watch-reserve";
@@ -132,6 +133,10 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
             const reasons = slowTradingStages.position.getSpeedupReasons({
               ...speedupCriteria,
               latestVolatilityPoint: volatilityPoints.at(-1),
+              pairPositions: [
+                ...(tradeSetting.model_memory.positions ?? []),
+                ...(tradeSetting.model_memory.positionsSell ?? []),
+              ],
               position,
               volatilityPoints,
             });
@@ -497,6 +502,9 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
         executionModeState,
         entrySignals,
         modelMemoryMap,
+        bothDirection.config.isEnabled(storage.config.openDirection)
+          ? ["MAIN", "COUNTER"]
+          : undefined,
       );
 
       const volatilityPointsMap: Record<string, VolatilityPoint[]> = {};
@@ -772,6 +780,11 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
               slowTradingWatchReserve.volatilityPoint.markUsed({
                 entrySignal,
                 modelMemory: entryModelMemory,
+                roles: bothDirection.config.isEnabled(
+                  storage.config.openDirection,
+                )
+                  ? ["MAIN", "COUNTER"]
+                  : undefined,
               });
 
               dynamicTradeMemory.quoteAsset =
@@ -1010,6 +1023,149 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
                 (dynamicTradeMemory.quoteAsset ?? 0) +
                   report.tradingDetail.usdtSpent,
               );
+          }
+        }
+      }
+
+      // G.2 Replenish a missing streak-break role after exits and averaging.
+      if (
+        shouldAutoEnter &&
+        bothDirection.config.isEnabled(storage.config.openDirection) &&
+        !blackSwanProtectionActive &&
+        !slowTradingBlackSwan.runtime.isProtectionPending(activeMode)
+      ) {
+        const selectedSymbols = new Set(symbols);
+        const reentries = tradeSettings.flatMap((tradeSetting) => {
+          const symbol = String(tradeSetting.symbol || "")
+            .trim()
+            .toUpperCase();
+          if (!selectedSymbols.has(symbol)) {
+            return [];
+          }
+
+          const modelMemory = modelMemoryMap[symbol];
+          const decision = streakBreak.reentry.resolve({
+            positions: [
+              ...(modelMemory?.positions ?? []),
+              ...(modelMemory?.positionsSell ?? []),
+            ],
+            volatilityPoints: volatilityPointsMap[symbol] ?? [],
+          });
+          if (!decision) {
+            return [];
+          }
+
+          if (decision.status !== "READY" || !decision.point) {
+            slowTradingShared.entrySignals.addSkipped(skippedEntrySignals, {
+              role: decision.role,
+              symbol,
+              reason: decision.reason,
+            });
+            return [];
+          }
+
+          return [{ decision, modelMemory, point: decision.point, symbol }];
+        });
+
+        if (reentries.length > 0) {
+          const currentBalance = dynamic.balance.countGrowthOvertime({
+            timeMs: currentTimeMs,
+            dynamicTradeMemory,
+            modelMemoryMap,
+            volatilityMap: volatilityPointsMap,
+          });
+          let reentryInvestAmount = brain.algorithms.runtime.getInvestmentAmount({
+            dynamicTradeMemory,
+            currentBalance,
+            allocationPercent: 1,
+            recommendedPositionsLength: reentries.length,
+          });
+          if (bypass) {
+            reentryInvestAmount = Math.min(reentryInvestAmount, 10);
+          }
+
+          for (const { decision, modelMemory, point, symbol } of reentries) {
+            if (
+              reentryInvestAmount < trading.constants.MINIMAL_USDT_TO_TRADE
+            ) {
+              slowTradingShared.entrySignals.addSkipped(skippedEntrySignals, {
+                role: decision.role,
+                symbol,
+                reason:
+                  `Re-entry budget ${reentryInvestAmount.toFixed(2)} USDT is below minimum ` +
+                  `${trading.constants.MINIMAL_USDT_TO_TRADE.toFixed(2)} USDT`,
+              });
+              continue;
+            }
+
+            decision.survivor.pairId = decision.pairId;
+            const entrySignal: EntryRecommendation = {
+              ...point,
+              amountProbab: point.probability ?? 1,
+              maxLeverage: decision.survivor.exposure.leverage,
+              message: decision.reason,
+              symbol,
+            };
+            const reservedBefore = slowTradingBalance.reserve.getOpen(modelMemory);
+            const report = await profiler.time("cycle.entryExecution", () =>
+              trading.execution.pairLegEntry({
+                investAmount: reentryInvestAmount,
+                entrySignal,
+                modelConfig,
+                modelMemory,
+                exchangeType,
+                tradingMode,
+                bypass: false,
+                notificationTarget: {
+                  dashboard: "SLOW",
+                  successKey: "NOTIF_ENTRY",
+                  failureKey: "NOTIF_ENTRY_FAILED",
+                },
+                simulate: isSandbox,
+                balanceOverride: isSandbox
+                  ? {
+                      quoteAsset: dynamicTradeMemory.quoteAsset,
+                      baseAsset: 0,
+                    }
+                  : undefined,
+                executionMode: activeMode,
+                reservedQuoteAsset: dynamicTradeMemory.reservedQuoteAsset,
+                dynamicTradeConfig: storage.config,
+                allModelMemories: Object.values(modelMemoryMap),
+                volume24h: volume24hBySymbol[symbol],
+                futuresPositionMode:
+                  slowTradingStorage.account.get(storage)
+                    ?.futuresPositionMode,
+                direction: decision.direction,
+                pairId: decision.pairId,
+                role: decision.role,
+              }),
+            );
+            reports.push(report);
+
+            if (report.tradingDetail?.action === "BUY") {
+              slowTradingWatchReserve.volatilityPoint.markUsed({
+                entrySignal,
+                modelMemory,
+                roles: [decision.role],
+              });
+              dynamicTradeMemory.quoteAsset =
+                slowTradingWatchReserve.money.roundUsdt(
+                  (dynamicTradeMemory.quoteAsset ?? 0) +
+                    report.tradingDetail.usdtSpent,
+                );
+              const reservedAfter = slowTradingBalance.reserve.getOpen(modelMemory);
+              slowTradingBalance.reserve.add(
+                dynamicTradeMemory,
+                Math.max(0, reservedAfter - reservedBefore),
+              );
+            } else {
+              slowTradingShared.entrySignals.addSkipped(skippedEntrySignals, {
+                role: decision.role,
+                symbol,
+                reason: report.message,
+              });
+            }
           }
         }
       }

@@ -233,7 +233,6 @@ describe("TradingSettingsPreview", () => {
     expect(preview.exitStages[0].postAverageStopLoss).toBeNull();
     expect(preview.exitStages[1]).toMatchObject({
       firstStopLoss: {
-        closesOtherLeg: false,
         estimatedLossUsdt: 2.1,
         type: "POST_AVERAGE",
       },
@@ -246,7 +245,6 @@ describe("TradingSettingsPreview", () => {
     });
     expect(preview.exitStages[2]).toMatchObject({
       firstStopLoss: {
-        closesOtherLeg: false,
         estimatedLossUsdt: 4,
         type: "POST_AVERAGE",
       },
@@ -292,9 +290,7 @@ describe("TradingSettingsPreview", () => {
       cumulativeMarginUsdt: 7,
       estimatedCounterProfitUsdt: 0,
       estimatedLossUsdt: 2.8,
-      estimatedNetLossUsdt: 2.8,
       firstStopLoss: {
-        closesOtherLeg: true,
         estimatedLossUsdt: 2.8,
         type: "HARD_STOP_PERCENT",
       },
@@ -307,10 +303,8 @@ describe("TradingSettingsPreview", () => {
       cumulativeMarginUsdt: 21,
       estimatedCounterProfitUsdt: 0.28,
       estimatedLossUsdt: 8.4,
-      estimatedNetLossUsdt: 8.12,
       firstStopLoss: {
-        closesOtherLeg: true,
-        estimatedLossUsdt: 8.12,
+        estimatedLossUsdt: 8.4,
         type: "HARD_STOP_PERCENT",
       },
       volatilityThresholdPct: 2,
@@ -322,10 +316,8 @@ describe("TradingSettingsPreview", () => {
       cumulativeMarginUsdt: 63,
       estimatedCounterProfitUsdt: 0.56,
       estimatedLossUsdt: 25.2,
-      estimatedNetLossUsdt: 24.64,
       firstStopLoss: {
-        closesOtherLeg: true,
-        estimatedLossUsdt: 24.64,
+        estimatedLossUsdt: 25.2,
         type: "HARD_STOP_PERCENT",
       },
       volatilityThresholdPct: 2,
@@ -405,7 +397,7 @@ describe("TradingSettingsPreview", () => {
     );
   });
 
-  it("renders stage-specific counter closes in both-direction mode", () => {
+  it("renders independent leg stops in both-direction mode", () => {
     render(
       <TradingSettingsPreview
         configDraft={{ ...configDraft, openDirection: "BOTH" }}
@@ -451,15 +443,21 @@ describe("TradingSettingsPreview", () => {
       screen.getByText("$14.00 x 4% = +$0.56"),
     ).toBeDefined();
     expect(
-      screen.getAllByText("Maximum pair loss when MAIN hits hard SL"),
+      screen.getAllByText("MAIN exits at hard SL"),
     ).toHaveLength(3);
     expect(
-      within(stopOutcomes[1]).getByText("PAIR STOP OUTCOME"),
+      within(stopOutcomes[1]).getByText("FIRST STOP OUTCOME"),
     ).toBeDefined();
     expect(screen.queryByText(/PAIR exits when MAIN hits net USDT stop/)).toBeNull();
-    expect(screen.getByText("$2.80 - $0.00 = -$2.80")).toBeDefined();
-    expect(screen.getByText("$8.40 - $0.28 = -$8.12")).toBeDefined();
-    expect(screen.getByText("$25.20 - $0.56 = -$24.64")).toBeDefined();
+    expect(
+      within(stopOutcomes[0]).getByText("$14.00 x 20% = -$2.80"),
+    ).toBeDefined();
+    expect(
+      within(stopOutcomes[1]).getByText("$42.00 x 20% = -$8.40"),
+    ).toBeDefined();
+    expect(
+      within(stopOutcomes[2]).getByText("$126.00 x 20% = -$25.20"),
+    ).toBeDefined();
   });
 
   it("shows only the net USDT stop when it preempts the later hard SL", () => {
@@ -474,20 +472,17 @@ describe("TradingSettingsPreview", () => {
     const preview = buildTradingLivePreview({ config, dashboardState });
 
     // BOTH:STOP_LOSS_BY_USDT_LOSS
-    // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
+    // BOTH:INDEPENDENT_LEG_STOP_LOSS
     expect(preview.exitStages.map((stage) => stage.firstStopLoss)).toEqual([
       {
-        closesOtherLeg: true,
         estimatedLossUsdt: 2.8,
         type: "HARD_STOP_PERCENT",
       },
       {
-        closesOtherLeg: false,
         estimatedLossUsdt: 5,
         type: "NET_USDT",
       },
       {
-        closesOtherLeg: false,
         estimatedLossUsdt: 5,
         type: "NET_USDT",
       },
@@ -500,10 +495,10 @@ describe("TradingSettingsPreview", () => {
       />,
     );
 
-    expect(screen.getAllByText("PAIR STOP OUTCOME")).toHaveLength(1);
-    expect(screen.getAllByText("FIRST STOP OUTCOME")).toHaveLength(2);
+    expect(screen.queryByText("PAIR STOP OUTCOME")).toBeNull();
+    expect(screen.getAllByText("FIRST STOP OUTCOME")).toHaveLength(3);
     expect(
-      screen.getAllByText("PAIR exits when MAIN hits net USDT stop ($5.00)"),
+      screen.getAllByText("Maximum loss at net USDT stop ($5.00)"),
     ).toHaveLength(2);
     expect(
       screen.getByText("-$5.00 / $42.00 x 100 = -11.9%"),

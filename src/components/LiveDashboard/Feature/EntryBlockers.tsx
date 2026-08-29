@@ -1,8 +1,4 @@
-"use client";
-
-import { endpoints } from "@/components/endpoints";
 import HeaderMetrics from "@/components/ui/HeaderMetrics";
-import type { SlowTradingEntryDiagnostic } from "@/lib/slowTrading/client";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
@@ -16,15 +12,13 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import axios from "axios";
-import { useEffect, useState } from "react";
+import type { EntryDiagnosticsController } from "./useEntryDiagnostics";
 
-interface EntryDiagnosticsResponse {
-  diagnostics: SlowTradingEntryDiagnostic[];
-  generatedAt: number;
-}
-
-export default function EntryBlockers() {
+export default function EntryBlockers({
+  controller,
+}: {
+  controller: EntryDiagnosticsController;
+}) {
   return (
     <HeaderMetrics
       defaultExpanded
@@ -36,41 +30,19 @@ export default function EntryBlockers() {
         </Typography>
       }
     >
-      {(expanded) => expanded && <EntryBlockersContent />}
+      {(expanded) =>
+        expanded && <EntryBlockersContent controller={controller} />
+      }
     </HeaderMetrics>
   );
 }
 
-function EntryBlockersContent() {
-  const [diagnostics, setDiagnostics] = useState<SlowTradingEntryDiagnostic[]>(
-    [],
-  );
-  const [error, setError] = useState("");
-  const [generatedAt, setGeneratedAt] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  async function refresh() {
-    setError("");
-    setLoading(true);
-    try {
-      const response = await axios.get<EntryDiagnosticsResponse>(
-        endpoints.slow.prod.entryDiagnostics,
-      );
-      setDiagnostics(response.data.diagnostics);
-      setGeneratedAt(response.data.generatedAt);
-    } catch (refreshError: any) {
-      setError(
-        refreshError?.response?.data?.error ??
-          "Could not load entry decisions.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void refresh();
-  }, []);
+function EntryBlockersContent({
+  controller,
+}: {
+  controller: EntryDiagnosticsController;
+}) {
+  const { diagnostics, error, generatedAt, loading, refresh } = controller;
 
   return (
     <Box sx={{ mt: 0.5 }}>
@@ -83,7 +55,7 @@ function EntryBlockersContent() {
         }}
       >
         <Typography color="text.secondary" variant="caption">
-          Latest actionable coins
+          Current entry status for configured coins
           {generatedAt > 0 &&
             ` · checked ${new Date(generatedAt).toLocaleTimeString()}`}
         </Typography>
@@ -128,7 +100,7 @@ function EntryBlockersContent() {
       {!error && !loading && diagnostics.length === 0 && (
         <Paper sx={{ p: 1.5, textAlign: "center" }} variant="outlined">
           <Typography color="text.secondary" variant="body2">
-            No coins currently meet the minimum actionable level.
+            No configured coins are available for entry evaluation.
           </Typography>
         </Paper>
       )}
@@ -142,7 +114,7 @@ function EntryBlockersContent() {
             const ready = diagnostic.status === "ready";
             return (
               <Paper
-                key={`${diagnostic.symbol}-${diagnostic.pointId}`}
+                key={`${diagnostic.symbol}-${diagnostic.role ?? "PAIR"}-${diagnostic.pointId ?? diagnostic.code}`}
                 sx={{
                   borderLeft: 3,
                   borderLeftColor: ready ? "success.main" : "warning.main",
@@ -169,9 +141,19 @@ function EntryBlockersContent() {
                   <Typography fontWeight={700} variant="body2">
                     {diagnostic.symbol}
                   </Typography>
-                  <Typography color="text.secondary" variant="caption">
-                    Level {diagnostic.level}
-                  </Typography>
+                  {diagnostic.role && (
+                    <Chip
+                      label={diagnostic.role}
+                      size="small"
+                      sx={{ height: 20 }}
+                      variant="outlined"
+                    />
+                  )}
+                  {typeof diagnostic.level === "number" && (
+                    <Typography color="text.secondary" variant="caption">
+                      Level {diagnostic.level}
+                    </Typography>
+                  )}
                   <Chip
                     color={ready ? "success" : "warning"}
                     label={ready ? "Ready" : "Blocked"}

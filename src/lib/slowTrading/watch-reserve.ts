@@ -9,6 +9,7 @@ import type {
   Position,
   PositionAveragingState,
   PositionReserveStep,
+  PositionRole,
 } from "@/lib/trading/models";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
 import bothDirection from "@/lib/trading/both-direction";
@@ -324,10 +325,24 @@ function findEntrySignalVolatilityPoint(params: {
 export function isEntrySignalVolatilityPointUsed(params: {
   entrySignal: Pick<VolatilityPoint, "id" | "symbol">;
   modelMemory?: VolatilityPointOwner;
+  roles?: PositionRole[];
   volatilityPoints?: VolatilityPoint[];
 }): boolean {
   // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
-  return findEntrySignalVolatilityPoint(params)?.used === true;
+  const point = findEntrySignalVolatilityPoint(params);
+  if (!point) {
+    return false;
+  }
+
+  if (!params.roles?.length) {
+    return point.used === true;
+  }
+
+  return params.roles.some((role) =>
+    role === "COUNTER"
+      ? point.used === true || point.usedByCounter === true
+      : point.used === true || point.usedByMain === true,
+  );
 }
 
 /**
@@ -370,21 +385,27 @@ export function isActionableAveragingVolatilityLevel(
  * Finds the first post-entry target vPoint reached by a position.
  */
 export function findPositionTargetVolatilityPoint<
-  TPoint extends Pick<VolatilityPoint, "id" | "lvl" | "t">,
+  TPoint extends Pick<VolatilityPoint, "id" | "l" | "lvl" | "t">,
 >(params: {
-  position: Pick<Position, "opened">;
+  directional?: boolean;
+  position: Pick<Position, "direction" | "opened">;
   volatilityPoints: TPoint[];
 }): TPoint | undefined {
   // BOTH:AVERAGING_STOPS_AFTER_TARGET_VPOINT
-  return bothDirection.volatilityTarget.resolve(params).targetPoint;
+  return params.directional
+    ? bothDirection.volatilityTarget.directional.resolve(params).targetPoint
+    : bothDirection.volatilityTarget.levelZero.resolve(params).targetPoint;
 }
 
 /**
  * Checks whether a position has reached its post-entry target vPoint.
  */
 export function hasPositionHitTargetVolatilityPoint(params: {
-  position: Pick<Position, "opened">;
-  volatilityPoints: Array<Pick<VolatilityPoint, "id" | "lvl" | "t">>;
+  directional?: boolean;
+  position: Pick<Position, "direction" | "opened">;
+  volatilityPoints: Array<
+    Pick<VolatilityPoint, "id" | "l" | "lvl" | "t">
+  >;
 }): boolean {
   return Boolean(findPositionTargetVolatilityPoint(params));
 }
@@ -395,6 +416,7 @@ export function hasPositionHitTargetVolatilityPoint(params: {
 export function markEntrySignalVolatilityPointUsed(params: {
   entrySignal: Pick<VolatilityPoint, "id" | "symbol">;
   modelMemory?: VolatilityPointOwner;
+  roles?: PositionRole[];
   volatilityPoints?: VolatilityPoint[];
 }): boolean {
   // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
@@ -403,7 +425,22 @@ export function markEntrySignalVolatilityPointUsed(params: {
     return false;
   }
 
-  point.used = true;
+  if (!params.roles?.length) {
+    point.used = true;
+    return true;
+  }
+
+  for (const role of params.roles) {
+    if (role === "COUNTER") {
+      point.usedByCounter = true;
+    } else {
+      point.usedByMain = true;
+    }
+  }
+
+  if (point.usedByMain && point.usedByCounter) {
+    point.used = true;
+  }
   return true;
 }
 
@@ -1119,6 +1156,7 @@ export function generateAveragingRecommendations(params: {
       // D. Do not restart averaging after the first post-entry target vPoint.
       if (
         hasPositionHitTargetVolatilityPoint({
+          directional: bothDirection.pair.isLeg(position, pairPositions),
           position,
           volatilityPoints: points,
         })

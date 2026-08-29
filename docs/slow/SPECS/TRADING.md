@@ -70,9 +70,9 @@ SLOW must block every later averaging attempt for that position:
 
 - The entry vPoint and every point at or before entry are ignored as target
   candidates.
-- A non-zero entry level arms the target immediately.
-- For a level-zero entry, the first post-entry non-zero level arms the target.
-- The next level-zero vPoint is the target regardless of `TOP`/`BOTTOM` label.
+- A one-way position uses the level-zero target sequence in B.4.4.
+- A BOTH leg uses its direction-based target in B.5.7: the next `TOP` for LONG
+  and the next `BOTTOM` for SHORT, regardless of numeric level.
 - The guard uses the same resolver as target exit, target SL, and target TP.
 - A later adverse vPoint must not restart averaging, even if it reaches a deeper
   unused watch level.
@@ -136,12 +136,10 @@ TC: `BOTH:AVERAGING_IMPROVES_RESCUE_PROJECTION`
 
 Status: superseded; do not implement this proposal.
 
-This proposal assumed that the first direction-specific `TOP`/`BOTTOM` after
-entry was the volatility target. B.5.7 now defines the target centrally as a
-post-entry non-zero level followed by the next level-zero vPoint. Therefore a
-forming directional pivot cannot arm target SL or target TP by itself. The
-material below is retained only as historical investigation and is not part of
-the current trading contract.
+The material below is retained only as historical investigation and is not
+part of the current trading contract. B.5.7 now makes the next confirmed
+directional rail the BOTH leg's target and closes that leg immediately; there
+is no separate armed confirmation-gap state for a BOTH leg.
 
 A target volatility point can be timestamped earlier than the cycle in which it
 becomes confirmed. This creates a confirmation race with averaging. For example,
@@ -418,8 +416,13 @@ it entry on vPoint.id = "1ef" then it exit. but the system is entry again becaus
 Guard:
 
 - Before entry, check the current volatility point itself.
-- If `vPoint.used === true`, the system must not entry from that volatility point again.
-- After a successful entry, mark the source volatility point with `vPoint.used = true`.
+- In one-way mode, `vPoint.used === true` blocks another entry from that point.
+- In BOTH mode, entry use is tracked independently with `usedByMain` and
+  `usedByCounter`. Averaging does not consume either entry flag.
+- A fresh atomic pair marks both role flags after both orders succeed. A
+  missing-role re-entry marks only that role's flag after its order succeeds.
+- `used` remains the legacy/one-way flag and may also be set once both BOTH
+  role flags are true.
 - Only successful entry can mark it used. Signal preview/building should not consume the volatility point.
 - The used flag is persisted through the per-symbol volatility cache JSON, so the next SLOW cycle still knows the point has been consumed.
 - Production must not use `item.model_memory.positionsSell` for this guard because `positionsSell` is deprecated for production closed-trade history. It may still exist for legacy/backtest flows only.
@@ -579,8 +582,10 @@ Both-direction trading has a stronger, narrow exception. A leg with a verified
 pair identity may average when the current vPoint is its exact next adverse
 watch step, even when that step is `L1` or `L-1`. The normal direction,
 watch-level ordering, balance, reserve, target, and rescue-projection guards
-still apply. For a non-zero entry, the first later `L0` is the volatility target
-and cannot be averaged. The exception cannot skip an earlier unused watch step.
+still apply. In BOTH mode, the next favorable directional rail is the leg's
+volatility target and cannot be averaged by that favorable leg. The adverse
+leg may independently consume its exact next watch step at that same point.
+The exception cannot skip an earlier unused watch step.
 
 Pair identity may be resolved from open or closed pair records. Therefore a
 surviving leg remains eligible after its counterpart closes first. Production,
@@ -651,11 +656,9 @@ calculates its equivalent percentage for that stage's notional. A triggered
 close uses the stop-loss trade category and persists
 `closed.reason = "STOP_LOSS_BY_USDT_LOSS"`.
 
-In a both-direction pair, this rule closes the evaluated leg and immediately
-marks its matching open leg for a coordinated close in backtest and runtime
-behavior. Both legs persist
-`closed.reason = "STOP_LOSS_BY_USDT_LOSS"` so the pair exit retains its
-originating cause.
+In a both-direction worker, this rule closes only the evaluated leg. Its
+counterpart remains open and continues its own target, averaging, and exit
+evaluation.
 
 TC: `BOTH:STOP_LOSS_BY_USDT_LOSS`
 
@@ -666,23 +669,24 @@ When SL Plus is disabled, the position should exit using traditional `takeProfit
 the stopLossPercent and takeProfitPercent anchor is based on the pure price (unlevered) pnl Percent
 
 The TP fallback has a separate direction-specific profit-zone guard: a later
-`TOP` for LONG or a later `BOTTOM` for SHORT. This guard is not the shared
-level-zero volatility target defined in B.5.7.
+`TOP` for LONG or a later `BOTTOM` for SHORT. For one-way positions, this guard
+is distinct from the level-zero target in B.4.4. BOTH positions do not use this
+percentage TP fallback and instead exit on the directional rail in B.5.7.
 
 TC: `BOTH:TRADITIONAL_TP_SL`
 
 ### B.4.4 Volatility target TP
 
-All volatility-target rules use the shared target resolver defined in B.5.7.
-A non-zero entry level arms the target immediately. For a level-zero entry,
-the post-entry path must first reach any non-zero level. Once armed, the next
-post-entry level-zero vPoint is the target regardless of whether either point
-is `TOP` or `BOTTOM`. The entry vPoint itself never satisfies the target.
+For a one-way position, a non-zero entry level arms the target immediately. For
+a level-zero entry, the post-entry path must first reach any non-zero level.
+Once armed, the next post-entry level-zero vPoint is the target regardless of
+whether either point is `TOP` or `BOTTOM`. The entry vPoint itself never
+satisfies the target.
 
 When that target has been reached and the current fee-adjusted gain is still
-positive, SLOW should close the position as `TAKE_PROFIT` to secure the
-remaining profit. If both pair legs are still open when the target is current,
-`BOTH:VOLATILITY_TARGET_EXIT` runs first and closes the pair.
+positive, SLOW should close a one-way position as `TAKE_PROFIT` to secure the
+remaining profit. BOTH legs use the direction-based rail in B.5.7 instead;
+`BOTH:VOLATILITY_TARGET_EXIT` runs first for the favorable leg.
 
 The open-position level sequence marks the first target-zone hit as a red `L0`
 break and stops showing the unused averaging ladder after that point. It must
@@ -724,10 +728,11 @@ TC: `BOTH:REUSABLE_LEVEL_SEQUENCE`
 
 ### B.4.5 Volatility target stop loss
 
-After an open position has reached the shared level-zero volatility target,
+After a one-way open position has reached the level-zero volatility target,
 SLOW can apply an additional, tighter stop loss. Merely reaching a non-zero
 level arms the target and does not enable this stop loss. For example,
-`TOP[0] -> BOTTOM[-1]` is not a target hit; a later `TOP[0]` is.
+`TOP[0] -> BOTTOM[-1]` is not a target hit; a later `TOP[0]` is. A BOTH leg
+instead exits immediately on its directional target under B.5.7.
 
 The `volatilityTargetStopLossPercent` configuration is measured from the
 position's weighted entry price using fee-adjusted, unlevered PnL. For example,
@@ -842,8 +847,8 @@ boundaries normalize to `0` and therefore remain disabled.
 
 Production, sandbox, and backtest evaluate the same fee-adjusted net PnL
 percentage and USDT values. A triggered exit is persisted as
-`POST_AVERAGE_STOP_LOSS`. In both-direction mode, it follows the standard
-coordinated stop-loss behavior and marks the paired leg for exit.
+`POST_AVERAGE_STOP_LOSS`. In both-direction mode, it closes only the leg that
+reached the configured boundary.
 
 Dashboard Trading settings and the volatility-point backtest expose the same
 enabled switch and tier rows. Trading Live Preview selects the applicable tier
@@ -943,10 +948,11 @@ TC: `BOTH:ENTRY_BOTH_DIRECTION`
 The source vPoint determines the `MAIN` direction: a `TOP` opens `SHORT`, and a
 `BOTTOM` opens `LONG`. The `COUNTER` direction is always the opposite.
 
-A pair is identified by normalized symbol, entry vPoint id, and entry time.
-Within that identity, `role` distinguishes its two legs. Code that manages a
-pair must not identify it by symbol alone because a symbol can have both a
-`LONG` and a `SHORT` position at the same time.
+A fresh pair receives a stable `pairId`, derived from its normalized symbol,
+original entry vPoint id, and original entry time. Every independent leg
+re-entry retains this `pairId` even though its own entry vPoint and entry time
+change. Within that identity, `role` distinguishes the two legs. Legacy pairs
+without `pairId` continue to resolve from their shared original entry identity.
 
 Backtest and production use the same pair construction and position roles.
 The volatility-point backtest simulates both legs when `openDirection` is
@@ -1029,8 +1035,8 @@ Each open leg evaluates averaging independently in its own adverse direction:
   entry at `L1` displays `L1 -> L2 -> L3 -> L4`.
 - For a verified pair, the exact next adverse watch step is actionable even at
   `L1` or `L-1`. One-way positions retain the low-level prohibition. A later
-  `L0` after a non-zero entry is the pair target and is not actionable for
-  averaging.
+  favorable directional rail is that leg's target and is not actionable for
+  averaging by that leg.
 - A surviving leg retains pair-aware low-level eligibility after its matching
   leg closes.
 - The normal watch-level, balance, reserve, volatility-target, and rescue-projection
@@ -1044,31 +1050,18 @@ exit and safety rules in B.1 and B.4 remain active.
 
 ### B.5.6 Exit policy
 
-The `MAIN` leg keeps all configured exit rules. The `COUNTER` leg keeps hard
-stop loss and structural volatility exits, but percentage take profit from
-`BOTH:TRADITIONAL_TP_SL` and `PROD:SL_PLUS` are disabled by default so it can
-continue protecting the pair through the expected volatility path.
+Both `MAIN` and `COUNTER` evaluate the same configured structural, hard-stop,
+USDT-stop, post-average stop, rescue, liquidation, manual, and force-exit rules
+as OR conditions. Percentage take profit from `BOTH:TRADITIONAL_TP_SL` and
+`PROD:SL_PLUS` are disabled for both roles in BOTH mode; the directional rails
+in B.5.7 provide the repeated favorable exits.
 
-Counter profit protection is re-enabled only when both conditions are true:
+Every automatic stop or rescue closes only the leg that triggered it. The
+counterpart remains open and independently continues its averaging and exit
+lifecycle. A leg closed before its directional target is confirmed remains
+absent until that target forms; it then becomes eligible for role re-entry.
 
-1. The matching `MAIN` leg is already closed.
-2. After entry, the `COUNTER` leg has passed at least one whole volatility
-   level in its profit direction.
-
-For `LONG`, passing a profit level means observing a level at least one above
-the entry level. For `SHORT`, it means observing a level at least one below the
-entry level. Once enabled, normal percentage TP or StopLoss+ may exit the
-counter before a later structural exit.
-
-TC: `PROD:REENABLE_TP_LOGIC_AFTER_AT_LEAST_ONE_LEVEL_TO_PROFIT_DIRECTION_PASSED_AND_OTHER_SIDE_WAS_CLOSED`
-
-If either leg hits the traditional hard stop loss or the fee-adjusted net USDT
-stop loss, its matching open leg is marked for an immediate coordinated
-stop-loss exit. A traditional hard stop records `STOP_LOSS` on both legs; a net
-USDT stop records `STOP_LOSS_BY_USDT_LOSS` on both legs. This rule prevents one
-side of a failed pair from remaining open unintentionally.
-
-TC: `BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS`
+TC: `BOTH:INDEPENDENT_LEG_STOP_LOSS`
 
 A manual close from a `MAIN` or `COUNTER` dashboard card targets only that
 specific open leg. The request carries both its symbol and role, the selected
@@ -1080,46 +1073,60 @@ symbol-wide behavior.
 
 TC: `PROD:MANUAL_EXIT_POSITION_ROLE`
 
-### B.5.7 Pair volatility target
+### B.5.7 Per-leg volatility target
 
-The shared volatility target is direction-agnostic:
+The BOTH volatility target is direction-based and independent of numeric level:
 
-1. Ignore vPoints at or before the pair entry time as target candidates.
-2. If the entry level is non-zero, arm the rule immediately. If the entry level
-   is zero, arm it when the post-entry path first reaches a non-zero level.
-3. Once armed, the next post-entry vPoint at level `0` is the pair target.
-4. When that level-zero point is the current vPoint, close both remaining legs
-   with `closed.reason = "VOLATILITY_TARGET_EXIT"`.
+1. Ignore the entry vPoint itself and every vPoint at or before the leg entry.
+2. The next confirmed `TOP` after a LONG entry is that LONG leg's target.
+3. The next confirmed `BOTTOM` after a SHORT entry is that SHORT leg's target.
+4. Close only the favorable target leg with
+   `closed.reason = "VOLATILITY_TARGET_EXIT"`.
+5. The adverse leg remains open and may independently average at the same
+   confirmed vPoint.
 
-The resolver depends on level only, not whether the point is `TOP` or `BOTTOM`.
-`BOTH:VOLATILITY_TARGET_EXIT`, `BOTH:VOLATILITY_TARGET_SL_VALUE`, and
-`BOTH:VOLATILITY_TARGET_TP` consume this same resolved state. The pair exit is
-an OR condition with every other enabled exit rule. If another rule exits a
-leg first, its own reason remains authoritative. Production, sandbox, and
-backtest use the same target definition.
+After a rail exit, SLOW attempts to reopen the closed role in the direction
+opposite the surviving leg. The target vPoint is its new anchor, it uses normal
+base entry margin, and its averaging ladder resets. All normal entry guards
+still apply. If the attempt is blocked, the role stays absent. Once a newer
+confirmed vPoint exists, the newest point unused for that role replaces the
+older anchor.
 
-Examples:
+If another OR exit closes a leg before its directional target forms, SLOW waits
+for that target confirmation before attempting the re-entry. If both roles
+close independently, the next eligible confirmed vPoint starts a fresh atomic
+pair using the normal MAIN direction derived from that point.
 
-- `BOTTOM[-2] -> TOP[0]`
-- `TOP[1] -> TOP[2] -> TOP[3] -> BOTTOM[0]`
-- `BOTTOM[0] -> TOP[1] -> BOTTOM[0]`
-- `BOTTOM[0] -> BOTTOM[-1] -> TOP[0]`
+Example:
+
+`TOP[0]-A -> TOP[1]-B -> TOP[2]-C -> TOP[3]-D -> BOTTOM[0]-E -> BOTTOM[-1]-F -> TOP[0]-G`
+
+- COUNTER LONG exits and reopens at B, C, and D.
+- MAIN SHORT exits and reopens at E and F.
+- The averaged COUNTER LONG exits and reopens at G.
 
 TC: `BOTH:VOLATILITY_TARGET_EXIT`
+
+TC: `BOTH:STREAK_BREAK_REENTRY`
 
 ### B.5.8 Open-position and history lifecycle
 
 When one leg closes while its counterpart remains open, SLOW immediately adds
 the closed leg to durable trade history but retains the closed record in the
-pair's open-position data. This preserves the dashboard's aligned pair row.
-The retained leg is excluded from active exposure, reserve, PnL refresh,
-averaging, worker-capacity, and exit calculations. After both legs close, the
-complete pair is removed from open-position data.
+pair's open-position data until its replacement entry succeeds. This preserves
+the dashboard's aligned pair row and pending target lifecycle. The retained leg
+is excluded from active exposure, reserve, PnL refresh, averaging,
+worker-capacity, and exit calculations. A successful role re-entry replaces
+that retained closed card. After both legs close, the complete pair is removed
+from open-position data and the next entry creates a fresh worker.
 
-The dashboard's both-direction view renders three columns: `Open Positions
-Main`, per-symbol net USDT PnL, and `Open Positions Counter`. Net USDT PnL is
-the sum of the two legs. A retained closed leg uses the normal background and a
-visible closed chip.
+The dashboard's both-direction view always renders every configured coin, with
+`Open Positions Main`, per-symbol net USDT PnL, and `Open Positions Counter`.
+Net USDT PnL is the sum of the two legs. A retained closed leg uses the normal
+background and a visible closed chip. A missing role shows its role-specific
+current entry reason directly inside that MAIN or COUNTER card.
+It must not redirect the user to another UI section. `Entry Decisions` renders
+the same shared diagnostic source.
 
 Closed-trade tables, including Quick Backtest Trade History, show a semantic
 `MAIN` or `COUNTER` badge beside the symbol so paired rows remain identifiable.

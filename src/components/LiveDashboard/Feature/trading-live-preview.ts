@@ -32,7 +32,6 @@ export interface TradingLivePreviewBailoutCandidate {
 }
 
 export interface TradingLivePreviewFirstStopLoss {
-  closesOtherLeg: boolean;
   estimatedLossUsdt: number;
   type: "HARD_STOP_PERCENT" | "NET_USDT" | "POST_AVERAGE";
 }
@@ -53,7 +52,6 @@ export interface TradingLivePreviewExitStage {
   estimatedCounterProfitUsdt: number;
   firstStopLoss: TradingLivePreviewFirstStopLoss | null;
   estimatedLossUsdt: number | null;
-  estimatedNetLossUsdt: number | null;
   estimatedNotionalUsdt: number;
   estimatedProfitUsdt: number;
   postAverageStopLoss: TradingLivePreviewPostAverageStopLoss | null;
@@ -112,18 +110,12 @@ const PROJECTED_PROFIT_EPSILON = 1e-9;
 /** Resolves the first unconditional PnL stop using the live exit check order. */
 function resolveFirstStopLoss(params: {
   estimatedHardStopLossUsdt: number | null;
-  estimatedPairHardStopLossUsdt: number | null;
-  hasCounterLeg: boolean;
   netUsdtStopLossUsdt: number | null;
-  postAveragePairLossUsdt: number | null;
   postAverageStopLossUsdt: number | null;
 }): TradingLivePreviewFirstStopLoss | null {
   const {
     estimatedHardStopLossUsdt,
-    estimatedPairHardStopLossUsdt,
-    hasCounterLeg,
     netUsdtStopLossUsdt,
-    postAveragePairLossUsdt,
     postAverageStopLossUsdt,
   } = params;
 
@@ -133,7 +125,6 @@ function resolveFirstStopLoss(params: {
       netUsdtStopLossUsdt <= estimatedHardStopLossUsdt)
   ) {
     const firstStopLoss: TradingLivePreviewFirstStopLoss = {
-      closesOtherLeg: false,
       estimatedLossUsdt: netUsdtStopLossUsdt,
       type: "NET_USDT",
     };
@@ -143,9 +134,7 @@ function resolveFirstStopLoss(params: {
       postAverageStopLossUsdt < netUsdtStopLossUsdt
     ) {
       return {
-        closesOtherLeg: hasCounterLeg,
-        estimatedLossUsdt:
-          postAveragePairLossUsdt ?? postAverageStopLossUsdt,
+        estimatedLossUsdt: postAverageStopLossUsdt,
         type: "POST_AVERAGE",
       };
     }
@@ -157,17 +146,13 @@ function resolveFirstStopLoss(params: {
     return postAverageStopLossUsdt === null
       ? null
       : {
-          closesOtherLeg: hasCounterLeg,
-          estimatedLossUsdt:
-            postAveragePairLossUsdt ?? postAverageStopLossUsdt,
+          estimatedLossUsdt: postAverageStopLossUsdt,
           type: "POST_AVERAGE",
         };
   }
 
   const firstStopLoss: TradingLivePreviewFirstStopLoss = {
-    closesOtherLeg: hasCounterLeg,
-    estimatedLossUsdt:
-      estimatedPairHardStopLossUsdt ?? estimatedHardStopLossUsdt,
+    estimatedLossUsdt: estimatedHardStopLossUsdt,
     type: "HARD_STOP_PERCENT",
   };
 
@@ -176,9 +161,7 @@ function resolveFirstStopLoss(params: {
     postAverageStopLossUsdt < estimatedHardStopLossUsdt
   ) {
     return {
-      closesOtherLeg: hasCounterLeg,
-      estimatedLossUsdt:
-        postAveragePairLossUsdt ?? postAverageStopLossUsdt,
+      estimatedLossUsdt: postAverageStopLossUsdt,
       type: "POST_AVERAGE",
     };
   }
@@ -507,12 +490,6 @@ export function buildTradingLivePreview(params: {
         : slowTradingClient.watchReserve.money.roundUsdt(
             counterNotionalUsdt * (counterExitMovePct / 100),
           );
-    const estimatedNetLossUsdt =
-      estimatedLossUsdt === null
-        ? null
-        : slowTradingClient.watchReserve.money.roundUsdt(
-            Math.max(0, estimatedLossUsdt - estimatedCounterProfitUsdt),
-          );
     const postAverageThreshold = postAverageStopLoss.threshold.get(
       index,
       config.modelConfig.postAverageStopLoss,
@@ -534,21 +511,9 @@ export function buildTradingLivePreview(params: {
         : postAverageUsdtLossUsdt === null
           ? postAveragePercentLossUsdt
           : Math.min(postAveragePercentLossUsdt, postAverageUsdtLossUsdt);
-    const postAveragePairLossUsdt =
-      postAverageFirstLossUsdt === null
-        ? null
-        : slowTradingClient.watchReserve.money.roundUsdt(
-            Math.max(
-              0,
-              postAverageFirstLossUsdt - estimatedCounterProfitUsdt,
-            ),
-          );
     const firstStopLoss = resolveFirstStopLoss({
       estimatedHardStopLossUsdt: estimatedLossUsdt,
-      estimatedPairHardStopLossUsdt: estimatedNetLossUsdt,
-      hasCounterLeg: capacity.workerLegs === 2,
       netUsdtStopLossUsdt: stopLossUSDT,
-      postAveragePairLossUsdt,
       postAverageStopLossUsdt: postAverageFirstLossUsdt,
     });
 
@@ -561,7 +526,6 @@ export function buildTradingLivePreview(params: {
       estimatedCounterProfitUsdt,
       firstStopLoss,
       estimatedLossUsdt,
-      estimatedNetLossUsdt,
       estimatedNotionalUsdt,
       estimatedProfitUsdt:
         slowTradingClient.watchReserve.money.roundUsdt(

@@ -154,7 +154,7 @@ describe("slow specs exit", () => {
     expect(memory.positionsSell).toHaveLength(2);
   });
 
-  it("arms the pair target from a non-zero entry and exits on the first later level zero", async () => {
+  it("closes only the SHORT leg at the next confirmed BOTTOM", async () => {
     const main = createTestPosition({
       direction: "SHORT",
       entryId: "TOP[1]",
@@ -215,10 +215,9 @@ describe("slow specs exit", () => {
 
     // BOTH:VOLATILITY_TARGET_EXIT
     expect(first.reason).toContain("BOTH:VOLATILITY_TARGET_EXIT");
-    expect(second.action).toBe("SELL");
-    expect(memory.positions).toHaveLength(0);
+    expect(second.action).toBe("HOLD");
+    expect(memory.positions).toHaveLength(2);
     expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
-      "VOLATILITY_TARGET_EXIT",
       "VOLATILITY_TARGET_EXIT",
     ]);
   });
@@ -331,7 +330,7 @@ describe("slow specs exit", () => {
       entryLevel,
       entryTime: 1,
     });
-    const state = bothDirection.volatilityTarget.resolve({
+    const state = bothDirection.volatilityTarget.levelZero.resolve({
       position,
       volatilityPoints: points as any,
     });
@@ -346,7 +345,7 @@ describe("slow specs exit", () => {
     });
   });
 
-  it("does not treat entry TOP 0 -> BOTTOM -1 as a volatility target", async () => {
+  it("treats the next BOTTOM as the SHORT target regardless of numeric level", async () => {
     const main = createTestPosition({
       direction: "SHORT",
       entryId: "TOP[0]",
@@ -403,13 +402,13 @@ describe("slow specs exit", () => {
     // BOTH:VOLATILITY_TARGET_EXIT
     // BOTH:VOLATILITY_TARGET_SL_VALUE
     // BOTH:VOLATILITY_TARGET_TP
-    expect(mainExit.action).toBe("HOLD");
+    expect(mainExit.action).toBe("SELL");
     expect(counterExit.action).toBe("HOLD");
     expect(memory.positions).toHaveLength(2);
-    expect(memory.positionsSell).toHaveLength(0);
+    expect(memory.positionsSell).toHaveLength(1);
   });
 
-  it("forces the counterpart to close when either leg hits traditional hard SL", async () => {
+  it("leaves the counterpart open when one leg hits traditional hard SL", async () => {
     const memory = {
       positions: [
         createTestPosition({
@@ -444,7 +443,9 @@ describe("slow specs exit", () => {
     });
     expect(first.category).toBe(TRADE_MESSAGE.sell.SL);
     expect(memory.positions).toHaveLength(2);
-    expect(memory.positions.find((position) => !position.closed)?.control?.forceExit).toBeDefined();
+    expect(
+      memory.positions.find((position) => !position.closed)?.control?.forceExit,
+    ).toBeUndefined();
 
     await dynamicExit({
       symbol: "SUI",
@@ -456,11 +457,10 @@ describe("slow specs exit", () => {
       tradingMode: TradingMode.SPOT,
     });
 
-    // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
+    // BOTH:INDEPENDENT_LEG_STOP_LOSS
     // PROD:OPEN_POSITION_BOTH_LEG
-    expect(memory.positions).toHaveLength(0);
+    expect(memory.positions).toHaveLength(2);
     expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
-      "STOP_LOSS",
       "STOP_LOSS",
     ]);
   });
@@ -503,6 +503,41 @@ describe("slow specs exit", () => {
     expect(counter.closed?.reason).toBe("FINAL");
   });
 
+  it("disables percentage take profit for both streak-break roles", async () => {
+    const main = createTestPosition({
+      direction: "LONG",
+      role: "MAIN",
+    });
+    const counter = createTestPosition({
+      direction: "SHORT",
+      role: "COUNTER",
+    });
+    const memory = {
+      positions: [main, counter],
+      positionsSell: [],
+      volatility: { symbol: "SUI", lastVolatility: [] },
+    } as TradingModelMemory;
+
+    const exit = await dynamicExit({
+      symbol: "SUI",
+      current: buildKline(2, 11),
+      config: {
+        stopLossPercent: 90,
+        stopLossUSDT: 0,
+        takeProfitPercent: 5,
+        useStopLossPlus: false,
+      },
+      memory,
+      exchangeType: "tokocrypto",
+      positionRole: "MAIN",
+      tradingMode: TradingMode.FUTURES,
+    });
+
+    // BOTH:STREAK_BREAK_REENTRY
+    expect(exit.action).toBe("HOLD");
+    expect(main.closed).toBeUndefined();
+  });
+
   it.each([
     {
       counterpartRole: "COUNTER" as const,
@@ -515,7 +550,7 @@ describe("slow specs exit", () => {
       triggerRole: "COUNTER" as const,
     },
   ])(
-    "closes $counterpartRole when net USDT loss stops $triggerRole",
+    "keeps $counterpartRole open when net USDT loss stops $triggerRole",
     async ({ counterpartRole, price, triggerRole }) => {
       const memory = {
         positions: [
@@ -542,7 +577,7 @@ describe("slow specs exit", () => {
       });
 
       // BOTH:STOP_LOSS_BY_USDT_LOSS
-      // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
+      // BOTH:INDEPENDENT_LEG_STOP_LOSS
       expect(exit.reason).toContain("BOTH:STOP_LOSS_BY_USDT_LOSS");
       expect(memory.positions).toHaveLength(2);
       expect(
@@ -553,9 +588,7 @@ describe("slow specs exit", () => {
         (position) => position.role === counterpartRole,
       );
       expect(counterpart?.closed).toBeUndefined();
-      expect(counterpart?.control?.forceExit?.closeReason).toBe(
-        "STOP_LOSS_BY_USDT_LOSS",
-      );
+      expect(counterpart?.control?.forceExit).toBeUndefined();
 
       await dynamicExit({
         symbol: "SUI",
@@ -572,47 +605,15 @@ describe("slow specs exit", () => {
         tradingMode: TradingMode.SPOT,
       });
 
-      expect(memory.positions).toHaveLength(0);
+      expect(memory.positions).toHaveLength(2);
       expect(
         memory.positionsSell?.map((position) => position.closed?.reason),
       ).toEqual([
-        "STOP_LOSS_BY_USDT_LOSS",
         "STOP_LOSS_BY_USDT_LOSS",
       ]);
     },
   );
 
-  it("reenables counter profit protection only after MAIN closes and one favorable level passes", () => {
-    const main = createTestPosition({ role: "MAIN" });
-    const counter = createTestPosition({ direction: "SHORT", role: "COUNTER" });
-    const volatilityPoints = [
-      { id: "BOTTOM[-3]", l: "B" as const, lvl: -3, p: 9, pct: 10, t: 2, vb: 1, vq: 1 },
-    ];
-
-    expect(
-      bothDirection.profitProtection.counterAllowed({
-        position: counter,
-        positions: [main, counter],
-        volatilityPoints,
-      }),
-    ).toBe(false);
-    main.closed = {
-      feeUsdt: 0,
-      message: "closed",
-      price: 10,
-      reason: "TAKE_PROFIT",
-      t: 2,
-    };
-
-    // PROD:REENABLE_TP_LOGIC_AFTER_AT_LEAST_ONE_LEVEL_TO_PROFIT_DIRECTION_PASSED_AND_OTHER_SIDE_WAS_CLOSED
-    expect(
-      bothDirection.profitProtection.counterAllowed({
-        position: counter,
-        positions: [main, counter],
-        volatilityPoints,
-      }),
-    ).toBe(true);
-  });
   it("exits at the configured absolute latest vPoint level", async () => {
     const memory = createMemory();
     memory.volatility!.lastVolatility = [
@@ -1511,7 +1512,7 @@ describe("slow specs exit", () => {
     );
   });
 
-  it("coordinates both production legs after a post-average stop", async () => {
+  it("keeps the other production leg independent after a post-average stop", async () => {
     const main = createAveragedPosition(1);
     main.role = "MAIN";
     const counter = createTestPosition({
@@ -1562,11 +1563,11 @@ describe("slow specs exit", () => {
     });
 
     // BOTH:POST_AVERAGE_STOP_LOSS
-    // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
+    // BOTH:INDEPENDENT_LEG_STOP_LOSS
     expect(mainExit.category).toBe(TRADE_MESSAGE.sell.POST_AVERAGE_STOP_LOSS);
     expect(counterExit.action).toBe("SELL");
     expect(memory.positionsSell?.map((position) => position.closed?.reason))
-      .toEqual(["POST_AVERAGE_STOP_LOSS", "POST_AVERAGE_STOP_LOSS"]);
+      .toEqual(["POST_AVERAGE_STOP_LOSS", "VOLATILITY_TARGET_EXIT"]);
   });
 
   it("applies custom post-average rescue thresholds in backtest", () => {

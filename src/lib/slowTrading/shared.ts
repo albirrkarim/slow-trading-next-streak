@@ -25,6 +25,7 @@ export function getUtcMonthStartMs(timeMs: number): number {
 }
 
 export interface SlowTradingSkippedEntrySignal {
+  role?: "MAIN" | "COUNTER";
   symbol: string;
   reason: string;
 }
@@ -38,13 +39,18 @@ export function addSkippedEntrySignal(
 ) {
   const symbol = skippedEntrySignal.symbol.toUpperCase();
   if (
-    skippedEntrySignals.some((item) => item.symbol.toUpperCase() === symbol)
+    skippedEntrySignals.some(
+      (item) =>
+        item.symbol.toUpperCase() === symbol &&
+        item.role === skippedEntrySignal.role,
+    )
   ) {
     return;
   }
 
   skippedEntrySignals.push({
     symbol,
+    role: skippedEntrySignal.role,
     reason: skippedEntrySignal.reason,
   });
 }

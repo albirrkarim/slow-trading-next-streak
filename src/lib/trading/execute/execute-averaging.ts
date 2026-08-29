@@ -90,8 +90,17 @@ export async function executeAveraging({
     };
   }
 
+  const pairPositions = [
+    ...(modelMemory.positions ?? []),
+    ...(modelMemory.positionsSell ?? []),
+  ];
+
   if (
     hasPositionHitTargetVolatilityPoint({
+      directional: bothDirection.pair.isLeg(
+        existingPosition,
+        pairPositions,
+      ),
       position: existingPosition,
       volatilityPoints,
     })
@@ -122,10 +131,7 @@ export async function executeAveraging({
     averagingRecommendation &&
     !isActionableAveragingVolatilityLevel(averagingRecommendation, {
       nextStepLevel: nextStep.level,
-      pairPositions: [
-        ...(modelMemory.positions ?? []),
-        ...(modelMemory.positionsSell ?? []),
-      ],
+      pairPositions,
       position: existingPosition,
     })
   ) {

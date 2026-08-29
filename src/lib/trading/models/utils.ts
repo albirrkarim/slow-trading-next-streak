@@ -11,6 +11,7 @@ import {
   computeClosedPositionMetrics,
 } from "@/lib/trading/pnl";
 import tradingPosition from "@/lib/trading/position";
+import bothDirection from "@/lib/trading/both-direction";
 
 interface SellPosition {
   currentKline: Kline;
@@ -81,8 +82,7 @@ export function sellPosition({
 
       const pairLegs = memory.positions.filter(
         (position) =>
-          position.opened.t === popped.opened.t &&
-          position.opened.vPoint.id === popped.opened.vPoint.id &&
+          bothDirection.pair.matches(position, popped) &&
           (position.role === "MAIN" || position.role === "COUNTER"),
       );
       if (pairLegs.length === 2) {

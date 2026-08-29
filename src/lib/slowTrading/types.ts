@@ -11,6 +11,7 @@ import type {
 import type {
   Position,
   PositionExecutionMode,
+  PositionRole,
 } from "@/lib/trading/models";
 import type { BlackSwanState } from "@/lib/trading/black-swan";
 import type { SlowTradingCyclePerformanceSummary } from "./performance";
@@ -59,9 +60,10 @@ export type SlowTradingHighVolatilityNotificationState = Partial<
 /** Current explanation for an actionable coin's entry outcome. */
 export interface SlowTradingEntryDiagnostic {
   code: string;
-  level: number;
-  pointId: string;
+  level?: number;
+  pointId?: string;
   reason: string;
+  role?: PositionRole;
   status: "blocked" | "ready";
   symbol: string;
 }

@@ -269,6 +269,8 @@ export type PositionCloseSourceOverride = "MANUAL" | "EXCHANGE";
 export interface PositionVPointRef {
   id: string;
   lvl: number;
+  /** Anchor vPoint time; absent in legacy positions that use opened.t. */
+  t?: number;
 }
 
 export interface PositionOpenEvent {
@@ -420,6 +422,8 @@ export interface PositionLastMonitoringStage {
 /** Canonical position persisted by production, sandbox, and backtest flows. */
 export interface Position<TFeature = unknown> {
   symbol: string;
+  /** Stable worker-pair identity retained across independent leg re-entries. */
+  pairId?: string;
   /** Missing only on legacy one-way positions, which normalize as MAIN. */
   role?: PositionRole;
   executionMode: PositionExecutionMode;

@@ -297,12 +297,6 @@ function ExitStagePreview({
   )} x ${stage.counterExitMovePct}% = +${formatUsdt(
     stage.estimatedCounterProfitUsdt,
   )}`;
-  const netLossFormula =
-    stage.estimatedNetLossUsdt === null
-      ? "Stop loss disabled"
-      : `${formatUsdt(stage.estimatedLossUsdt ?? 0)} - ${formatUsdt(
-        stage.estimatedCounterProfitUsdt,
-      )} = -${formatUsdt(stage.estimatedNetLossUsdt)}`;
   const usdtLossFormula =
     stopLossUSDT === null || stage.stopLossUSDTEquivalentPct === null
       ? "USDT stop loss disabled"
@@ -342,13 +336,9 @@ function ExitStagePreview({
   const netUsdtStopLossCalculation = netUsdtStopLossIsFirst && (
     <PreviewCalculation
       color="error.dark"
-      detail={hasCounterLeg
-        ? "backtest and runtime evaluate this per-leg net USDT stop before the later hard SL; when MAIN triggers it, COUNTER is marked for the coordinated pair close"
-        : "backtest and runtime evaluate this net USDT stop before the later percentage hard SL"}
+      detail="backtest and runtime evaluate this per-leg net USDT stop before the later percentage hard SL"
       formula={usdtLossFormula}
-      label={hasCounterLeg
-        ? `PAIR exits when MAIN hits net USDT stop (${formatUsdt(stopLossUSDT ?? 0)})`
-        : `Maximum loss at net USDT stop (${formatUsdt(stopLossUSDT ?? 0)})`}
+      label={`Maximum loss at net USDT stop (${formatUsdt(stopLossUSDT ?? 0)})`}
     />
   );
 
@@ -476,26 +466,22 @@ function ExitStagePreview({
         )}
 
         {hasCounterLeg && stage.firstStopLoss && (
-          <StageStopOutcome
-            label={hardStopLossIsFirst
-              ? "PAIR STOP OUTCOME"
-              : "FIRST STOP OUTCOME"}
-          >
+          <StageStopOutcome label="FIRST STOP OUTCOME">
             {hardStopLossIsFirst && (
               <PreviewCalculation
                 color="error.dark"
-                detail="the traditional percentage hard SL closes MAIN and immediately marks COUNTER for a coordinated close; this estimate subtracts the counter profit realized at that stage and excludes execution fees and slippage"
-                formula={netLossFormula}
-                label="Maximum pair loss when MAIN hits hard SL"
+                detail="the traditional percentage hard SL closes only MAIN; COUNTER continues its independent lifecycle"
+                formula={lossFormula}
+                label="MAIN exits at hard SL"
               />
             )}
             {netUsdtStopLossIsFirst && netUsdtStopLossCalculation}
             {postAverageStopLossIsFirst && (
               <PreviewCalculation
                 color="error.dark"
-                detail="this is the earliest configured loss boundary at this stage; when MAIN triggers it, the paired COUNTER leg is marked for the coordinated close"
+                detail="this is the earliest configured loss boundary at this stage and closes only MAIN"
                 formula={postAverageStopFormula}
-                label="PAIR exits at post-average stop"
+                label="MAIN exits at post-average stop"
               />
             )}
           </StageStopOutcome>

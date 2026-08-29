@@ -93,20 +93,24 @@ export function tryToExit({
       const hasHitProfitZone = volatilityMap[symbol].some(
         (point) => point.l === profitZoneLabel && point.t > open.opened.t,
       );
-      const volatilityTarget = bothDirection.volatilityTarget.resolve({
-        position: open,
-        volatilityPoints: volatilityMap[symbol],
-      });
       const shouldForceSellPosition =
         forceSell || Boolean(open.control?.forceExit);
       const pairPositions = [
         ...opensCoin,
         ...(modelMemoryMap[symbol].positionsSell ?? []).filter(
-          (position) =>
-            position.opened.vPoint.id === open.opened.vPoint.id &&
-            position.opened.t === open.opened.t,
+          (position) => bothDirection.pair.matches(position, open),
         ),
       ];
+      const isPairPosition = bothDirection.pair.isLeg(open, pairPositions);
+      const volatilityTarget = isPairPosition
+        ? bothDirection.volatilityTarget.directional.resolve({
+            position: open,
+            volatilityPoints: volatilityMap[symbol],
+          })
+        : bothDirection.volatilityTarget.levelZero.resolve({
+            position: open,
+            volatilityPoints: volatilityMap[symbol],
+          });
 
       const exitDecision = resolveBacktestExitDecision({
         position: open,
@@ -120,17 +124,10 @@ export function tryToExit({
         // BOTH:POST_AVERAGE_RESCUE_EXIT
         lastVolatilityPrice: lastVolatility?.p,
         modelConfig: exitModelConfig,
-        allowProfitProtection:
-          // PROD:REENABLE_TP_LOGIC_AFTER_AT_LEAST_ONE_LEVEL_TO_PROFIT_DIRECTION_PASSED_AND_OTHER_SIDE_WAS_CLOSED
-          bothDirection.profitProtection.counterAllowed({
-            position: open,
-            positions: pairPositions,
-            volatilityPoints: volatilityMap[symbol],
-          }),
+        allowProfitProtection: !isPairPosition,
         // BOTH:VOLATILITY_TARGET_EXIT
         isCurrentVolatilityTarget:
-          bothDirection.pair.hasCounterpart(open, pairPositions) &&
-          volatilityTarget.isCurrent,
+          isPairPosition && volatilityTarget.hasReached,
         exitFeeRatio,
       });
 
@@ -237,40 +234,6 @@ export function tryToExit({
 
         // push to closes
         modelMemoryMap[symbol].positionsSell.push(open);
-
-        const traditionalHardStopTriggered =
-          exitDecision.message === "BOTH:TRADITIONAL_TP_SL" &&
-          exitDecision.category === TRADE_MESSAGE.sell.SL;
-        const netUsdtStopTriggered = exitDecision.message?.includes(
-          "BOTH:STOP_LOSS_BY_USDT_LOSS",
-        );
-        const postAverageStopLossTriggered = exitDecision.message?.includes(
-          "BOTH:POST_AVERAGE_STOP_LOSS",
-        );
-
-        if (
-          traditionalHardStopTriggered ||
-          netUsdtStopTriggered ||
-          postAverageStopLossTriggered
-        ) {
-          // BOTH:EXIT_TOGETHER_WHEN_STOP_LOSS
-          for (const sibling of opensCoin) {
-            if (sibling === open || sibling.closed) continue;
-            sibling.control ??= {};
-            sibling.control.forceExit = {
-              reason: postAverageStopLossTriggered
-                ? "Counterpart hit post-average stop loss"
-                : netUsdtStopTriggered
-                  ? "Counterpart hit net USDT stop loss"
-                  : "Counterpart hit traditional hard stop loss",
-              closeReason: postAverageStopLossTriggered
-                ? "POST_AVERAGE_STOP_LOSS"
-                : netUsdtStopTriggered
-                  ? "STOP_LOSS_BY_USDT_LOSS"
-                  : "STOP_LOSS",
-            };
-          }
-        }
 
         // save trade history
         backtestPack.tradeHistoryMap[symbol].push({

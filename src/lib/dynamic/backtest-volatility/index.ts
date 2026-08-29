@@ -29,7 +29,11 @@ import { generateAveragingRecommendations } from "@/lib/slowTrading/watch-reserv
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
 import { windowsMs } from "../constants-time";
 import { tryToExit } from "./exit";
-import { tryExecuteBacktestAveraging, tryOpenBacktestEntry } from "./trading";
+import {
+  tryExecuteBacktestAveraging,
+  tryOpenBacktestEntry,
+  tryOpenBacktestStreakReentry,
+} from "./trading";
 
 async function yieldToCancellation(signal: AbortSignal) {
   signal.throwIfAborted();
@@ -365,6 +369,21 @@ export async function runBacktestVolatilityDynamic({
     });
 
     dynamicTradeMemory.quoteAsset += sellAmount;
+
+    if (config.openDirection === "BOTH") {
+      for (const symbol of symbols) {
+        tryOpenBacktestStreakReentry({
+          currentTimeMs,
+          modelMemoryMap,
+          dynamicTradeMemory,
+          backtestPack,
+          config,
+          symbol,
+          volatilityPoints: cropedVMap[symbol] ?? [],
+          volume24hBySymbol,
+        });
+      }
+    }
 
     onlyPushUnique(
       backtestPack.growthOvertime,

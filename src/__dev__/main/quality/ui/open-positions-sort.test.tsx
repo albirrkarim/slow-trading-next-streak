@@ -33,6 +33,47 @@ function renderedSymbols() {
 }
 
 describe("OpenPositions PnL sorting", () => {
+  it("shows every configured BOTH coin even when neither leg is open", () => {
+    render(
+      <OpenPositions
+        availableTags={[]}
+        coinDescriptions={{}}
+        coinTags={{}}
+        config={{ openDirection: "BOTH", symbols: ["SUI", "AAVE"] } as any}
+        entryDiagnostics={[
+          {
+            code: "STREAK_REENTRY_WAITING",
+            level: 2,
+            pointId: "TOP[2]-C",
+            reason: "Waiting for the next confirmed TOP before reopening COUNTER LONG",
+            role: "COUNTER",
+            status: "blocked",
+            symbol: "SUI",
+          },
+        ]}
+        entryDiagnosticsLoading={false}
+        exchangeType={"binance" as any}
+        mode="sandbox"
+        onCoinDescriptionChange={vi.fn()}
+        onCoinTagsChange={vi.fn()}
+        positions={[]}
+        spendableQuoteAsset={0}
+        tagColors={{}}
+        tagDescriptions={{}}
+        volatilityMap={{}}
+        volume24hBySymbol={{}}
+      />,
+    );
+
+    // PROD:OPEN_POSITION_BOTH_LEG
+    expect(screen.getByRole("button", { name: "Expand SUI position" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Expand AAVE position" })).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "Waiting for the next confirmed TOP before reopening COUNTER LONG",
+    );
+    expect(screen.queryByText(/See Entry Decisions/)).toBeNull();
+  });
+
   it("closes both legs from the pair net-PnL card", () => {
     const onExitBoth = vi.fn().mockResolvedValue(undefined);
 

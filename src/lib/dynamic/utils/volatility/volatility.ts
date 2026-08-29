@@ -25,6 +25,12 @@ interface VolatilityPointRuntimeAddOn<T = any> {
    */
   used?: boolean;
 
+  /** Whether this point successfully opened the MAIN role in BOTH mode. */
+  usedByMain?: boolean;
+
+  /** Whether this point successfully opened the COUNTER role in BOTH mode. */
+  usedByCounter?: boolean;
+
   /**
    * Delta in ms between v point before and the current v point
    */

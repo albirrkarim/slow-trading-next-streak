@@ -33,6 +33,7 @@ export type OpenPositionLevelSequenceItem = PositionLevelSequenceItem;
 interface BuildOpenPositionLevelSequenceParams {
   currentLevel?: number;
   direction?: "LONG" | "SHORT";
+  directionalTarget?: boolean;
   entryLevel?: number;
   entryTime?: number;
   markPrice?: number;
@@ -62,6 +63,7 @@ function levelMagnitude(level: number): number {
 function getTargetHitSequence({
   averagingMultiplierByLevel,
   direction,
+  directionalTarget,
   entryLevel,
   entryTime,
   volatilityPoints,
@@ -69,6 +71,7 @@ function getTargetHitSequence({
 }: {
   averagingMultiplierByLevel: Map<number, number | undefined>;
   direction?: "LONG" | "SHORT";
+  directionalTarget?: boolean;
   entryLevel: number | null;
   entryTime?: number;
   volatilityPoints?: VolatilityPoint[];
@@ -87,15 +90,21 @@ function getTargetHitSequence({
   const postEntryPoints = [...(volatilityPoints ?? [])]
     .filter((point) => point.t >= entryTime)
     .sort((a, b) => a.t - b.t);
-  const resolvedTargetPoint = bothDirection.volatilityTarget.resolve({
+  const targetParams = {
     position: {
+      direction,
       opened: {
         t: entryTime,
         vPoint: { lvl: entryLevel },
       },
     },
     volatilityPoints: postEntryPoints,
-  }).targetPoint;
+  };
+  const resolvedTargetPoint = directionalTarget
+    ? bothDirection.volatilityTarget.directional.resolve(targetParams)
+        .targetPoint
+    : bothDirection.volatilityTarget.levelZero.resolve(targetParams)
+        .targetPoint;
   const targetPointIndex = postEntryPoints.findIndex(
     (point) =>
       point.id === resolvedTargetPoint?.id &&
@@ -174,7 +183,7 @@ function getTargetHitSequence({
       coveredMarginUsdt: 0,
       isAveraged: false,
       isEntry: false,
-      level: 0,
+      level: targetPoint.lvl,
       state: "target",
     },
     ...postTargetItems,
@@ -187,6 +196,7 @@ function getTargetHitSequence({
 export function buildOpenPositionLevelSequence({
   currentLevel,
   direction,
+  directionalTarget,
   entryLevel,
   entryTime,
   markPrice,
@@ -216,6 +226,7 @@ export function buildOpenPositionLevelSequence({
   const targetHitSequence = getTargetHitSequence({
     averagingMultiplierByLevel,
     direction,
+    directionalTarget,
     entryLevel: normalizedEntryLevel,
     entryTime,
     volatilityPoints,
@@ -383,6 +394,7 @@ export function buildOpenPositionLevelSequence({
 export default function OpenPositionLevelSequence({
   currentLevel,
   direction,
+  directionalTarget,
   entryLevel,
   entryTime,
   markPrice,
@@ -394,6 +406,7 @@ export default function OpenPositionLevelSequence({
   const items = buildOpenPositionLevelSequence({
     currentLevel,
     direction,
+    directionalTarget,
     entryLevel,
     entryTime,
     markPrice,

@@ -3,7 +3,10 @@ import {
   MINIMAL_USDT_TO_TRADE_BYPASS,
 } from "./constants";
 import type { executeAveraging as executeAveragingType } from "./execute/execute-averaging";
-import type { executeEntry as executeEntryType } from "./execute/execute-entry";
+import type {
+  executeEntry as executeEntryType,
+  executePairLegEntry as executePairLegEntryType,
+} from "./execute/execute-entry";
 import type { executeExit as executeExitType } from "./execute/execute-exit";
 import { tradeLog } from "./helper/log";
 import { notif } from "./helper/notification";
@@ -24,6 +27,13 @@ const executeEntryLazy: typeof executeEntryType = async (...args) => {
   return executeEntry(...args);
 };
 
+const executePairLegEntryLazy: typeof executePairLegEntryType = async (
+  ...args
+) => {
+  const { executePairLegEntry } = await import("./execute/execute-entry");
+  return executePairLegEntry(...args);
+};
+
 const executeExitLazy: typeof executeExitType = async (...args) => {
   const { executeExit } = await import("./execute/execute-exit");
   return executeExit(...args);
@@ -41,6 +51,7 @@ const trading = {
   execution: {
     averaging: executeAveragingLazy,
     entry: executeEntryLazy,
+    pairLegEntry: executePairLegEntryLazy,
     exit: executeExitLazy,
   },
   log: tradeLog,

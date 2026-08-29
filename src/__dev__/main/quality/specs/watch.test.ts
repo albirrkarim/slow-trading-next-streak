@@ -278,7 +278,7 @@ describe("slow specs watch", () => {
     },
   );
 
-  it("blocks paired averaging at L0 when a non-zero entry already armed the target", () => {
+  it("blocks paired LONG averaging at its next TOP regardless of level", () => {
     const position = createWatchPosition({
       watchState: buildSlowWatchReserveState({
         direction: "LONG",
@@ -307,9 +307,9 @@ describe("slow specs watch", () => {
       volatilityPointsMap: {
         SUI: [
           {
-            id: "PAIR_TARGET_0",
+            id: "PAIR_TARGET_TOP_0",
             symbol: "SUI",
-            l: "B",
+            l: "T",
             lvl: 0,
             p: 9,
             pct: 2,

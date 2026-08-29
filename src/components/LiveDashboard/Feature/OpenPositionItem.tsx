@@ -332,6 +332,7 @@ export default function OpenPositionItem({
               <OpenPositionLevelSequence
                 currentLevel={currentVolatilityLevel}
                 direction={position.direction}
+                directionalTarget={config.openDirection === "BOTH"}
                 entryLevel={position.opened.vPoint.lvl}
                 entryTime={position.opened.t}
                 markPrice={position.pnl.markPrice}

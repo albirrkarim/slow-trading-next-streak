@@ -39,6 +39,7 @@ import QuickBacktest from "./Feature/QuickBacktest";
 import SlowTradingQueuesPanel from "./Feature/SlowTradingQueues";
 import VPointsFrequency from "./Feature/VPointsFrequency";
 import EntryBlockers from "./Feature/EntryBlockers";
+import useEntryDiagnostics from "./Feature/useEntryDiagnostics";
 import WorkerEntrySequenceMetrics from "./Feature/WorkerEntrySequenceMetrics";
 import WorkerNeededEstimation from "./Feature/WorkerNeededEstimation";
 import LiveDashboardNavbar from "./Navbar";
@@ -133,6 +134,7 @@ export default function DynamicTradeHistoryPage({
   const [enteringSymbol, setEnteringSymbol] = useState<string | null>(null);
   const [deletingSymbol, setDeletingSymbol] = useState<string | null>(null);
   const [resettingVPointUsed, setResettingVPointUsed] = useState(false);
+  const entryDiagnostics = useEntryDiagnostics();
   const [volume24hBySymbol, setVolume24hBySymbol] = useState<
     Record<string, number>
   >({});
@@ -839,6 +841,9 @@ export default function DynamicTradeHistoryPage({
                   config={dashboardState.config}
                   mode={dashboardState?.activeMode ?? "live"}
                   exchangeType={currentExchangeType}
+                  entryDiagnostics={entryDiagnostics.diagnostics}
+                  entryDiagnosticsError={entryDiagnostics.error}
+                  entryDiagnosticsLoading={entryDiagnostics.loading}
                   positions={dashboardState?.openPositions ?? []}
                   spendableQuoteAsset={
                     dashboardState.balances.spendableQuoteAsset
@@ -882,7 +887,7 @@ export default function DynamicTradeHistoryPage({
                       volatilityMap={volatilityMap}
                     />
 
-                    <EntryBlockers />
+                    <EntryBlockers controller={entryDiagnostics} />
                   </Box>
                 )}
 
@@ -900,6 +905,9 @@ export default function DynamicTradeHistoryPage({
                     config={dashboardState.config}
                     mode={dashboardState?.activeMode ?? "live"}
                     exchangeType={currentExchangeType}
+                    entryDiagnostics={entryDiagnostics.diagnostics}
+                    entryDiagnosticsError={entryDiagnostics.error}
+                    entryDiagnosticsLoading={entryDiagnostics.loading}
                     positions={dashboardState?.openPositions ?? []}
                     spendableQuoteAsset={
                       dashboardState.balances.spendableQuoteAsset
@@ -949,7 +957,7 @@ export default function DynamicTradeHistoryPage({
                         volatilityMap={volatilityMap}
                       />
 
-                      <EntryBlockers />
+                      <EntryBlockers controller={entryDiagnostics} />
                     </>
                   )}
                 </Grid>
