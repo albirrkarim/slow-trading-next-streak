@@ -1,0 +1,121 @@
+# STREAK BREAK TRADING
+
+# Introduction
+
+This is the update of the strategy in `BOTH_DIRECTION_TRADING.md`
+
+# A. Scenario
+
+## Scenario 1
+
+`TOP[0]-A` -> `TOP[1]-B` -> `TOP[2]-C` -> `TOP[3]-D` -> `BOTTOM[0]-E` -> `BOTTOM[-1]-F` -> `TOP[0]-G`
+
+main leg open SHORT on `TOP[0]-A` so it will averaging and exit on their target right in the `BOTTOM[0]`
+
+counter leg open LONG on `TOP[0]-A` it will profit on `TOP[1]-B` then on that poin reached we close the position.
+
+then open again the LONG position but now the anchor price is price on the `TOP[1]-B` when it goes up again so close again and reopen again.
+
+now the counter leg is open on the `TOP[3]-D` then the point is down into `BOTTOM[0]-E`
+
+so we do averaging right and so on based on the max averaging that we have.
+
+so it will averaging two level point right in `BOTTOM[0]-E` and `BOTTOM[-1]-F` and exit on `TOP[0]-G`
+
+So the system will might always open for opening position, but of course considering entry guard like `PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT`
+
+## Scenario Behavior
+
+Both leg has same tp and all the exit rule.
+
+the take profit logic like traditional TP and stop loss plus is disabled. we just using the volatility points rails. to determine the exit.
+
+the current `BOTH:VOLATILITY_TARGET_EXIT` is not always in level 0. see the scenario
+
+## Definition
+
+### `BOTH:VOLATILITY_TARGET_EXIT`
+
+The volatility target is direction-based and does not depend on the numeric
+vPoint level:
+
+- The next confirmed `TOP` after a `LONG` leg's entry is that leg's target.
+- The next confirmed `BOTTOM` after a `SHORT` leg's entry is that leg's target.
+- The entry vPoint itself cannot satisfy the target.
+
+When a leg reaches its target, `BOTH:VOLATILITY_TARGET_EXIT` closes only that
+favorable leg. The adverse leg remains open and independently evaluates
+averaging at the same confirmed vPoint.
+
+After the favorable leg closes, SLOW reopens its role in the direction opposite
+the surviving leg. The reopened leg uses the target vPoint as its new anchor,
+starts again with the normal base entry margin, and resets its averaging ladder.
+The re-entry must still pass the normal entry guards, including
+`PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT`.
+
+Examples from Scenario 1:
+
+- At `TOP[1]-B`, the `LONG` counter leg closes and reopens `LONG`; the `SHORT`
+  main leg remains open and may average.
+- At `BOTTOM[0]-E`, the `SHORT` main leg closes and reopens `SHORT`; the `LONG`
+  counter leg remains open and may average.
+- At `BOTTOM[-1]-F`, the reopened `SHORT` main leg closes and reopens again;
+  the `LONG` counter leg performs its next averaging step.
+- At `TOP[0]-G`, the averaged `LONG` counter leg closes and reopens; the `SHORT`
+  main leg remains open and may average.
+
+# B. Conclusions
+
+its like two snake trading in coin.
+
+# C. UI
+
+The open position list will always showing the all coins.
+
+when some leg is not open, show why it not entry whats the blocking, we have "Entry Decisions" section in the UI see it.
+
+# D. FAQ
+
+1. At every favorable vPoint, should a leg:
+   - close,
+   - realize profit,
+   - immediately reopen not always in the same direction. you see in the scenario the main leg is still opening short, so the the counter leg is opening the oposite right. which is LONG
+   - and reset its entry/averaging anchor price to that vPoint? yes
+
+2. Do `MAIN` and `COUNTER` remain fixed from the original pair, or switch roles when the rail changes? For example, at `BOTTOM[0]-E`, is SHORT still `MAIN`, or does LONG become `MAIN`?
+
+on the `BOTTOM[0]-E` the main will close right. but the counter leg is still opening the `LONG` so the main leg will open `SHORT` right doing the oposite.
+
+then the main leg open again short on this point `BOTTOM[0]-E` and TP in `BOTTOM[-1]-F` and then open again in `BOTTOM[-1]-F` and doing averaging because `TOP[0]-G` is their worst vpoint. and so on.
+
+3. After closing an averaged position at its favorable vPoint, does it reopen using the normal base entry margin, resetting its accumulated averaging size?
+
+yes back to the base margin
+
+4. Does the rail exit happen regardless of fee-adjusted PnL, or only when the leg is actually profitable after fees?
+
+its always profit, because the vpoint threshold is 2%.
+
+5. When you say only volatility rails determine exits, should hard stop loss, USDT stop loss, post-average stop loss, and rescue exit also be disabled?
+
+Its "OR" rule, other exit logic might hapen first. (of course except the take profit logic like the TP pct and SL plus because it disabled)
+
+but the reopen should based on the formed vpoint what not been used by some leg.
+
+maybe the case is post averaging rescue exit hapen on their calculation of the target vpoint still forming (drift calculation) so it will exit first then wait until target vpoint is actually formed then open again. ofcourse with considering the guard like `PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT`
+
+6. If a hard stop or USDT stop closes **both legs together**.
+
+modify the stoploss, now it just close some leg that hit the stop loss, it doesnt affecting each other
+
+7. Timing problem
+
+Example:
+
+1. LONG closes at confirmed TOP[1]-B.
+2. SLOW wants to reopen LONG using B as its anchor.
+3. The current market price is too far from B.price, so PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT blocks entry.
+4. While SLOW is waiting, a newer TOP[2]-C becomes confirmed.
+   The question is: should LONG still wait for the price to return near B.price, or discard B and use the newer C anchor?
+
+use the newest confirmed unused vPoint which is C
