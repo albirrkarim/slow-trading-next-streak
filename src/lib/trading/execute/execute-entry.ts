@@ -37,6 +37,7 @@ import entryMarket from "./entry-market";
 import { buildSlowWatchReserveState } from "../../slowTrading/watch-reserve";
 import tradingPosition from "../position";
 import bothDirection from "../both-direction";
+import streakBreak from "../streak-break";
 
 export interface ExecuteEntryProps {
   investAmount: number;
@@ -97,7 +98,7 @@ function buildEmptyAveragingState(
   };
 }
 
-function removeRetainedClosedRole(params: {
+function clearPendingReentry(params: {
   modelMemory: TradingModelMemory;
   pairId?: string;
   role?: PositionRole;
@@ -106,14 +107,11 @@ function removeRetainedClosedRole(params: {
     return;
   }
 
-  params.modelMemory.positions = (params.modelMemory.positions ?? []).filter(
-    (position) =>
-      !(
-        position.closed &&
-        bothDirection.pair.resolveId(position) === params.pairId &&
-        bothDirection.position.role.resolve(position) === params.role
-      ),
-  );
+  streakBreak.pending.clear({
+    memory: params.modelMemory,
+    pairId: params.pairId,
+    role: params.role,
+  });
 }
 
 function resolveEntrySource(
@@ -531,7 +529,7 @@ export async function executeEntry({
 
     // Update position (sandbox simulation)
     if (isTest) {
-      removeRetainedClosedRole({
+      clearPendingReentry({
         modelMemory,
         pairId: internalLeg?.pairId,
         role: internalLeg?.role,
@@ -711,7 +709,7 @@ export async function executeEntry({
         | ${exchangeType}:${tradingMode}
         `;
 
-        removeRetainedClosedRole({
+        clearPendingReentry({
           modelMemory,
           pairId: internalLeg?.pairId,
           role: internalLeg?.role,

@@ -124,6 +124,15 @@ New positions also persist the compact optional `opened.vPoint.t` anchor time.
 Target resolution prefers this vPoint time over the later order-execution time,
 while legacy records without it continue to use `opened.t`.
 
+When one BOTH leg closes while its counterpart remains open, its full position
+is written only to closed history. Mode memory persists a compact
+`pendingReentries` item containing `pairId`, `role`, `direction`, the original
+`opened.t`/`opened.vPoint` anchor, and `closeReason`. This is durable re-entry
+state, not an open position. A successful replacement clears the item; closure
+of the remaining leg clears the pair's pending state. On load, legacy memory
+that retained a closed leg beside an active counterpart is migrated into this
+shape and the closed leg is detached from `positions`.
+
 The hard-cutover migration is exposed at `/api/alter/position`:
 
 - `GET /api/alter/position?dryRun=true` scans and validates without writing.

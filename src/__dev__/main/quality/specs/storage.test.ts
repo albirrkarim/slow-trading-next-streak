@@ -286,6 +286,57 @@ describe("slow specs storage", () => {
     ).toHaveLength(1);
   });
 
+  it("persists pending re-entry state and migrates a retained closed leg", async () => {
+    const slowTradingStorage = (await import("@/lib/slowTrading")).default
+      .storage;
+    const storage = slowTradingStorage.data.createDefault();
+    storage.config.symbols = ["APT"];
+    storage.config.openDirection = "BOTH";
+    storage.modes.live = slowTradingStorage.mode.ensureTradeSettings(
+      storage.modes.live,
+      storage.config.symbols,
+    );
+    const main = createTestPosition({
+      executionMode: "live",
+      role: "MAIN",
+      symbol: "APT",
+    });
+    const counter = createTestPosition({
+      direction: "SHORT",
+      executionMode: "live",
+      role: "COUNTER",
+      symbol: "APT",
+    });
+    main.pairId = "APT:PAIR";
+    counter.pairId = main.pairId;
+    counter.closed = {
+      feeUsdt: 0,
+      message: "target exit",
+      price: 10,
+      reason: "VOLATILITY_TARGET_EXIT",
+      t: 2,
+    };
+    storage.modes.live.tradeSettings[0].model_memory.positions = [
+      main,
+      counter,
+    ];
+
+    await slowTradingStorage.data.save(storage);
+    await slowTradingStorage.mode.saveState("live", storage.modes.live);
+    const loaded = await slowTradingStorage.data.load();
+    const memory = loaded.modes.live.tradeSettings[0].model_memory;
+
+    expect(memory.positions).toEqual([main]);
+    expect(memory.pendingReentries).toMatchObject([
+      {
+        closeReason: "VOLATILITY_TARGET_EXIT",
+        direction: "SHORT",
+        pairId: "APT:PAIR",
+        role: "COUNTER",
+      },
+    ]);
+  });
+
   it("loads persisted history independently from configured symbols", async () => {
     const slowTradingStorage = (await import("@/lib/slowTrading")).default
       .storage;

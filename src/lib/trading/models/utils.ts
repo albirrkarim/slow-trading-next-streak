@@ -11,7 +11,7 @@ import {
   computeClosedPositionMetrics,
 } from "@/lib/trading/pnl";
 import tradingPosition from "@/lib/trading/position";
-import bothDirection from "@/lib/trading/both-direction";
+import streakBreak from "@/lib/trading/streak-break";
 
 interface SellPosition {
   currentKline: Kline;
@@ -79,24 +79,11 @@ export function sellPosition({
       });
 
       memory.positionsSell.push(popped);
-
-      const pairLegs = memory.positions.filter(
-        (position) =>
-          bothDirection.pair.matches(position, popped) &&
-          (position.role === "MAIN" || position.role === "COUNTER"),
+      memory.positions = memory.positions.filter(
+        (position) => position !== popped,
       );
-      if (pairLegs.length === 2) {
-        // PROD:OPEN_POSITION_BOTH_LEG
-        // Keep the closed leg in the open-position list until its counterpart
-        // also closes, while the same record is already available to history.
-        if (pairLegs.every((position) => position.closed)) {
-          memory.positions = memory.positions.filter(
-            (position) => !pairLegs.includes(position),
-          );
-        }
-      } else {
-        memory.positions.splice(index, 1);
-      }
+      // PROD:OPEN_POSITION_BOTH_LEG
+      streakBreak.pending.reconcileClosed({ memory, position: popped });
     }
   } else {
     // sell all
@@ -117,9 +104,11 @@ export function sellPosition({
 
     // Reset position after selling
     memory.positionsSell.push(...positions);
-    memory.positions = memory.positions.filter((position) => position.closed);
-    if (memory.positions.every((position) => position.closed)) {
-      memory.positions = [];
+    memory.positions = memory.positions.filter(
+      (position) => !positions.includes(position) && !position.closed,
+    );
+    for (const position of positions) {
+      streakBreak.pending.reconcileClosed({ memory, position });
     }
   }
 }

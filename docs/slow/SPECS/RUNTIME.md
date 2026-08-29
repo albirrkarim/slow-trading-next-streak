@@ -279,8 +279,8 @@ symbol and position side. A `LONG` exchange position updates only the local
 `LONG` leg, and a `SHORT` exchange position updates only the local `SHORT` leg.
 The runtime must not collapse both legs into a single symbol record. If only
 one side disappeared on Binance, only that local side is marked externally
-closed; the retained closed record stays beside its open counterpart until the
-pair finishes.
+closed and archived. It is immediately detached from open-position memory while
+a compact pending-reentry record remains beside the surviving pair state.
 
 If the exchange no longer has the position but local memory still does, the
 system treats it as externally closed with a `[CLOSED_ON_EXCHANGE]` reason. A

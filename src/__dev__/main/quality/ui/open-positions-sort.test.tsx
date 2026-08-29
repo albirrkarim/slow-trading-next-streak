@@ -74,6 +74,54 @@ describe("OpenPositions PnL sorting", () => {
     expect(screen.queryByText(/See Entry Decisions/)).toBeNull();
   });
 
+  it("treats a legacy retained closed leg as a missing diagnostic slot", () => {
+    const closedCounter = createTestPosition({
+      direction: "SHORT",
+      role: "COUNTER",
+      symbol: "APT",
+    });
+    closedCounter.closed = {
+      feeUsdt: 0,
+      message: "target exit",
+      price: 10,
+      reason: "VOLATILITY_TARGET_EXIT",
+      t: 2,
+    };
+
+    render(
+      <OpenPositions
+        availableTags={[]}
+        coinDescriptions={{}}
+        coinTags={{}}
+        config={{ openDirection: "BOTH", symbols: ["APT"] } as any}
+        entryDiagnostics={[
+          {
+            code: "STREAK_REENTRY_WAITING",
+            reason: "COUNTER is waiting for an unused confirmed vPoint",
+            role: "COUNTER",
+            status: "blocked",
+            symbol: "APT",
+          },
+        ]}
+        exchangeType={"binance" as any}
+        mode="sandbox"
+        onCoinDescriptionChange={vi.fn()}
+        onCoinTagsChange={vi.fn()}
+        positions={[{ ...closedCounter, mode: "sandbox" as const }]}
+        spendableQuoteAsset={0}
+        tagColors={{}}
+        tagDescriptions={{}}
+        volatilityMap={{}}
+        volume24hBySymbol={{}}
+      />,
+    );
+
+    expect(screen.queryByTestId("open-position")).toBeNull();
+    expect(document.body.textContent).toContain(
+      "COUNTER is waiting for an unused confirmed vPoint",
+    );
+  });
+
   it("closes both legs from the pair net-PnL card", () => {
     const onExitBoth = vi.fn().mockResolvedValue(undefined);
 

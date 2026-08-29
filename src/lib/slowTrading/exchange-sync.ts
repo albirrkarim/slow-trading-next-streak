@@ -10,6 +10,7 @@ import slowTradingShared from "./shared";
 import slowTradingWatchReserve from "./watch-reserve";
 import type { SlowTradingModeState } from "./types";
 import slowTradingPositions from "./positions";
+import streakBreak from "@/lib/trading/streak-break";
 
 function getPositiveFiniteNumber(value: unknown): number | null {
   const numberValue = Number(value);
@@ -150,7 +151,9 @@ export function syncLiveOpenPositionsFromExchange(params: {
       tradeSetting.model_memory.positionsSell = [];
     }
 
-    for (const [index, position] of positions.entries()) {
+    const closedPositions: Position[] = [];
+    const closedOriginals = new Set<Position>();
+    for (const position of positions) {
       if (position.closed) continue;
       const exchangePosition =
         exchangePositionByIdentity.get(`${symbol}:${position.direction}`) ??
@@ -177,16 +180,21 @@ export function syncLiveOpenPositionsFromExchange(params: {
           tradeSetting.model_memory.volatility?.lastVolatility ?? [],
       });
       tradeSetting.model_memory.positionsSell.push(closed.position);
-      positions[index] = closed.position;
+      closedPositions.push(closed.position);
+      closedOriginals.add(position);
       releasedReserveUSDT += closed.releasedReserveUSDT;
       closedCount += 1;
     }
 
-    tradeSetting.model_memory.positions = positions.every(
-      (position) => position.closed,
-    )
-      ? []
-      : positions;
+    tradeSetting.model_memory.positions = positions.filter(
+      (position) => !position.closed && !closedOriginals.has(position),
+    );
+    for (const position of closedPositions) {
+      streakBreak.pending.reconcileClosed({
+        memory: tradeSetting.model_memory,
+        position,
+      });
+    }
   }
 
   return {

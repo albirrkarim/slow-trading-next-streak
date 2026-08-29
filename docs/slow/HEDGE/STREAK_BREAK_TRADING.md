@@ -53,6 +53,10 @@ starts again with the normal base entry margin, and resets its averaging ladder.
 The re-entry must still pass the normal entry guards, including
 `PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT`.
 
+The closed leg is detached from open positions immediately and its full record
+moves to trade history. Until replacement succeeds, its empty MAIN or COUNTER
+slot stays visible and shows the exact current reason that role is not open.
+
 Examples from Scenario 1:
 
 - At `TOP[1]-B`, the `LONG` counter leg closes and reopens `LONG`; the `SHORT`

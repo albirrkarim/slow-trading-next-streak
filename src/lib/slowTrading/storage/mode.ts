@@ -4,6 +4,7 @@ import {
 } from "@/lib/dynamic";
 import type { TradingModelMemory } from "@/lib/trading/models";
 import blackSwan from "@/lib/trading/black-swan";
+import streakBreak from "@/lib/trading/streak-break";
 import { clone, normalizeSymbol, uniqueSymbols } from "./common";
 import { DEFAULT_SANDBOX_INITIAL_BALANCE } from "./constants";
 import type {
@@ -130,8 +131,8 @@ function normalizeDailyPerformanceNotificationState(
  * Rebuild the per-symbol trade-settings list while preserving existing model memory.
  *
  * Symbols removed from the scan config can still own open positions or freshly
- * closed positions waiting to be written to history. Those symbols stay managed
- * until their runtime memory is empty.
+ * closed positions waiting to be written to history, or a missing pair leg
+ * waiting to re-enter. Those symbols stay managed until runtime memory is empty.
  *
  * @param state - Existing mode state.
  * @param symbols - Configured symbol list.
@@ -149,7 +150,8 @@ export function ensureTradeSettings(
     .filter(
       (item) =>
         (item.model_memory.positions?.length ?? 0) > 0 ||
-        (item.model_memory.positionsSell?.length ?? 0) > 0,
+        (item.model_memory.positionsSell?.length ?? 0) > 0 ||
+        (item.model_memory.pendingReentries?.length ?? 0) > 0,
     )
     .map((item) => normalizeSymbol(item.symbol))
     .filter(Boolean);
@@ -177,6 +179,7 @@ export function ensureTradeSettings(
     } else {
       delete modelMemory.positionsSell;
     }
+    streakBreak.pending.normalizeMemory(modelMemory);
 
     return {
       symbol,

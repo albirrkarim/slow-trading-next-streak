@@ -756,7 +756,7 @@ describe("slow specs runtime", () => {
     );
   });
 
-  it("reconciles Hedge Mode legs by symbol and direction and retains a closed leg", () => {
+  it("reconciles Hedge Mode legs and detaches a closed leg for re-entry", () => {
     const modeState = createModeState();
     const main = modeState.tradeSettings[0].model_memory.positions![0];
     main.role = "MAIN";
@@ -790,9 +790,16 @@ describe("slow specs runtime", () => {
     // PROD:HEDGE_POSITION_RECONCILIATION
     // PROD:OPEN_POSITION_BOTH_LEG
     expect(result).toMatchObject({ adjustedCount: 1, closedCount: 1 });
-    expect(memory.positions).toHaveLength(2);
+    expect(memory.positions).toHaveLength(1);
     expect(memory.positions?.find((position) => position.role === "MAIN")?.closed).toBeUndefined();
-    expect(memory.positions?.find((position) => position.role === "COUNTER")?.closed?.source).toBe("EXCHANGE");
+    expect(memory.positions?.find((position) => position.role === "COUNTER")).toBeUndefined();
     expect(memory.positionsSell).toHaveLength(1);
+    expect(memory.pendingReentries).toMatchObject([
+      {
+        closeReason: "UNKNOWN",
+        direction: "SHORT",
+        role: "COUNTER",
+      },
+    ]);
   });
 });

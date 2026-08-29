@@ -1,6 +1,7 @@
 import type { VolatilityPoint } from "@/lib/dynamic";
 import streakBreak from "@/lib/trading/streak-break";
 import bothDirection from "@/lib/trading/both-direction";
+import type { TradingModelMemory } from "@/lib/trading/models";
 import { createTestPosition } from "../fixtures/position";
 
 function point(
@@ -83,9 +84,15 @@ describe("streak-break pair lifecycle", () => {
       reason: "POST_AVERAGE_RESCUE_EXIT",
       t: 2,
     };
+    const memory: TradingModelMemory = {
+      positions: [main],
+      positionsSell: [counter],
+    };
+    streakBreak.pending.reconcileClosed({ memory, position: counter });
 
     const waiting = streakBreak.reentry.resolve({
-      positions: [main, counter],
+      positions: memory.positions,
+      pendingReentries: memory.pendingReentries,
       volatilityPoints: [point("BOTTOM-B", "B", -1, 2)],
     });
     expect(waiting).toMatchObject({
@@ -95,7 +102,8 @@ describe("streak-break pair lifecycle", () => {
     });
 
     const ready = streakBreak.reentry.resolve({
-      positions: [main, counter],
+      positions: memory.positions,
+      pendingReentries: memory.pendingReentries,
       volatilityPoints: [
         point("BOTTOM-B", "B", -1, 2),
         point("TOP-C", "T", 2, 3),
@@ -132,11 +140,17 @@ describe("streak-break pair lifecycle", () => {
       reason: "VOLATILITY_TARGET_EXIT",
       t: 2,
     };
+    const memory: TradingModelMemory = {
+      positions: [main],
+      positionsSell: [counter],
+    };
+    streakBreak.pending.reconcileClosed({ memory, position: counter });
     const blockedAnchor = point("TOP-B", "T", 1, 2);
     const newestAnchor = point("TOP-C", "T", 2, 3);
 
     const decision = streakBreak.reentry.resolve({
-      positions: [main, counter],
+      positions: memory.positions,
+      pendingReentries: memory.pendingReentries,
       volatilityPoints: [blockedAnchor, newestAnchor],
     });
 
@@ -150,7 +164,8 @@ describe("streak-break pair lifecycle", () => {
     newestAnchor.usedByCounter = true;
     expect(
       streakBreak.reentry.resolve({
-        positions: [main, counter],
+        positions: memory.positions,
+        pendingReentries: memory.pendingReentries,
         volatilityPoints: [blockedAnchor, newestAnchor],
       }),
     ).toMatchObject({
@@ -178,5 +193,73 @@ describe("streak-break pair lifecycle", () => {
 
     expect(bothDirection.pair.matches(survivor, reopened)).toBe(true);
     expect(bothDirection.pair.countOpen([survivor, reopened])).toBe(1);
+  });
+
+  it("migrates a retained closed leg into compact pending state", () => {
+    const main = createTestPosition({ role: "MAIN" });
+    const counter = createTestPosition({
+      direction: "SHORT",
+      role: "COUNTER",
+    });
+    const pairId = bothDirection.pair.resolveId(main);
+    main.pairId = pairId;
+    counter.pairId = pairId;
+    counter.closed = {
+      feeUsdt: 0,
+      message: "target",
+      price: 101,
+      reason: "VOLATILITY_TARGET_EXIT",
+      t: 2,
+    };
+    const memory: TradingModelMemory = { positions: [main, counter] };
+
+    streakBreak.pending.normalizeMemory(memory);
+
+    expect(memory.positions).toEqual([main]);
+    expect(memory.pendingReentries).toEqual([
+      {
+        closeReason: "VOLATILITY_TARGET_EXIT",
+        direction: "SHORT",
+        opened: {
+          t: counter.opened.t,
+          vPoint: counter.opened.vPoint,
+        },
+        pairId,
+        role: "COUNTER",
+      },
+    ]);
+  });
+
+  it("clears pair pending state when the surviving leg also closes", () => {
+    const main = createTestPosition({ role: "MAIN" });
+    const counter = createTestPosition({
+      direction: "SHORT",
+      role: "COUNTER",
+    });
+    const pairId = bothDirection.pair.resolveId(main);
+    main.pairId = pairId;
+    counter.pairId = pairId;
+    counter.closed = {
+      feeUsdt: 0,
+      message: "counter closed",
+      price: 100,
+      reason: "STOP_LOSS",
+      t: 2,
+    };
+    const memory: TradingModelMemory = { positions: [main] };
+    streakBreak.pending.reconcileClosed({ memory, position: counter });
+    expect(memory.pendingReentries).toHaveLength(1);
+
+    main.closed = {
+      feeUsdt: 0,
+      message: "main closed",
+      price: 100,
+      reason: "STOP_LOSS",
+      t: 3,
+    };
+    memory.positions = [];
+    streakBreak.pending.reconcileClosed({ memory, position: main });
+
+    expect(memory.pendingReentries).toBeUndefined();
   });
 });

@@ -487,6 +487,10 @@ describe("slow specs entry", () => {
     ]);
     expect(runtime.modelMemoryMap.SUI.positions).toHaveLength(2);
     expect(
+      runtime.modelMemoryMap.SUI.positions.every((position) => !position.closed),
+    ).toBe(true);
+    expect(runtime.modelMemoryMap.SUI.pendingReentries).toBeUndefined();
+    expect(
       new Set([
         ...railExits,
         ...runtime.modelMemoryMap.SUI.positions,

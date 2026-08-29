@@ -550,10 +550,8 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
       const symbol = rawSymbol.toUpperCase();
       const modelMemory = modelMemoryMap[symbol];
       const decision = streakBreak.reentry.resolve({
-        positions: [
-          ...(modelMemory?.positions ?? []),
-          ...(modelMemory?.positionsSell ?? []),
-        ],
+        positions: modelMemory?.positions ?? [],
+        pendingReentries: modelMemory?.pendingReentries,
         volatilityPoints: volatilityPointsMap[symbol] ?? [],
       });
       if (decision) {

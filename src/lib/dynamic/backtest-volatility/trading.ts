@@ -354,14 +354,11 @@ export function tryOpenBacktestEntry({
     };
   });
   if (pairLeg) {
-    modelMemory.positions = modelMemory.positions.filter(
-      (position) =>
-        !(
-          position.closed &&
-          bothDirection.pair.resolveId(position) === pairId &&
-          bothDirection.position.role.resolve(position) === pairLeg.role
-        ),
-    );
+    streakBreak.pending.clear({
+      memory: modelMemory,
+      pairId: pairLeg.pairId,
+      role: pairLeg.role,
+    });
   }
   modelMemory.positions.push(...positions);
 
@@ -427,10 +424,8 @@ export function tryOpenBacktestStreakReentry(
   }
 
   const decision = streakBreak.reentry.resolve({
-    positions: [
-      ...(modelMemory.positions ?? []),
-      ...(modelMemory.positionsSell ?? []),
-    ],
+    positions: modelMemory.positions ?? [],
+    pendingReentries: modelMemory.pendingReentries,
     volatilityPoints: params.volatilityPoints,
   });
   if (decision?.status !== "READY" || !decision.point) {

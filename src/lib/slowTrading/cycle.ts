@@ -1045,10 +1045,8 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
 
           const modelMemory = modelMemoryMap[symbol];
           const decision = streakBreak.reentry.resolve({
-            positions: [
-              ...(modelMemory?.positions ?? []),
-              ...(modelMemory?.positionsSell ?? []),
-            ],
+            positions: modelMemory?.positions ?? [],
+            pendingReentries: modelMemory?.pendingReentries,
             volatilityPoints: volatilityPointsMap[symbol] ?? [],
           });
           if (!decision) {
@@ -1190,7 +1188,8 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
             .filter(
               ([, modelMemory]) =>
                 (modelMemory?.positions?.length ?? 0) > 0 ||
-                (modelMemory?.positionsSell?.length ?? 0) > 0,
+                (modelMemory?.positionsSell?.length ?? 0) > 0 ||
+                (modelMemory?.pendingReentries?.length ?? 0) > 0,
             )
             .map(([symbol]) =>
               String(symbol || "")

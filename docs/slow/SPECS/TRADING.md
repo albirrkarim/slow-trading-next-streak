@@ -1114,19 +1114,20 @@ TC: `BOTH:STREAK_BREAK_REENTRY`
 ### B.5.8 Open-position and history lifecycle
 
 When one leg closes while its counterpart remains open, SLOW immediately adds
-the closed leg to durable trade history but retains the closed record in the
-pair's open-position data until its replacement entry succeeds. This preserves
-the dashboard's aligned pair row and pending target lifecycle. The retained leg
-is excluded from active exposure, reserve, PnL refresh, averaging,
-worker-capacity, and exit calculations. A successful role re-entry replaces
-that retained closed card. After both legs close, the complete pair is removed
-from open-position data and the next entry creates a fresh worker.
+the full closed leg to durable trade history and removes it from open-position
+data. A separate compact pending-reentry record preserves only the stable pair
+id, missing role and direction, original entry/vPoint anchor, and close reason.
+That record survives restart but is never counted as exposure, reserve, PnL,
+averaging, worker capacity, or an open position. A successful role re-entry
+clears the pending record and adds the new active leg. If both legs close, SLOW
+clears all pending state for that pair and the next entry creates a fresh worker.
 
 The dashboard's both-direction view always renders every configured coin, with
 `Open Positions Main`, per-symbol net USDT PnL, and `Open Positions Counter`.
-Net USDT PnL is the sum of the two legs. A retained closed leg uses the normal
-background and a visible closed chip. A missing role shows its role-specific
-current entry reason directly inside that MAIN or COUNTER card.
+Net USDT PnL is the sum of active legs only. A closed leg must never remain as a
+closed card in this open-position view. Its now-missing role shows the
+role-specific current entry or re-entry reason directly inside that MAIN or
+COUNTER card.
 It must not redirect the user to another UI section. `Entry Decisions` renders
 the same shared diagnostic source.
 

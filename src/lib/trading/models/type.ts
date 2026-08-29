@@ -234,6 +234,12 @@ export interface TradingModelMemory {
    */
   positionsSell?: Position[];
 
+  /**
+   * Compact durable state for a missing BOTH leg. The closed position itself
+   * belongs to history; this state only keeps what re-entry needs after restart.
+   */
+  pendingReentries?: PositionPendingReentry[];
+
   timeToBuyMS?: number | null;
 
   /**
@@ -265,6 +271,14 @@ export type PositionRole = "MAIN" | "COUNTER";
 export type PositionEntrySourceOverride = "MANUAL" | "BYPASS";
 export type PositionOpenReason = "COMMON" | "MANUAL" | "BYPASS" | "UNKNOWN";
 export type PositionCloseSourceOverride = "MANUAL" | "EXCHANGE";
+
+export interface PositionPendingReentry {
+  pairId: string;
+  role: PositionRole;
+  direction: PositionDirection;
+  opened: Pick<PositionOpenEvent, "t" | "vPoint">;
+  closeReason: PositionCloseReason;
+}
 
 export interface PositionVPointRef {
   id: string;

@@ -23,6 +23,7 @@ import {
 import { resolveBacktestFeeRatio } from "./constants";
 import bothDirection from "@/lib/trading/both-direction";
 import { applyPositionNetUsdtExtrema } from "@/lib/trading/pnl";
+import streakBreak from "@/lib/trading/streak-break";
 
 const DEFAULT_BACKTEST_EXIT_MODEL_CONFIG: TradingModelConfig = {
   takeProfitPercent: 5,
@@ -234,6 +235,10 @@ export function tryToExit({
 
         // push to closes
         modelMemoryMap[symbol].positionsSell.push(open);
+        streakBreak.pending.reconcileClosed({
+          memory: modelMemoryMap[symbol],
+          position: open,
+        });
 
         // save trade history
         backtestPack.tradeHistoryMap[symbol].push({

@@ -216,7 +216,7 @@ describe("slow specs exit", () => {
     // BOTH:VOLATILITY_TARGET_EXIT
     expect(first.reason).toContain("BOTH:VOLATILITY_TARGET_EXIT");
     expect(second.action).toBe("HOLD");
-    expect(memory.positions).toHaveLength(2);
+    expect(memory.positions).toHaveLength(1);
     expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
       "VOLATILITY_TARGET_EXIT",
     ]);
@@ -404,7 +404,7 @@ describe("slow specs exit", () => {
     // BOTH:VOLATILITY_TARGET_TP
     expect(mainExit.action).toBe("SELL");
     expect(counterExit.action).toBe("HOLD");
-    expect(memory.positions).toHaveLength(2);
+    expect(memory.positions).toHaveLength(1);
     expect(memory.positionsSell).toHaveLength(1);
   });
 
@@ -442,7 +442,7 @@ describe("slow specs exit", () => {
       tradingMode: TradingMode.SPOT,
     });
     expect(first.category).toBe(TRADE_MESSAGE.sell.SL);
-    expect(memory.positions).toHaveLength(2);
+    expect(memory.positions).toHaveLength(1);
     expect(
       memory.positions.find((position) => !position.closed)?.control?.forceExit,
     ).toBeUndefined();
@@ -459,7 +459,7 @@ describe("slow specs exit", () => {
 
     // BOTH:INDEPENDENT_LEG_STOP_LOSS
     // PROD:OPEN_POSITION_BOTH_LEG
-    expect(memory.positions).toHaveLength(2);
+    expect(memory.positions).toHaveLength(1);
     expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
       "STOP_LOSS",
     ]);
@@ -579,11 +579,10 @@ describe("slow specs exit", () => {
       // BOTH:STOP_LOSS_BY_USDT_LOSS
       // BOTH:INDEPENDENT_LEG_STOP_LOSS
       expect(exit.reason).toContain("BOTH:STOP_LOSS_BY_USDT_LOSS");
-      expect(memory.positions).toHaveLength(2);
-      expect(
-        memory.positions.find((position) => position.role === triggerRole)
-          ?.closed?.reason,
-      ).toBe("STOP_LOSS_BY_USDT_LOSS");
+      expect(memory.positions).toHaveLength(1);
+      expect(memory.positionsSell?.at(-1)?.closed?.reason).toBe(
+        "STOP_LOSS_BY_USDT_LOSS",
+      );
       const counterpart = memory.positions.find(
         (position) => position.role === counterpartRole,
       );
@@ -605,7 +604,7 @@ describe("slow specs exit", () => {
         tradingMode: TradingMode.SPOT,
       });
 
-      expect(memory.positions).toHaveLength(2);
+      expect(memory.positions).toHaveLength(1);
       expect(
         memory.positionsSell?.map((position) => position.closed?.reason),
       ).toEqual([

@@ -271,6 +271,8 @@ export default function OpenPositions({
 }
 
 function PairedOpenPositions(props: OpenPositionsProps) {
+  // Open-position UI never renders archived/legacy retained closed legs.
+  const activePositions = props.positions.filter((position) => !position.closed);
   const configuredPairs = new Map<
     string,
     {
@@ -285,7 +287,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
     ]),
   );
   const pairs = Array.from(
-    props.positions.reduce((map, position) => {
+    activePositions.reduce((map, position) => {
       const symbol = position.symbol.trim().toUpperCase();
       const current = map.get(symbol) ?? {
         symbol,
@@ -301,7 +303,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
   ).map(([, pair]) => pair);
 
   const totalAbsolutePnlUsdt = openPositionPnlContribution.totalAbsolute(
-    props.positions,
+    activePositions,
   );
   const renderPosition = (
     title: string,
