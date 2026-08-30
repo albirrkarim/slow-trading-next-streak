@@ -4,6 +4,7 @@ import slowTradingPerformance, {
 import type {
   SlowTradingModeState,
   SlowTradingStage,
+  SlowTradingStageRunCheck,
   SlowTradingStageRunStats,
 } from "./types";
 
@@ -13,6 +14,7 @@ function recordCompleted(params: {
   modeState: SlowTradingModeState;
   performanceEntries: SlowTradingCyclePerformanceEntry[];
   reports: number;
+  checks?: SlowTradingStageRunCheck[];
   stage?: SlowTradingStage;
   summary: string;
   symbols: number;
@@ -36,6 +38,9 @@ function recordCompleted(params: {
     reports: params.reports,
     summary: params.summary,
     performance,
+    ...(params.checks && params.checks.length > 0
+      ? { checks: params.checks }
+      : {}),
   };
   if (params.stage) {
     // PROD:STAGE_RUN_STATS

@@ -105,8 +105,11 @@ function formatLastRunLabel(dashboardState: SlowTradingDashboardState) {
 function StagePerformanceTable({ run }: { run: SlowTradingStageRunStats }) {
   return (
     <Box sx={{ px: 1.5, py: 1 }}>
-      <Typography display="block" sx={{ mb: 0.5 }} variant="caption">
+      <Typography display="block" sx={{ mb: 0.25 }} variant="caption">
         {run.summary}
+      </Typography>
+      <Typography display="block" sx={{ mb: 0.75, opacity: 0.75 }} variant="caption">
+        Completed {moment(run.t).format("D MMM HH:mm:ss")}
       </Typography>
       {run.performance.sections.length > 0 ? (
         <Table
@@ -139,6 +142,46 @@ function StagePerformanceTable({ run }: { run: SlowTradingStageRunStats }) {
         <Typography display="block" sx={{ opacity: 0.75 }} variant="caption">
           No timed work was needed for this pass.
         </Typography>
+      )}
+      {run.checks && run.checks.length > 0 && (
+        <Box sx={{ mt: 1 }}>
+          <Typography display="block" sx={{ fontWeight: 700, mb: 0.5 }} variant="caption">
+            Cycle checks
+          </Typography>
+          <Table aria-label="Stage cycle checks" padding="none" size="small">
+            <TableBody>
+              {run.checks.map((check, index) => {
+                const status = check.ok
+                  ? "Executed"
+                  : check.a === "BLOCKED"
+                    ? "Blocked"
+                    : "No action";
+                return (
+                  <TableRow key={`${check.s}-${check.r ?? "PAIR"}-${index}`}>
+                    <TableCell sx={{ border: 0, py: 0.4, pr: 1, verticalAlign: "top" }}>
+                      <Typography sx={{ fontWeight: 700, whiteSpace: "nowrap" }} variant="caption">
+                        {check.s}{check.r ? ` ${check.r}` : ""}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ border: 0, py: 0.4, pr: 1, verticalAlign: "top" }}>
+                      <Chip
+                        color={check.ok ? "success" : "warning"}
+                        label={`${status} · ${check.a}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell sx={{ border: 0, py: 0.4 }}>
+                      <Typography sx={{ overflowWrap: "anywhere" }} variant="caption">
+                        {check.m}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Box>
       )}
     </Box>
   );
@@ -217,7 +260,7 @@ function StageRunsTable({
                   </TableCell>
                   <TableCell sx={{ px: 1, whiteSpace: "nowrap" }}>
                     <Typography variant="caption">
-                      {run ? moment(run.t).format("D MMM HH:mm") : "Never"}
+                      {run ? moment(run.t).format("D MMM HH:mm:ss") : "Never"}
                     </Typography>
                   </TableCell>
                   <TableCell align="right" sx={{ px: 1 }}>

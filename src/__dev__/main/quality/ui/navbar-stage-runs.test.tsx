@@ -26,6 +26,15 @@ describe("navbar production stage runs", () => {
                   reports: 0,
                   summary:
                     "sandbox speedup cycle finished with 0 report(s)",
+                  checks: [
+                    {
+                      s: "ZRO",
+                      r: "COUNTER",
+                      a: "BLOCKED",
+                      ok: false,
+                      m: "Entry budget was below the minimum",
+                    },
+                  ],
                   performance: {
                     totalMs: 2_000,
                     sections: [
@@ -85,6 +94,12 @@ describe("navbar production stage runs", () => {
     ).toBeTruthy();
     expect(screen.getByText("latest prices")).toBeTruthy();
     expect(screen.queryByText("reporting sync")).toBeNull();
+    expect(
+      await screen.findByRole("table", { name: "Stage cycle checks" }),
+    ).toBeTruthy();
+    expect(screen.getByText("ZRO COUNTER")).toBeTruthy();
+    expect(screen.getByText("Blocked · BLOCKED")).toBeTruthy();
+    expect(screen.getByText("Entry budget was below the minimum")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Hide Speedup performance" }),
     ).toBeTruthy();

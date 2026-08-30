@@ -27,6 +27,20 @@ export type SlowTradingStage =
   | "management"
   | "capture-entry";
 
+/** Compact persisted execution/check result shown in the navbar cycle report. */
+export interface SlowTradingStageRunCheck {
+  /** Normalized symbol. */
+  s: string;
+  /** Pair role when the result belongs to one BOTH leg. */
+  r?: PositionRole;
+  /** Attempted action, or BLOCKED when execution did not start. */
+  a: "BLOCKED" | "BUY" | "HOLD" | "SELL" | "SHORT";
+  /** Whether an exchange/sandbox execution action completed. */
+  ok: boolean;
+  /** Compact human-readable execution or blocking result. */
+  m: string;
+}
+
 /** Compact persisted result of one successful production-stage pass. */
 export interface SlowTradingStageRunStats {
   /** Completion timestamp in milliseconds. */
@@ -41,6 +55,8 @@ export interface SlowTradingStageRunStats {
   summary: string;
   /** Section-duration breakdown captured for this pass. */
   performance: SlowTradingCyclePerformanceSummary;
+  /** Latest per-symbol execution and blocking results for debugging. */
+  checks?: SlowTradingStageRunCheck[];
 }
 
 /** Latest successful pass retained independently for each production stage. */

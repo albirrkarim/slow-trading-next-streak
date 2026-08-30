@@ -4,6 +4,7 @@ import fs from "fs-extra";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestPosition } from "../fixtures/position";
 
 const exchangeMocks = vi.hoisted(() => ({
   adjustQuantity: vi.fn(),
@@ -161,6 +162,7 @@ describe("slow cycle performance", () => {
         await delay(5);
         dynamicTradeMemory.priceNormMapOverTime = {
           SUI: [{ t: Date.UTC(2026, 0, 1, 0, 5), value: 1 }],
+          BTC: [{ t: Date.UTC(2026, 0, 1, 0, 5), value: 1 }],
         };
       },
     );
@@ -191,6 +193,7 @@ describe("slow cycle performance", () => {
     storage.runtime.autoEntryEnabled = true;
     storage.runtime.autoExitEnabled = false;
     storage.runtime.sandboxInitialBalanceUSDT = 1_000;
+    storage.runtime.exchangeAccounts[0].futuresPositionMode = "HEDGE";
     storage.modes.sandbox = slowTradingStorage.mode.ensureTradeSettings(
       storage.modes.sandbox,
       storage.config.symbols,
@@ -243,9 +246,98 @@ describe("slow cycle performance", () => {
     ).toBe(true);
     expect(dashboard.stats.stageRuns["capture-entry"]?.symbols).toBe(3);
     expect(dashboard.stats.stageRuns["capture-entry"]?.reports).toBe(1);
+    expect(dashboard.stats.stageRuns["capture-entry"]?.checks).toMatchObject([
+      {
+        s: "SUI",
+        a: "BUY",
+        ok: true,
+      },
+    ]);
     expect(slowestLeaf).toEqual([
       "signals.assignVolatility",
       expect.any(Number),
+    ]);
+  });
+
+  it("executes a pending BOTH re-entry during Capture Entry", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const { TradingMode } = await import("@/lib/exchange");
+    const storage = slowTradingStorage.data.createDefault();
+    storage.config.symbols = ["SUI"];
+    storage.config.exchangeType = "binance";
+    storage.config.tradingMode = TradingMode.FUTURES;
+    storage.config.openDirection = "BOTH";
+    storage.config.enableWatchLogic = false;
+    storage.config.minAbsLevelToEntry = 0;
+    storage.runtime.sandboxEnabled = true;
+    storage.runtime.runnerEnabled = true;
+    storage.runtime.autoEntryEnabled = true;
+    storage.runtime.autoExitEnabled = false;
+    storage.runtime.sandboxInitialBalanceUSDT = 1_000;
+    storage.runtime.exchangeAccounts[0].futuresPositionMode = "HEDGE";
+    storage.modes.sandbox = slowTradingStorage.mode.ensureTradeSettings(
+      storage.modes.sandbox,
+      storage.config.symbols,
+    );
+    const survivor = createTestPosition({
+      direction: "LONG",
+      entryId: "SUI_original_bottom",
+      entryTime: Date.UTC(2025, 11, 31, 23, 55),
+      executionMode: "sandbox",
+      role: "MAIN",
+      symbol: "SUI",
+      tradingMode: TradingMode.FUTURES,
+    });
+    survivor.pairId = "SUI:PAIR";
+    const memory = storage.modes.sandbox.tradeSettings[0].model_memory;
+    memory.positions = [survivor];
+    memory.pendingReentries = [
+      {
+        pairId: survivor.pairId,
+        role: "COUNTER",
+        direction: "SHORT",
+        opened: {
+          t: survivor.opened.t,
+          vPoint: survivor.opened.vPoint,
+        },
+        closeReason: "VOLATILITY_TARGET_EXIT",
+      },
+    ];
+    await fs.outputJSON(
+      path.join(tmpRoot!, "slow/binance/priceNormMapOverTime.json"),
+      {},
+    );
+    await slowTradingStorage.data.save(storage);
+
+    const result = await slowTrading.service.runSlowTradingCycle({
+      stage: "capture-entry",
+    });
+    const persisted = await slowTradingStorage.data.load({
+      modeScope: "active",
+    });
+    const persistedMemory =
+      persisted.modes.sandbox.tradeSettings[0].model_memory;
+
+    // PROD:CAPTURE_ENTRY_STAGE
+    // BOTH:STREAK_BREAK_REENTRY
+    expect(result.symbols).toEqual(["SUI"]);
+    expect(result.executedEntrySignals).toBe(1);
+    expect(persistedMemory.positions).toHaveLength(2);
+    expect(persistedMemory.positions.map((position) => position.role)).toEqual([
+      "MAIN",
+      "COUNTER",
+    ]);
+    expect(persistedMemory.pendingReentries).toBeUndefined();
+    expect(
+      persisted.modes.sandbox.stageRuns?.["capture-entry"]?.checks,
+    ).toMatchObject([
+      {
+        s: "SUI",
+        r: "COUNTER",
+        a: "BUY",
+        ok: true,
+      },
     ]);
   });
 });

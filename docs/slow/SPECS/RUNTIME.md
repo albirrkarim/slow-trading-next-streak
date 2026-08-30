@@ -65,8 +65,10 @@ time:
 - Speedup owns an open position when any Speedup promotion rule below is true.
 - Standard Monitoring owns every other open position and excludes all Speedup
   positions.
-- Capture Entry owns configured coins without an open position and excludes
-  every coin that already has one.
+- Capture Entry owns configured coins without an open position and any BOTH
+  coin with compact pending-reentry state. An incomplete BOTH pair therefore
+  remains in its surviving leg's monitoring stage while Capture Entry separately
+  owns the missing-leg replacement attempt.
 
 Management is independent from those trading responsibilities. It evaluates
 every configured coin, including coins with open positions, without running
@@ -147,7 +149,10 @@ TC: `PROD:CAPTURE_ENTRY_STAGE`
 Each mode retains the latest successful pass for every stage in the optional,
 backward-compatible `modeState.stageRuns` map. Each record contains its
 completion time (`t`), duration (`ms`), eligible-symbol count, execution-report
-count, summary, and section-duration breakdown. A successful pass with zero
+count, summary, section-duration breakdown, and up to the latest 100 compact
+per-symbol execution or blocking checks. Each check retains symbol, optional
+MAIN/COUNTER role, attempted action, success state, and the execution/blocking
+message. A successful pass with zero
 eligible symbols is recorded so scheduler health does not appear stale. A
 disabled or failed pass does not replace the last successful record. Empty
 passes use one mode-memory write; that write is intentionally excluded from the
@@ -159,6 +164,9 @@ The legacy `lastRunAt`, `lastRunDurationMs`, `lastRunSummary`, and
 for compatibility. The navbar Last Run tooltip shows all four stage records in
 a table using `<reports> reports / <eligible coins> coins` for each result.
 Expanding a stage renders only that stage's captured performance sections. The
+expanded report also shows its exact completion time including seconds and its
+per-symbol cycle checks, so a failed or blocked entry is distinguishable from a
+successful order. The
 tooltip uses a high-contrast foreground and divider treatment in both light and
 dark dashboard themes.
 
@@ -596,6 +604,12 @@ reason used by the entry decision flow. The browser does not reimplement or
 translate decision reasons. In BOTH mode, a missing MAIN or COUNTER card shows
 that shared role-specific reason inline and is expanded by default; it never
 redirects the user to `Entry Decisions` to discover the reason.
+The missing-role card also shows the diagnostic generation time and the latest
+completed Capture Entry stage time, both including seconds. A ready diagnostic
+generated after the last Capture Entry pass explicitly says that execution has
+not checked that state yet. Diagnostics refresh after every newly observed
+Capture Entry completion, while the navbar stage report retains that pass's
+actual per-symbol execution or blocking message.
 
 For decision.v19, diagnostics distinguish an already-used vPoint, missing BTC
 market context, classifier rejection, waiting for a projected faster exit,

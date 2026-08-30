@@ -16,7 +16,10 @@ import streakBreak from "@/lib/trading/streak-break";
 import slowTradingReporting from "./reporting";
 import slowTradingStorage from "./storage";
 import slowTradingWatchReserve from "./watch-reserve";
-import type { SlowTradingMode } from "./types";
+import type {
+  SlowTradingMode,
+  SlowTradingStageRunCheck,
+} from "./types";
 import slowTradingBalance from "./balance";
 import slowTradingCache from "./cache";
 import slowTradingExchangeSync from "./exchange-sync";
@@ -39,6 +42,60 @@ import slowTradingStages, { type SlowTradingStage } from "./stages";
 import slowTradingMutationQueue from "./mutation-queue";
 import slowTradingStageRun from "./stage-run";
 import slowTradingBlackSwan from "./black-swan";
+
+const MAX_STAGE_RUN_CHECKS = 100;
+const MAX_STAGE_RUN_CHECK_MESSAGE_LENGTH = 500;
+
+/** Builds one compact navbar-debug result from an execution report. */
+function buildStageRunExecutionCheck(params: {
+  report: TradingReturn;
+  role?: PositionRole;
+  symbol: string;
+}): SlowTradingStageRunCheck {
+  const action =
+    params.report.tradingDetail?.action ?? params.report.action ?? "HOLD";
+  return {
+    s: params.symbol.trim().toUpperCase(),
+    r: params.role,
+    a: action,
+    ok: action === "BUY" || action === "SELL" || action === "SHORT",
+    m: String(params.report.message || "No execution message")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, MAX_STAGE_RUN_CHECK_MESSAGE_LENGTH),
+  };
+}
+
+/** Merges execution reports and skipped-entry reasons for the stage report. */
+function buildStageRunChecks(params: {
+  executionChecks: SlowTradingStageRunCheck[];
+  skippedEntries: SlowTradingSkippedEntrySignal[];
+}): SlowTradingStageRunCheck[] {
+  const checks = [...params.executionChecks];
+  for (const skipped of params.skippedEntries) {
+    const check: SlowTradingStageRunCheck = {
+      s: skipped.symbol.trim().toUpperCase(),
+      r: skipped.role,
+      a: "BLOCKED",
+      ok: false,
+      m: skipped.reason
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, MAX_STAGE_RUN_CHECK_MESSAGE_LENGTH),
+    };
+    if (
+      !checks.some(
+        (candidate) =>
+          candidate.s === check.s &&
+          candidate.r === check.r &&
+          candidate.m === check.m,
+      )
+    ) {
+      checks.push(check);
+    }
+  }
+  return checks.slice(-MAX_STAGE_RUN_CHECKS);
+}
 
 interface RunSlowTradingCycleParams {
   bypass?: boolean;
@@ -557,6 +614,7 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
         });
 
       const reports: TradingReturn[] = [];
+      const executionChecks: SlowTradingStageRunCheck[] = [];
       const skippedEntrySignals: SlowTradingSkippedEntrySignal[] = [];
       let entryGuardMinimumPrice =
         storage.runtime.autoRemoveSymbolMinPrice ?? 0;
@@ -775,6 +833,12 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
             );
 
             reports.push(report);
+            executionChecks.push(
+              buildStageRunExecutionCheck({
+                report,
+                symbol: entrySymbol,
+              }),
+            );
 
             if (report.tradingDetail?.action === "BUY") {
               slowTradingWatchReserve.volatilityPoint.markUsed({
@@ -910,6 +974,13 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
           );
 
           reports.push(report);
+          executionChecks.push(
+            buildStageRunExecutionCheck({
+              report,
+              role: positionRole,
+              symbol: trade.symbol ?? "",
+            }),
+          );
 
           if (isSandbox && report.tradingDetail) {
             dynamicTradeMemory.quoteAsset = report.tradingDetail.finalBalance;
@@ -1009,6 +1080,12 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
           );
 
           reports.push(report);
+          executionChecks.push(
+            buildStageRunExecutionCheck({
+              report,
+              symbol: trade.symbol ?? "",
+            }),
+          );
 
           if (report.tradingDetail?.action === "BUY") {
             const reservedAfter =
@@ -1140,6 +1217,13 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
               }),
             );
             reports.push(report);
+            executionChecks.push(
+              buildStageRunExecutionCheck({
+                report,
+                role: decision.role,
+                symbol,
+              }),
+            );
 
             if (report.tradingDetail?.action === "BUY") {
               slowTradingWatchReserve.volatilityPoint.markUsed({
@@ -1297,11 +1381,16 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
         `${activeMode}${stage ? ` ${stage}` : ""} cycle finished with ${reports.length} report(s)` +
         ` | auto entry ${shouldAutoEnter ? "on" : "off"}` +
         ` | auto exit ${shouldAutoExit ? "on" : "off"}`;
+      const stageRunChecks = buildStageRunChecks({
+        executionChecks,
+        skippedEntries: skippedEntrySignals,
+      });
       slowTradingStageRun.recordCompleted({
         cycleStartedAt,
         modeState,
         performanceEntries,
         reports: reports.length,
+        checks: stageRunChecks,
         stage,
         summary: lastRunSummary,
         symbols: symbols.length,
@@ -1333,6 +1422,7 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
         modeState,
         performanceEntries,
         reports: reports.length,
+        checks: stageRunChecks,
         stage,
         summary: lastRunSummary,
         symbols: symbols.length,

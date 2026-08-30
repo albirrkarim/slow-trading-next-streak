@@ -260,9 +260,13 @@ function selectStageSymbols(params: {
     return Array.from(
       new Set(params.configuredSymbols.map(normalizeSymbol).filter(Boolean)),
     ).filter(
-      (symbol) =>
-        (tradeSettingBySymbol.get(symbol)?.model_memory.positions?.length ?? 0) ===
-        0,
+      (symbol) => {
+        const memory = tradeSettingBySymbol.get(symbol)?.model_memory;
+        return (
+          (memory?.positions?.length ?? 0) === 0 ||
+          (memory?.pendingReentries?.length ?? 0) > 0
+        );
+      },
     );
   }
 

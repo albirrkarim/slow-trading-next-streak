@@ -135,6 +135,7 @@ export default function DynamicTradeHistoryPage({
   const [deletingSymbol, setDeletingSymbol] = useState<string | null>(null);
   const [resettingVPointUsed, setResettingVPointUsed] = useState(false);
   const entryDiagnostics = useEntryDiagnostics();
+  const refreshEntryDiagnostics = entryDiagnostics.refresh;
   const [volume24hBySymbol, setVolume24hBySymbol] = useState<
     Record<string, number>
   >({});
@@ -149,6 +150,8 @@ export default function DynamicTradeHistoryPage({
   >({});
   const [dashboardState, setDashboardState] =
     useState<SlowTradingDashboardState | null>(null);
+  const captureEntryLastRunAt =
+    dashboardState?.stats.stageRuns?.["capture-entry"]?.t ?? 0;
   const [quickSimulationSeries, setQuickSimulationSeries] =
     useState<QuickBacktestSimulationSeries>({
       names: [],
@@ -168,6 +171,12 @@ export default function DynamicTradeHistoryPage({
     const dailyUsdtProfit = computeDayPreview(dashboardState).dailyUsdtProfit;
     document.title = formatDailyPnlMetaTitle(appName, dailyUsdtProfit);
   }, [appName, dashboardState]);
+
+  useEffect(() => {
+    if (captureEntryLastRunAt > 0) {
+      void refreshEntryDiagnostics();
+    }
+  }, [captureEntryLastRunAt, refreshEntryDiagnostics]);
 
   const tagDescriptions = useMemo(
     () =>
@@ -842,8 +851,10 @@ export default function DynamicTradeHistoryPage({
                   mode={dashboardState?.activeMode ?? "live"}
                   exchangeType={currentExchangeType}
                   entryDiagnostics={entryDiagnostics.diagnostics}
+                  entryDiagnosticsGeneratedAt={entryDiagnostics.generatedAt}
                   entryDiagnosticsError={entryDiagnostics.error}
                   entryDiagnosticsLoading={entryDiagnostics.loading}
+                  captureEntryLastRunAt={captureEntryLastRunAt}
                   positions={dashboardState?.openPositions ?? []}
                   spendableQuoteAsset={
                     dashboardState.balances.spendableQuoteAsset
@@ -906,8 +917,10 @@ export default function DynamicTradeHistoryPage({
                     mode={dashboardState?.activeMode ?? "live"}
                     exchangeType={currentExchangeType}
                     entryDiagnostics={entryDiagnostics.diagnostics}
+                    entryDiagnosticsGeneratedAt={entryDiagnostics.generatedAt}
                     entryDiagnosticsError={entryDiagnostics.error}
                     entryDiagnosticsLoading={entryDiagnostics.loading}
+                    captureEntryLastRunAt={captureEntryLastRunAt}
                     positions={dashboardState?.openPositions ?? []}
                     spendableQuoteAsset={
                       dashboardState.balances.spendableQuoteAsset

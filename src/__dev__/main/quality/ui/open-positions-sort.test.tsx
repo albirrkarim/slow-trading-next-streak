@@ -51,7 +51,9 @@ describe("OpenPositions PnL sorting", () => {
             symbol: "SUI",
           },
         ]}
+        entryDiagnosticsGeneratedAt={Date.UTC(2026, 7, 30, 6, 43, 12)}
         entryDiagnosticsLoading={false}
+        captureEntryLastRunAt={Date.UTC(2026, 7, 30, 6, 40, 9)}
         exchangeType={"binance" as any}
         mode="sandbox"
         onCoinDescriptionChange={vi.fn()}
@@ -99,10 +101,12 @@ describe("OpenPositions PnL sorting", () => {
             code: "STREAK_REENTRY_WAITING",
             reason: "COUNTER is waiting for an unused confirmed vPoint",
             role: "COUNTER",
-            status: "blocked",
+            status: "ready",
             symbol: "APT",
           },
         ]}
+        entryDiagnosticsGeneratedAt={Date.UTC(2026, 7, 30, 6, 43, 12)}
+        captureEntryLastRunAt={Date.UTC(2026, 7, 30, 6, 40, 9)}
         exchangeType={"binance" as any}
         mode="sandbox"
         onCoinDescriptionChange={vi.fn()}
@@ -119,6 +123,13 @@ describe("OpenPositions PnL sorting", () => {
     expect(screen.queryByTestId("open-position")).toBeNull();
     expect(document.body.textContent).toContain(
       "COUNTER is waiting for an unused confirmed vPoint",
+    );
+    expect(document.body.textContent).toContain(
+      "Ready after the last Capture Entry pass",
+    );
+    expect(document.body.textContent).toContain("Decision checked 30 Aug 13:43:12");
+    expect(document.body.textContent).toContain(
+      "Capture Entry completed 30 Aug 13:40:09",
     );
   });
 

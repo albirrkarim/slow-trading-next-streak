@@ -129,6 +129,35 @@ describe("slow specs runtime", () => {
     ).toEqual(["SUI", "AAVE", "BTC"]);
   });
 
+  it("includes an incomplete BOTH pair in Capture Entry", () => {
+    const modeState = createModeState();
+    const survivor = modeState.tradeSettings[0].model_memory.positions![0];
+    survivor.pairId = "SUI:PAIR";
+    survivor.role = "MAIN";
+    modeState.tradeSettings[0].model_memory.pendingReentries = [
+      {
+        pairId: survivor.pairId,
+        role: "COUNTER",
+        direction: "SHORT",
+        opened: {
+          t: survivor.opened.t,
+          vPoint: survivor.opened.vPoint,
+        },
+        closeReason: "VOLATILITY_TARGET_EXIT",
+      },
+    ];
+
+    // PROD:CAPTURE_ENTRY_STAGE
+    // BOTH:STREAK_BREAK_REENTRY
+    expect(
+      slowTrading.stages.symbols.select({
+        configuredSymbols: ["SUI"],
+        modeState,
+        stage: "capture-entry",
+      }),
+    ).toEqual(["SUI"]);
+  });
+
   it("uses independent positive and negative PnL thresholds for Speedup", () => {
     const modeState = createModeState();
     const position = modeState.tradeSettings[0].model_memory.positions![0];

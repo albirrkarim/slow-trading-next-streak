@@ -38,8 +38,10 @@ interface OpenPositionsProps {
   mode: SlowTradingMode;
   exchangeType: DynamicTradeConfig["exchangeType"];
   entryDiagnostics?: SlowTradingEntryDiagnostic[];
+  entryDiagnosticsGeneratedAt?: number;
   entryDiagnosticsError?: string;
   entryDiagnosticsLoading?: boolean;
+  captureEntryLastRunAt?: number;
   positions: SlowTradingHistoryPosition[];
   spendableQuoteAsset: number;
   exitingPosition?: { role?: PositionRole; symbol: string } | null;
@@ -101,8 +103,10 @@ export default function OpenPositions({
   mode,
   exchangeType,
   entryDiagnostics,
+  entryDiagnosticsGeneratedAt,
   entryDiagnosticsError,
   entryDiagnosticsLoading,
+  captureEntryLastRunAt,
   positions,
   spendableQuoteAsset,
   exitingPosition,
@@ -134,8 +138,10 @@ export default function OpenPositions({
         coinTags={coinTags}
         config={config}
         entryDiagnostics={entryDiagnostics}
+        entryDiagnosticsGeneratedAt={entryDiagnosticsGeneratedAt}
         entryDiagnosticsError={entryDiagnosticsError}
         entryDiagnosticsLoading={entryDiagnosticsLoading}
+        captureEntryLastRunAt={captureEntryLastRunAt}
         exchangeType={exchangeType}
         exitingPosition={exitingPosition}
         mode={mode}
@@ -336,6 +342,19 @@ function PairedOpenPositions(props: OpenPositionsProps) {
               : undefined,
           ].filter(Boolean).join(" · ")
         : "";
+      const decisionCheckedAt = props.entryDiagnosticsGeneratedAt ?? 0;
+      const captureEntryLastRunAt = props.captureEntryLastRunAt ?? 0;
+      const timingMeta = [
+        decisionCheckedAt > 0
+          ? `Decision checked ${moment(decisionCheckedAt).format("D MMM HH:mm:ss")}`
+          : "Decision check time unavailable",
+        captureEntryLastRunAt > 0
+          ? `Capture Entry completed ${moment(captureEntryLastRunAt).format("D MMM HH:mm:ss")}`
+          : "Capture Entry has never completed",
+      ].join(" · ");
+      const awaitsNextCaptureEntry =
+        diagnostic?.status === "ready" &&
+        decisionCheckedAt > captureEntryLastRunAt;
 
       return (
         <HeaderMetrics
@@ -364,6 +383,19 @@ function PairedOpenPositions(props: OpenPositionsProps) {
               <Box sx={{ borderTop: 1, borderColor: "divider", p: 1.5 }}>
                 <Typography color="text.secondary" variant="body2">
                   {reason}
+                </Typography>
+                {awaitsNextCaptureEntry && (
+                  <Typography color="success.main" sx={{ display: "block", mt: 0.5 }} variant="caption">
+                    Ready after the last Capture Entry pass; execution has not
+                    checked this state yet.
+                  </Typography>
+                )}
+                <Typography
+                  color="text.disabled"
+                  sx={{ display: "block", mt: 0.5 }}
+                  variant="caption"
+                >
+                  {timingMeta}
                 </Typography>
                 {diagnostic && (
                   <Typography
