@@ -24,6 +24,7 @@ import type { BlackSwanState } from "@/lib/trading/black-swan";
 import slowTradingDailyPerformance, {
   type SlowTradingDailyPerformanceReport,
 } from "./daily-performance";
+import type { DailyPnlLimitEvaluation } from "./daily-pnl-limit";
 
 const HOUR_MS = 60 * 60 * 1000;
 const NOTIFICATION_CHANNELS: NotificationChannel[] = ["telegram", "email"];
@@ -45,6 +46,101 @@ export interface SlowTradingManagementAction {
   source: string;
   symbol: string;
   t?: number;
+}
+
+/** Builds the notification emitted when the current daily PnL entry stop is reached. */
+export function buildSlowTradingDailyPnlLimitNotification(params: {
+  currentTimeMs?: number;
+  evaluation: DailyPnlLimitEvaluation;
+  exchangeType: SlowTradingStorageData["config"]["exchangeType"];
+  mode: SlowTradingMode;
+}): { message: string; title: string } {
+  const modePrefix = params.mode === "sandbox" ? "[SANDBOX] " : "";
+  return {
+    title:
+      `${modePrefix}[DAILY PNL ENTRY STOP] ` +
+      formatSignedUsdt(params.evaluation.pnlUsdt),
+    message: [
+      `UTC day: ${params.evaluation.day}`,
+      `Mode: ${params.mode}`,
+      `Exchange: ${params.exchangeType}`,
+      `Navbar USD PnL: ${formatSignedUsdt(params.evaluation.pnlUsdt)}`,
+      `Auto-entry stop: ${formatSignedUsdt(params.evaluation.thresholdUsdt)}`,
+      "Automatic entry: PAUSED",
+      "Automatic exits and manual entries remain available.",
+      `Time: ${new Date(params.currentTimeMs ?? Date.now()).toISOString()}`,
+    ].join("\n"),
+  };
+}
+
+/** Sends one notification per channel for each daily-PnL-limit breach transition. */
+export async function notifySlowTradingDailyPnlLimit(params: {
+  currentTimeMs?: number;
+  evaluation: DailyPnlLimitEvaluation;
+  exchangeType: SlowTradingStorageData["config"]["exchangeType"];
+  mode: SlowTradingMode;
+  modeState: SlowTradingModeState;
+  notification: DashboardNotificationConfig;
+}): Promise<boolean> {
+  const state = params.modeState.dailyPnlLimitNotificationState ?? {};
+  params.modeState.dailyPnlLimitNotificationState = state;
+
+  if (!params.evaluation.reached) {
+    let changed = false;
+    for (const channel of NOTIFICATION_CHANNELS) {
+      if (
+        state[channel]?.d === params.evaluation.day &&
+        state[channel]?.b
+      ) {
+        state[channel] = { b: false, d: params.evaluation.day };
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  const content = buildSlowTradingDailyPnlLimitNotification(params);
+  let changed = false;
+  for (const channel of NOTIFICATION_CHANNELS) {
+    const alreadyNotified =
+      state[channel]?.d === params.evaluation.day && state[channel]?.b;
+    if (
+      alreadyNotified ||
+      !getNotificationTypeConfig(
+        params.notification,
+        channel,
+        "NOTIF_DAILY_PNL_LIMIT",
+      )
+    ) {
+      continue;
+    }
+
+    try {
+      await trading.notif.central({
+        dashboard: "SLOW",
+        channel,
+        // PROD:NOTIF_DAILY_PNL_LIMIT
+        key: "NOTIF_DAILY_PNL_LIMIT",
+        dedupeKey: [
+          "slow-daily-pnl-limit",
+          channel,
+          params.mode,
+          params.evaluation.day,
+          params.evaluation.pnlUsdt,
+        ].join(":"),
+        ...content,
+      });
+      state[channel] = { b: true, d: params.evaluation.day };
+      changed = true;
+    } catch (error) {
+      tradeLog.error(
+        `[slow-trading] failed to send ${channel} daily PnL entry-stop notification`,
+        error,
+      );
+    }
+  }
+
+  return changed;
 }
 
 /** Sends one transition-level notification for portfolio crash protection. */
@@ -788,6 +884,10 @@ const slowTradingNotifications = {
   dailyPerformance: {
     build: buildSlowTradingDailyPerformanceNotification,
     notify: notifySlowTradingDailyPerformance,
+  },
+  dailyPnlLimit: {
+    build: buildSlowTradingDailyPnlLimitNotification,
+    notify: notifySlowTradingDailyPnlLimit,
   },
   highVolatility: {
     notify: notifyHighVolatilityLevels,

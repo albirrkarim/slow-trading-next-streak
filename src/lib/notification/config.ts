@@ -21,6 +21,7 @@ export const SLOW_NOTIFICATION_KEYS = [
   "NOTIF_LONG_OPEN_POSITION",
   "NOTIF_MANAGEMENT_ACTION",
   "NOTIF_BLACK_SWAN_ACTION",
+  "NOTIF_DAILY_PNL_LIMIT",
   "NOTIF_DAILY_PERFORMANCE",
   "NOTIF_ERROR",
 ] as const;
@@ -94,6 +95,11 @@ export const SLOW_NOTIFICATION_TYPE_INFO: Record<
     label: "Black Swan Action",
     description:
       "Sent when portfolio protection changes state or schedules emergency position exits.",
+  },
+  NOTIF_DAILY_PNL_LIMIT: {
+    label: "Daily PnL Entry Stop",
+    description:
+      "Sent when current UTC-day navbar USD PnL reaches the configured automatic-entry stop.",
   },
   NOTIF_DAILY_PERFORMANCE: {
     label: "Daily Trade Performance",

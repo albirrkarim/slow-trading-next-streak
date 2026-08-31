@@ -88,7 +88,9 @@ function openModelMemory(): TradingModelMemory {
 
 async function saveStorage(params: {
   autoEntryEnabled?: boolean;
+  autoEntryDailyPnlLimitUSDT?: number;
   autoExitEnabled?: boolean;
+  dailyPnlUsdt?: number;
   enableWatchLogic?: boolean;
   openPosition?: boolean;
   runnerEnabled?: boolean;
@@ -103,6 +105,8 @@ async function saveStorage(params: {
   storage.config.symbols = ["SUI"];
   storage.config.enableWatchLogic = params.enableWatchLogic ?? false;
   storage.runtime.autoEntryEnabled = params.autoEntryEnabled ?? false;
+  storage.runtime.autoEntryDailyPnlLimitUSDT =
+    params.autoEntryDailyPnlLimitUSDT ?? -50;
   storage.runtime.autoExitEnabled = params.autoExitEnabled ?? false;
   storage.runtime.runnerEnabled = params.runnerEnabled ?? true;
   storage.runtime.sandboxEnabled = false;
@@ -126,7 +130,28 @@ async function saveStorage(params: {
     storage.modes.live.tradeSettings[0].model_memory = openModelMemory();
   }
 
+  if (params.dailyPnlUsdt !== undefined) {
+    storage.runtime.notification.telegram.enabled = false;
+    storage.runtime.notification.email.enabled = false;
+    storage.modes.live.tradeSettings[0].model_memory.positionsSell = [
+      createTestPosition({
+        entryTime: Date.now() - 120_000,
+        netUsdt: params.dailyPnlUsdt,
+        symbol: "SUI",
+        closed: {
+          feeUsdt: 0,
+          price: 100,
+          reason: "STOP_LOSS",
+          t: Date.now() - 60_000,
+        },
+      }),
+    ];
+  }
+
   await slowTrading.storage.data.save(storage);
+  if (params.dailyPnlUsdt !== undefined) {
+    await slowTrading.storage.mode.saveState("live", storage.modes.live);
+  }
 
   return { slowTrading, storage };
 }
@@ -212,6 +237,33 @@ describe("settings behavior: runtime cycle toggles", () => {
     await enabled.slowTrading.service.runSlowTradingCycle();
 
     expect(enabledBuild).toHaveBeenCalledOnce();
+  });
+
+  it("stops automatic entry at the daily navbar PnL limit but allows manual entry", async () => {
+    const { slowTrading } = await saveStorage({
+      autoEntryDailyPnlLimitUSDT: -50,
+      autoEntryEnabled: true,
+      dailyPnlUsdt: -55,
+      runnerEnabled: true,
+    });
+    const buildSignals = vi.spyOn(slowTrading.signals, "build");
+
+    // PROD:AUTO_ENTRY_DAILY_PNL_LIMIT_USDT
+    await slowTrading.service.runSlowTradingCycle({
+      stage: "capture-entry",
+    });
+    expect(buildSignals).not.toHaveBeenCalled();
+    expect(
+      (await slowTrading.storage.data.load()).modes.live.dailyPnlLimitState,
+    ).toEqual({
+      d: new Date().toISOString().slice(0, 10),
+      usdt: -55,
+    });
+
+    await slowTrading.service.runSlowTradingCycle({
+      forceEntrySymbols: ["SUI"],
+    });
+    expect(buildSignals).toHaveBeenCalledOnce();
   });
 
   it("keeps entry capture separate from open-position monitoring", async () => {

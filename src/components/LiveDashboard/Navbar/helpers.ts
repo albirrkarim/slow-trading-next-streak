@@ -13,7 +13,6 @@ import type { Theme } from "@mui/material";
 
 import {
   computeDailyPnlPercentStats,
-  computeDailyPnlUsdtStats,
 } from "../Reporting/utils";
 import type {
   BalanceSummary,
@@ -23,6 +22,7 @@ import type {
   OpenPositionSummary,
 } from "./types";
 import slowTradingClient from "@/lib/slowTrading/client";
+import slowTradingDailyPnlLimit from "@/lib/slowTrading/daily-pnl-limit";
 
 function computeLockedPositionValue(
   position: NonNullable<DashboardState>["openPositions"][number],
@@ -157,6 +157,9 @@ export function makeConfigDraft(state: DashboardState): ConfigDraft {
     ),
     runnerEnabled: state.runtime.runnerEnabled,
     autoEntryEnabled: state.runtime.autoEntryEnabled,
+    autoEntryDailyPnlLimitUSDT:
+      state.runtime.autoEntryDailyPnlLimitUSDT ??
+      slowTradingDailyPnlLimit.config.defaultThresholdUsdt,
     autoExitEnabled: state.runtime.autoExitEnabled,
     entrySignalBypass: state.runtime.entrySignalBypass,
     autoRemoveSymbolAbsLevel: state.runtime.autoRemoveSymbolAbsLevel ?? 0,
@@ -305,9 +308,15 @@ export function parseSymbols(symbolsText: string): string[] {
 export function computeAutoEntryActive(
   dashboardState: DashboardState | null,
 ): boolean {
+  const dailyPnlLimit = slowTradingDailyPnlLimit.guard.evaluate({
+    positions: dashboardState?.history ?? [],
+    thresholdUsdt: dashboardState?.runtime.autoEntryDailyPnlLimitUSDT,
+  });
+
   return Boolean(
     dashboardState?.runtime.runnerEnabled &&
-    dashboardState.runtime.autoEntryEnabled,
+    dashboardState.runtime.autoEntryEnabled &&
+    !dailyPnlLimit.reached,
   );
 }
 
@@ -364,14 +373,15 @@ export function computeDayPreview(
   now = new Date(),
 ): DayPreviewSummary {
   const history = dashboardState?.history ?? [];
-  const usdtStats = computeDailyPnlUsdtStats(history);
   const percentStats = computeDailyPnlPercentStats(history);
   const todayKey = now.toISOString().slice(0, 10);
-  const todayUsdt = usdtStats.find((stat) => stat.day === todayKey);
   const todayPercent = percentStats.find((stat) => stat.day === todayKey);
 
   return {
-    dailyUsdtProfit: todayUsdt?.pnlUsdtSum ?? 0,
+    dailyUsdtProfit: slowTradingDailyPnlLimit.pnl.sumForUtcDay(
+      history,
+      todayKey,
+    ),
     dailyPnlPercentSum: todayPercent?.pnlPercentSum ?? 0,
   };
 }

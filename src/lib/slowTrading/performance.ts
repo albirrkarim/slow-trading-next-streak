@@ -8,6 +8,7 @@ export type SlowTradingCycleSection =
   | "cycle.coinManagementMarketCaps"
   | "cycle.coinManagementPrices"
   | "cycle.currentTimeKlines"
+  | "cycle.dailyPnlLimit"
   | "cycle.averagingExecution"
   | "cycle.cachePersist"
   | "cycle.entryExecution"

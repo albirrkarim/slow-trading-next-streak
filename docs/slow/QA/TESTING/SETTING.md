@@ -51,6 +51,13 @@ assertion should focus on the contract the setting promises.
 - `autoEntryEnabled = true`
   - the cycle should build signals and allow entry evaluation.
 
+- `autoEntryDailyPnlLimitUSDT = -50`
+  - current UTC-day navbar USD PnL above `-50` should allow automatic entry;
+  - current UTC-day navbar USD PnL at or below `-50` should block fresh and
+    BOTH-role automatic re-entry while preserving exits and forced manual entry;
+  - winning and losing closed trades should be netted rather than counting only
+    accumulated losses.
+
 - `autoExitEnabled = false`
   - the cycle should not run normal exit execution unless a position is forced
     to sell.
@@ -183,6 +190,11 @@ assertion should focus on the contract the setting promises.
   - reserve amount calculation should use the configured multiplier.
 
 ### Notification
+
+- `NOTIF_DAILY_PNL_LIMIT`
+  - should be enabled by default and sent once per channel when the current
+    UTC-day navbar USD PnL crosses into the configured auto-entry stop;
+  - should reset after recovery above the threshold and on the next UTC day.
 
 - `notification.<channel>.types[].params.level`
   - High Volatility should trigger independently per enabled channel when

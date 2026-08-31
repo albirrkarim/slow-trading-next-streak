@@ -192,6 +192,12 @@ export function useLiveDashboardNavbar({
         exchangeAccountId: configDraft.exchangeAccountId,
         runnerEnabled: configDraft.runnerEnabled,
         autoEntryEnabled: configDraft.autoEntryEnabled,
+        autoEntryDailyPnlLimitUSDT: Math.min(
+          0,
+          Number.isFinite(Number(configDraft.autoEntryDailyPnlLimitUSDT))
+            ? Number(configDraft.autoEntryDailyPnlLimitUSDT)
+            : -50,
+        ),
         autoExitEnabled: configDraft.autoExitEnabled,
         entrySignalBypass: configDraft.entrySignalBypass,
         autoRemoveSymbolAbsLevel: Math.max(

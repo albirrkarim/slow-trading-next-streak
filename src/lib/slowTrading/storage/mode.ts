@@ -9,6 +9,7 @@ import { clone, normalizeSymbol, uniqueSymbols } from "./common";
 import { DEFAULT_SANDBOX_INITIAL_BALANCE } from "./constants";
 import type {
   SlowTradingMode,
+  SlowTradingDailyPnlLimitNotificationState,
   SlowTradingHighVolatilityNotificationState,
   SlowTradingModeState,
   SlowTradingStorageData,
@@ -44,6 +45,7 @@ export function createModeState(initialBalanceUSDT = 0): SlowTradingModeState {
       telegram: {},
     },
     dailyPerformanceNotificationState: {},
+    dailyPnlLimitNotificationState: {},
     blackSwan: blackSwan.state.create(),
     stageRuns: {},
   };
@@ -127,6 +129,57 @@ function normalizeDailyPerformanceNotificationState(
   return normalized;
 }
 
+/** Keeps valid per-channel daily-PnL-limit transition markers. */
+function normalizeDailyPnlLimitNotificationState(
+  value: unknown,
+): SlowTradingDailyPnlLimitNotificationState {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const normalized: SlowTradingDailyPnlLimitNotificationState = {};
+  for (const channel of ["telegram", "email"] as const) {
+    const state = candidate[channel];
+    if (!state || typeof state !== "object") {
+      continue;
+    }
+
+    const day = (state as { d?: unknown }).d;
+    const breached = (state as { b?: unknown }).b;
+    if (
+      typeof day === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(day) &&
+      typeof breached === "boolean"
+    ) {
+      normalized[channel] = { b: breached, d: day };
+    }
+  }
+
+  return normalized;
+}
+
+/** Keeps a valid compact current-day PnL cache or invalidates it for rebuilding. */
+function normalizeDailyPnlLimitState(
+  value: unknown,
+): SlowTradingModeState["dailyPnlLimitState"] {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const candidate = value as { d?: unknown; usdt?: unknown };
+  if (
+    typeof candidate.d !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(candidate.d) ||
+    typeof candidate.usdt !== "number" ||
+    !Number.isFinite(candidate.usdt)
+  ) {
+    return undefined;
+  }
+
+  return { d: candidate.d, usdt: candidate.usdt };
+}
+
 /**
  * Rebuild the per-symbol trade-settings list while preserving existing model memory.
  *
@@ -202,6 +255,13 @@ export function ensureTradeSettings(
       normalizeDailyPerformanceNotificationState(
         state.dailyPerformanceNotificationState,
       ),
+    dailyPnlLimitNotificationState:
+      normalizeDailyPnlLimitNotificationState(
+        state.dailyPnlLimitNotificationState,
+      ),
+    dailyPnlLimitState: normalizeDailyPnlLimitState(
+      state.dailyPnlLimitState,
+    ),
     blackSwan: blackSwan.state.normalize(state.blackSwan),
   };
 }

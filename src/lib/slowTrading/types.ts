@@ -73,6 +73,19 @@ export type SlowTradingHighVolatilityNotificationState = Partial<
   >
 >;
 
+/** Per-channel transition state for the daily PnL automatic-entry stop. */
+export type SlowTradingDailyPnlLimitNotificationState = Partial<
+  Record<
+    NotificationChannel,
+    {
+      /** Whether this channel has delivered the current breach. */
+      b: boolean;
+      /** UTC day key. */
+      d: string;
+    }
+  >
+>;
+
 /** Current explanation for an actionable coin's entry outcome. */
 export interface SlowTradingEntryDiagnostic {
   code: string;
@@ -417,6 +430,8 @@ export interface SlowTradingRuntimeConfig {
   runnerEnabled: boolean;
   /** Enables automatic entry execution. */
   autoEntryEnabled: boolean;
+  /** Stops automatic entries when current UTC-day navbar PnL reaches this USDT value. */
+  autoEntryDailyPnlLimitUSDT: number;
   /** Enables automatic exit execution. */
   autoExitEnabled: boolean;
   /** Allows bypass entry-signal mode for manual/diagnostic runs. */
@@ -473,6 +488,15 @@ export interface SlowTradingModeState {
   dailyPerformanceNotificationState?: Partial<
     Record<NotificationChannel, string>
   >;
+  /** Last daily-PnL-limit transition observed per notification channel. */
+  dailyPnlLimitNotificationState?: SlowTradingDailyPnlLimitNotificationState;
+  /** Compact current UTC-day closed-trade PnL cache used by the entry guard. */
+  dailyPnlLimitState?: {
+    /** UTC day key. */
+    d: string;
+    /** Navbar-equivalent net closed-trade PnL in USDT. */
+    usdt: number;
+  };
   /** Persisted portfolio-wide crash protection state for this mode. */
   blackSwan?: BlackSwanState;
   /** Last completed cycle timestamp in milliseconds. */
@@ -577,6 +601,8 @@ export interface SlowTradingStorageUpdateInput {
   runnerEnabled?: boolean;
   /** Runtime update for automatic entries. */
   autoEntryEnabled?: boolean;
+  /** Runtime update for the UTC-day PnL automatic-entry stop. */
+  autoEntryDailyPnlLimitUSDT?: number;
   /** Runtime update for automatic exits. */
   autoExitEnabled?: boolean;
   /** Runtime update for bypass entry-signal mode. */

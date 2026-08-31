@@ -109,6 +109,34 @@ export default function SettingsDialogRuntimeTab({
               }
             />
 
+            <SettingsInfoField
+              label="Daily PnL Auto-Entry Stop (USDT)"
+              type="number"
+              size="small"
+              fullWidth
+              value={configDraft.autoEntryDailyPnlLimitUSDT ?? -50}
+              onChange={(event) =>
+                setConfigDraft((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        autoEntryDailyPnlLimitUSDT: Math.min(
+                          0,
+                          Number(event.target.value),
+                        ),
+                      }
+                    : prev,
+                )
+              }
+              slotProps={{
+                htmlInput: {
+                  max: 0,
+                  step: "1",
+                },
+              }}
+              info="Pauses automatic entries when the current UTC-day USD PnL shown in the navbar is at or below this value. Wins and losses are netted; this is not accumulated losses. Exits and manual entries remain available."
+            />
+
             <RuntimeToggle
               checked={configDraft.autoExitEnabled}
               label="Auto Exit"

@@ -200,6 +200,19 @@ Capture Entry feeds its eligible coins' latest shared volatility data into the
 decision engine and may execute entry logic when automatic entry is enabled.
 It does not run open-position monitoring.
 
+Automatic entry also has a UTC-day USDT PnL stop, configured by
+`runtime.autoEntryDailyPnlLimitUSDT` and defaulting to `-50`. The comparison
+uses the same `USD` value shown in the navbar: the net `pnl.netUsdt` sum of all
+trades closed during the current UTC day. Winning and losing trades offset each
+other; this is not an accumulated-loss counter. At or below the threshold,
+fresh automatic entries and automatic BOTH-role re-entries pause. Automatic
+exits continue, and forced manual entries remain available. Entry diagnostics
+show `DAILY_PNL_LIMIT_REACHED`. If later exits raise the current day's net PnL
+above the threshold, automatic entry can resume; the value resets naturally at
+the next UTC day.
+
+TC: `PROD:AUTO_ENTRY_DAILY_PNL_LIMIT_USDT`
+
 The production standalone server must bootstrap the SLOW runner when the Node
 process starts. Restarting or redeploying a Railway container must not require
 opening the website URL first to wake the cycle. Dashboard/API access may still

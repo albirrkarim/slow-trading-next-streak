@@ -93,6 +93,13 @@ export function parseConfigBackup(raw: string): ConfigDraft {
 
   return {
     ...configDraft,
+    autoEntryDailyPnlLimitUSDT: Math.min(
+      0,
+      configDraft.autoEntryDailyPnlLimitUSDT !== undefined &&
+        Number.isFinite(Number(configDraft.autoEntryDailyPnlLimitUSDT))
+        ? Number(configDraft.autoEntryDailyPnlLimitUSDT)
+        : -50,
+    ),
     autoRemoveSymbolMinMarketCapUSD: Math.max(
       0,
       Number(configDraft.autoRemoveSymbolMinMarketCapUSD) || 0,

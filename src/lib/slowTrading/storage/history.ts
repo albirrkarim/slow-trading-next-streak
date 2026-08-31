@@ -115,6 +115,7 @@ export async function clearSlowTradingHistory(
   }
 
   await fs.remove(getModeHistoryRoot(mode));
+  delete modeState.dailyPnlLimitState;
   await saveSlowTradingStorage(storage);
   await hydrateSlowTradingHistoryFromFiles(storage, { mode });
 
@@ -186,6 +187,7 @@ export async function deleteSlowTradingHistoryEntry(params: {
 
   // D. Refresh storage only when something actually changed.
   if (deleted) {
+    delete modeState.dailyPnlLimitState;
     await saveSlowTradingStorage(storage);
     await hydrateSlowTradingHistoryFromFiles(storage, {
       mode: params.mode,

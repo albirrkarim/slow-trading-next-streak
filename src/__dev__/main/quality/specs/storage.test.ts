@@ -39,6 +39,12 @@ describe("slow specs storage", () => {
     expect(await fs.pathExists(path.join(tmpRoot!, "slow/config.json"))).toBe(true);
     expect(await fs.pathExists(path.join(tmpRoot!, "slow/memory.json"))).toBe(true);
     expect(loaded.runtime.sandboxEnabled).toBe(true);
+    expect(loaded.runtime.autoEntryDailyPnlLimitUSDT).toBe(-50);
+    expect(
+      loaded.runtime.notification.telegram.types.some(
+        (item) => item.id === "NOTIF_DAILY_PNL_LIMIT",
+      ),
+    ).toBe(true);
     expect(loaded.runtime.pnlHistoryBucketMinutes).toBe(60);
     expect(loaded.runtime.blackSwanStageIntervalMinutes).toBe(1);
     expect(loaded.config.blackSwan?.enabled).toBe(false);
@@ -76,6 +82,38 @@ describe("slow specs storage", () => {
     // PROD:ATOMIC_PERSISTENT_JSON
     expect(loaded).toEqual(accounts);
     expect(persisted.updatedAt).toBe(123);
+  });
+
+  it("enables the daily PnL notification when migrating a pre-feature config", async () => {
+    const { FILES } = await import("@/components/storage");
+    const slowTradingStorage = (await import("@/lib/slowTrading")).default
+      .storage;
+    await slowTradingStorage.data.save(
+      slowTradingStorage.data.createDefault(),
+    );
+    const configFile = await fs.readJSON(FILES.slow.config);
+
+    delete configFile.runtime.autoEntryDailyPnlLimitUSDT;
+    for (const channel of ["telegram", "email"]) {
+      configFile.runtime.notification[channel].types =
+        configFile.runtime.notification[channel].types.filter(
+          (item: { id: string }) => item.id !== "NOTIF_DAILY_PNL_LIMIT",
+        );
+    }
+    await fs.writeJSON(FILES.slow.config, configFile);
+
+    const runtime = (await slowTradingStorage.data.load()).runtime;
+    expect(runtime.autoEntryDailyPnlLimitUSDT).toBe(-50);
+    expect(
+      runtime.notification.telegram.types.some(
+        (item) => item.id === "NOTIF_DAILY_PNL_LIMIT",
+      ),
+    ).toBe(true);
+    expect(
+      runtime.notification.email.types.some(
+        (item) => item.id === "NOTIF_DAILY_PNL_LIMIT",
+      ),
+    ).toBe(true);
   });
 
   it("persists the configured Binance futures position mode", async () => {
@@ -167,6 +205,38 @@ describe("slow specs storage", () => {
       (await slowTradingStorage.data.load()).runtime
         .pnlHistoryBucketMinutes,
     ).toBe(1);
+  });
+
+  it("normalizes the daily PnL entry stop and preserves a disabled notification type", async () => {
+    const slowTradingStorage = (await import("@/lib/slowTrading")).default
+      .storage;
+
+    await slowTradingStorage.data.update({
+      autoEntryDailyPnlLimitUSDT: -75.5,
+    });
+    expect(
+      (await slowTradingStorage.data.load()).runtime
+        .autoEntryDailyPnlLimitUSDT,
+    ).toBe(-75.5);
+
+    const storage = await slowTradingStorage.data.load();
+    storage.runtime.notification.telegram.types =
+      storage.runtime.notification.telegram.types.filter(
+        (item) => item.id !== "NOTIF_DAILY_PNL_LIMIT",
+      );
+    await slowTradingStorage.data.update({
+      autoEntryDailyPnlLimitUSDT: 25,
+      notification: storage.runtime.notification,
+    });
+    const reloaded = await slowTradingStorage.data.load();
+
+    // PROD:AUTO_ENTRY_DAILY_PNL_LIMIT_USDT
+    expect(reloaded.runtime.autoEntryDailyPnlLimitUSDT).toBe(0);
+    expect(
+      reloaded.runtime.notification.telegram.types.some(
+        (item) => item.id === "NOTIF_DAILY_PNL_LIMIT",
+      ),
+    ).toBe(false);
   });
 
   it("normalizes the persisted maximum-open-position guard", async () => {

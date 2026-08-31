@@ -167,6 +167,20 @@ function get(
           "Time: 2026-08-10T10:15:00.000Z",
         ].join("\n"),
       };
+    case "NOTIF_DAILY_PNL_LIMIT":
+      return {
+        title: "[SANDBOX] [DAILY PNL ENTRY STOP] -$51.25",
+        message: [
+          "UTC day: 2026-08-10",
+          "Mode: sandbox",
+          "Exchange: binance",
+          "Navbar USD PnL: -$51.25",
+          "Auto-entry stop: -$50.00",
+          "Automatic entry: PAUSED",
+          "Automatic exits and manual entries remain available.",
+          "Time: 2026-08-10T10:15:00.000Z",
+        ].join("\n"),
+      };
     case "NOTIF_DAILY_PERFORMANCE":
       return {
         title:

@@ -56,6 +56,7 @@ export interface ConfigDraft {
   modelConfig: TradingModelConfig;
   runnerEnabled: boolean;
   autoEntryEnabled: boolean;
+  autoEntryDailyPnlLimitUSDT?: number;
   autoExitEnabled: boolean;
   entrySignalBypass: boolean;
   autoRemoveSymbolAbsLevel: number;

@@ -75,6 +75,8 @@ describe("slow specs notification", () => {
       'key: "NOTIF_MANAGEMENT_ACTION"',
       // PROD:NOTIF_DAILY_PERFORMANCE
       'key: "NOTIF_DAILY_PERFORMANCE"',
+      // PROD:NOTIF_DAILY_PNL_LIMIT
+      'key: "NOTIF_DAILY_PNL_LIMIT"',
     ]);
     await expectSourceContains("src/lib/slowTrading/cycle.ts", [
       "dailyPerformance.notify",
@@ -184,6 +186,82 @@ describe("slow specs notification", () => {
     expect(
       reloaded.modes.live.dailyPerformanceNotificationState?.telegram,
     ).toBe("2026-06-09");
+  });
+
+  it("notifies once per daily PnL stop breach and resets after recovery", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const trading = (await import("@/lib/trading")).default;
+    const storage = slowTrading.storage.data.createDefault();
+    const modeState = storage.modes.sandbox;
+    const centralSpy = vi
+      .spyOn(trading.notif, "central")
+      .mockResolvedValue(undefined);
+    const baseParams = {
+      currentTimeMs: Date.UTC(2026, 7, 31, 12),
+      exchangeType: storage.config.exchangeType,
+      mode: "sandbox" as const,
+      modeState,
+      notification: storage.runtime.notification,
+    };
+
+    // PROD:NOTIF_DAILY_PNL_LIMIT
+    await slowTrading.notifications.dailyPnlLimit.notify({
+      ...baseParams,
+      evaluation: {
+        day: "2026-08-31",
+        pnlUsdt: -51.25,
+        reached: true,
+        thresholdUsdt: -50,
+      },
+    });
+    await slowTrading.notifications.dailyPnlLimit.notify({
+      ...baseParams,
+      evaluation: {
+        day: "2026-08-31",
+        pnlUsdt: -55,
+        reached: true,
+        thresholdUsdt: -50,
+      },
+    });
+
+    expect(centralSpy).toHaveBeenCalledTimes(1);
+    expect(centralSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "telegram",
+        key: "NOTIF_DAILY_PNL_LIMIT",
+        title: "[SANDBOX] [DAILY PNL ENTRY STOP] -$51.25",
+        message: expect.stringContaining(
+          "Navbar USD PnL: -$51.25\nAuto-entry stop: -$50.00\nAutomatic entry: PAUSED",
+        ),
+      }),
+    );
+
+    await slowTrading.notifications.dailyPnlLimit.notify({
+      ...baseParams,
+      evaluation: {
+        day: "2026-08-31",
+        pnlUsdt: -45,
+        reached: false,
+        thresholdUsdt: -50,
+      },
+    });
+    await slowTrading.notifications.dailyPnlLimit.notify({
+      ...baseParams,
+      evaluation: {
+        day: "2026-08-31",
+        pnlUsdt: -52,
+        reached: true,
+        thresholdUsdt: -50,
+      },
+    });
+
+    expect(centralSpy).toHaveBeenCalledTimes(2);
+
+    await slowTrading.storage.mode.saveState("sandbox", modeState);
+    const reloaded = await slowTrading.storage.data.load();
+    expect(
+      reloaded.modes.sandbox.dailyPnlLimitNotificationState?.telegram,
+    ).toEqual({ b: true, d: "2026-08-31" });
   });
 
 });

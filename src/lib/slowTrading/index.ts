@@ -20,6 +20,7 @@ import slowTradingWatchReserve from "./watch-reserve";
 import slowTradingWorkerCapacity from "./worker-capacity";
 import slowTradingWithdrawal from "./withdrawal";
 import slowTradingBlackSwan from "./black-swan";
+import slowTradingDailyPnlLimit from "./daily-pnl-limit";
 
 /**
  * Grouped SLOW trading API. Prefer this facade for new SLOW orchestration code
@@ -29,6 +30,7 @@ const slowTrading = {
   balanceSummary: slowTradingBalanceSummary,
   blackSwan: slowTradingBlackSwan,
   debugSync: slowTradingDebugSync,
+  dailyPnlLimit: slowTradingDailyPnlLimit,
   entrySequences: slowTradingEntrySequences,
   exchangeSync: slowTradingExchangeSync,
   financeSummary: slowTradingFinanceSummary,

@@ -40,6 +40,7 @@ import type {
   SlowTradingStorageData,
 } from "./types";
 import slowTradingWatchReserve from "./watch-reserve";
+import slowTradingDailyPnlLimit from "./daily-pnl-limit";
 
 /** Returns the role-specific vPoint usage required by a fresh entry. */
 function resolveFreshEntryRoles(openDirection: unknown): PositionRole[] | undefined {
@@ -531,11 +532,71 @@ export async function buildSlowTradingSignals(params?: {
 export async function buildSlowTradingEntryDiagnostics(params?: {
   storage?: SlowTradingStorageData;
 }): Promise<SlowTradingEntryDiagnostic[]> {
+  const diagnosticStorage =
+    params?.storage ??
+    (await slowTradingStorage.data.load({
+      modeScope: "active",
+    }));
   const result = await buildSlowTradingSignals({
-    storage: params?.storage,
+    storage: diagnosticStorage,
   });
   const { storage, activeMode, modelMemoryMap } = result;
   const modeState = storage.modes[activeMode];
+  const diagnosticTimeMs = result.currentTimeMs ?? Date.now();
+  const dailyPnlPeriod = slowTradingDailyPnlLimit.period.getCurrentUtc(
+    diagnosticTimeMs,
+  );
+  const runtimeControlBlock = !storage.runtime.runnerEnabled
+    ? {
+        code: "RUNNER_DISABLED",
+        reason: "Blocked because the SLOW runner is disabled.",
+      }
+    : !storage.runtime.autoEntryEnabled
+      ? {
+          code: "AUTO_ENTRY_DISABLED",
+          reason: "Blocked because automatic entry is disabled.",
+        }
+      : null;
+  const hydratedHistory = modeState.tradeSettings.flatMap(
+    (item) => item.model_memory.positionsSell ?? [],
+  );
+  const dailyPnlLimitEvaluation = runtimeControlBlock
+    ? slowTradingDailyPnlLimit.guard.evaluate({
+        currentTimeMs: diagnosticTimeMs,
+        positions: [],
+        thresholdUsdt: storage.runtime.autoEntryDailyPnlLimitUSDT,
+      })
+    : hydratedHistory.length > 0
+      ? slowTradingDailyPnlLimit.guard.evaluate({
+          currentTimeMs: diagnosticTimeMs,
+          positions: hydratedHistory,
+          thresholdUsdt: storage.runtime.autoEntryDailyPnlLimitUSDT,
+        })
+      : modeState.dailyPnlLimitState?.d === dailyPnlPeriod.day
+        ? slowTradingDailyPnlLimit.guard.evaluatePnl({
+            currentTimeMs: diagnosticTimeMs,
+            pnlUsdt: modeState.dailyPnlLimitState.usdt,
+            thresholdUsdt: storage.runtime.autoEntryDailyPnlLimitUSDT,
+          })
+        : slowTradingDailyPnlLimit.guard.evaluate({
+            currentTimeMs: diagnosticTimeMs,
+            positions: await slowTradingStorage.history.readRange({
+              endTime: dailyPnlPeriod.endTime,
+              mode: activeMode,
+              startTime: dailyPnlPeriod.startTime,
+            }),
+            thresholdUsdt: storage.runtime.autoEntryDailyPnlLimitUSDT,
+          });
+  const runtimeEntryBlock =
+    runtimeControlBlock ??
+    (dailyPnlLimitEvaluation.reached
+      ? {
+          code: "DAILY_PNL_LIMIT_REACHED",
+          reason: slowTradingDailyPnlLimit.guard.describe(
+            dailyPnlLimitEvaluation,
+          ),
+        }
+      : null);
   const volatilityPointsMap =
     result.volatilityPointsMap ??
     Object.fromEntries(
@@ -688,6 +749,18 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
     }
     const modelMemory = modelMemoryMap[symbol];
     const point = modelMemory?.volatility?.lastVolatility?.at(-1);
+    if (runtimeEntryBlock) {
+      return [
+        {
+          code: runtimeEntryBlock.code,
+          level: point?.lvl,
+          pointId: point?.id,
+          reason: runtimeEntryBlock.reason,
+          status: "blocked" as const,
+          symbol,
+        },
+      ];
+    }
     if (!point) {
       return [
         {
@@ -904,6 +977,11 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
     } else if (!storage.runtime.autoEntryEnabled) {
       code = "AUTO_ENTRY_DISABLED";
       reason = "Blocked because automatic entry is disabled.";
+    } else if (dailyPnlLimitEvaluation.reached) {
+      code = "DAILY_PNL_LIMIT_REACHED";
+      reason = slowTradingDailyPnlLimit.guard.describe(
+        dailyPnlLimitEvaluation,
+      );
     } else if (decision.status === "READY" && point) {
       if (
         !decisionEngineLevelConfig.isEntryLevel(

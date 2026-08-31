@@ -71,6 +71,21 @@ describe("navbar browser theme color", () => {
     expect(computeAutoEntryActive(makeDashboardRuntime(true, true))).toBe(true);
   });
 
+  it("treats auto entry as inactive when today's navbar USD PnL reaches its stop", () => {
+    const state = makeDashboardRuntime(true, true);
+    state.runtime.autoEntryDailyPnlLimitUSDT = -50;
+    state.history = [
+      {
+        closed: { t: Date.now() - 60_000 },
+        opened: { t: Date.now() - 120_000 },
+        pnl: { netUsdt: -50 },
+      },
+    ] as any;
+
+    // PROD:AUTO_ENTRY_DAILY_PNL_LIMIT_USDT
+    expect(computeAutoEntryActive(state)).toBe(false);
+  });
+
   it("updates the meta tag to the exact active and inactive navbar colors", () => {
     const themeColorMeta = document.createElement("meta");
     themeColorMeta.name = "theme-color";

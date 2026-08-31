@@ -131,6 +131,16 @@ TC: `PROD:NOTIF_MANAGEMENT_ACTION`
 
 TC: `PROD:NOTIF_DAILY_PERFORMANCE`
 
+- Daily PnL Entry Stop: Sent when the current UTC-day navbar `USD` PnL first
+  reaches or falls below `runtime.autoEntryDailyPnlLimitUSDT`. It uses net
+  closed-trade PnL, not accumulated losses, and is enabled by default for each
+  notification route. Delivery is transition-based per channel and mode: it
+  sends once while breached, resets after PnL recovers above the threshold, and
+  may send again on a later breach. A new UTC day starts a new transition.
+  Sandbox subjects are prefixed with `[SANDBOX]`.
+
+TC: `PROD:NOTIF_DAILY_PNL_LIMIT`
+
 - Error: Sent for operational SLOW errors outside normal entry and exit flows.
 
 TC: `PROD:NOTIF_ERROR`

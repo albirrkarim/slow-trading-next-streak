@@ -1,6 +1,7 @@
 import { FILES } from "@/components/storage";
 import { DEFAULT_DYNAMIC_TRADE_CONFIG_PRODUCTION } from "@/lib/dynamic";
 import {
+  createNotificationTypeConfig,
   createDefaultDashboardNotificationConfig,
   normalizeDashboardNotificationConfig,
 } from "@/lib/notification/config";
@@ -51,8 +52,34 @@ import type {
 } from "../types";
 import slowTradingPnlHistory from "../pnl-history";
 import slowTradingStages from "../stages";
+import slowTradingDailyPnlLimit from "../daily-pnl-limit";
 
 const DEFAULT_AUTO_REMOVE_SYMBOL_MIN_VPOINT_PCT = 15;
+
+/** Enables the new daily-PnL notification once for configs predating its threshold field. */
+function normalizeRuntimeNotification(
+  value: unknown,
+  enableDailyPnlLimitByDefault: boolean,
+): SlowTradingStorageData["runtime"]["notification"] {
+  const notification = normalizeDashboardNotificationConfig(value, "SLOW");
+  if (!enableDailyPnlLimitByDefault) {
+    return notification;
+  }
+
+  for (const channel of ["telegram", "email"] as const) {
+    if (
+      !notification[channel].types.some(
+        (item) => item.id === "NOTIF_DAILY_PNL_LIMIT",
+      )
+    ) {
+      notification[channel].types.push(
+        createNotificationTypeConfig("NOTIF_DAILY_PNL_LIMIT"),
+      );
+    }
+  }
+
+  return notification;
+}
 
 interface LoadSlowTradingStorageOptions {
   /** Hydrate closed trade history from split files into positionsSell. */
@@ -104,6 +131,8 @@ function createDefaultSlowTradingRuntime(): SlowTradingStorageData["runtime"] {
     exchangeAccounts: createDefaultExchangeAccounts(),
     runnerEnabled: false,
     autoEntryEnabled: false,
+    autoEntryDailyPnlLimitUSDT:
+      slowTradingDailyPnlLimit.config.defaultThresholdUsdt,
     autoExitEnabled: false,
     entrySignalBypass: false,
     autoRemoveSymbolAbsLevel: 0,
@@ -399,9 +428,9 @@ async function loadSlowTradingConfigFile(): Promise<{
     exchangeAccountId: normalizeExchangeAccountId(
       configRaw.runtime?.exchangeAccountId ?? baseRuntime.exchangeAccountId,
     ),
-    notification: normalizeDashboardNotificationConfig(
+    notification: normalizeRuntimeNotification(
       configRaw.runtime?.notification ?? baseRuntime.notification,
-      "SLOW",
+      configRaw.runtime?.autoEntryDailyPnlLimitUSDT === undefined,
     ),
     withdrawal: normalizeWithdrawalConfig(configRaw.runtime?.withdrawal),
     safeHaven: normalizeSafeHavenConfig(
@@ -415,6 +444,10 @@ async function loadSlowTradingConfigFile(): Promise<{
     0,
     Number(runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE),
   );
+  runtime.autoEntryDailyPnlLimitUSDT =
+    slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
+      runtime.autoEntryDailyPnlLimitUSDT,
+    );
   runtime.autoRemoveSymbolAbsLevel = normalizeAutoRemoveSymbolAbsLevel(
     runtime.autoRemoveSymbolAbsLevel,
   );
@@ -484,6 +517,10 @@ async function migrateLegacySlowTradingState(): Promise<SlowTradingStorageData |
       exchangeAccountId: normalizeExchangeAccountId(
         raw.runtime?.exchangeAccountId ?? base.runtime.exchangeAccountId,
       ),
+      notification: normalizeRuntimeNotification(
+        raw.runtime?.notification ?? base.runtime.notification,
+        raw.runtime?.autoEntryDailyPnlLimitUSDT === undefined,
+      ),
       withdrawal: normalizeWithdrawalConfig(raw.runtime?.withdrawal),
       safeHaven: normalizeSafeHavenConfig(
         raw.runtime?.safeHaven,
@@ -515,6 +552,10 @@ async function migrateLegacySlowTradingState(): Promise<SlowTradingStorageData |
   storage.runtime.pnlHistoryBucketMinutes =
     slowTradingPnlHistory.bucket.normalizeMinutes(
       storage.runtime.pnlHistoryBucketMinutes,
+    );
+  storage.runtime.autoEntryDailyPnlLimitUSDT =
+    slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
+      storage.runtime.autoEntryDailyPnlLimitUSDT,
     );
   normalizeStageRuntimeConfig(storage.runtime);
 
@@ -595,9 +636,9 @@ export async function loadSlowTradingStorage(
     exchangeAccountId: normalizeExchangeAccountId(
       configRaw.runtime?.exchangeAccountId ?? baseRuntime.exchangeAccountId,
     ),
-    notification: normalizeDashboardNotificationConfig(
+    notification: normalizeRuntimeNotification(
       configRaw.runtime?.notification ?? baseRuntime.notification,
-      "SLOW",
+      configRaw.runtime?.autoEntryDailyPnlLimitUSDT === undefined,
     ),
     withdrawal: normalizeWithdrawalConfig(configRaw.runtime?.withdrawal),
     safeHaven: normalizeSafeHavenConfig(
@@ -612,6 +653,10 @@ export async function loadSlowTradingStorage(
     Number(runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE),
   );
   runtime.sandboxInitialBalanceUSDT = sandboxInitialBalanceUSDT;
+  runtime.autoEntryDailyPnlLimitUSDT =
+    slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
+      runtime.autoEntryDailyPnlLimitUSDT,
+    );
   runtime.autoRemoveSymbolAbsLevel = normalizeAutoRemoveSymbolAbsLevel(
     runtime.autoRemoveSymbolAbsLevel,
   );
@@ -837,6 +882,13 @@ export async function updateSlowTradingStorage(
 
   if (typeof update.autoEntryEnabled === "boolean") {
     storage.runtime.autoEntryEnabled = update.autoEntryEnabled;
+  }
+
+  if (update.autoEntryDailyPnlLimitUSDT !== undefined) {
+    storage.runtime.autoEntryDailyPnlLimitUSDT =
+      slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
+        update.autoEntryDailyPnlLimitUSDT,
+      );
   }
 
   if (typeof update.autoExitEnabled === "boolean") {

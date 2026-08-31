@@ -13,6 +13,7 @@ const configDraft = {
     minProjectedProfitPct: 2,
   },
   autoEntryEnabled: true,
+  autoEntryDailyPnlLimitUSDT: -50,
   autoExitEnabled: true,
   autoRemoveSymbolAbsLevel: 6,
   autoRemoveSymbolMinMarketCapUSD: 100_000_000,
@@ -98,5 +99,17 @@ describe("settings config backup", () => {
     expect(() => parseConfigBackup('{"name":"incomplete"}')).toThrow(
       'The backup is missing the required "description" field.',
     );
+  });
+
+  it("defaults the daily PnL stop when importing an older backup", () => {
+    const {
+      autoEntryDailyPnlLimitUSDT: _legacyMissingField,
+      ...legacyBackup
+    } = configDraft;
+
+    expect(
+      parseConfigBackup(JSON.stringify(legacyBackup))
+        .autoEntryDailyPnlLimitUSDT,
+    ).toBe(-50);
   });
 });

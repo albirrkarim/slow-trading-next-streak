@@ -18,6 +18,7 @@ import slowTradingStorage from "./storage";
 import slowTradingWatchReserve from "./watch-reserve";
 import type {
   SlowTradingMode,
+  SlowTradingModeState,
   SlowTradingStageRunCheck,
 } from "./types";
 import slowTradingBalance from "./balance";
@@ -42,9 +43,56 @@ import slowTradingStages, { type SlowTradingStage } from "./stages";
 import slowTradingMutationQueue from "./mutation-queue";
 import slowTradingStageRun from "./stage-run";
 import slowTradingBlackSwan from "./black-swan";
+import slowTradingDailyPnlLimit, {
+  type DailyPnlLimitEvaluation,
+} from "./daily-pnl-limit";
 
 const MAX_STAGE_RUN_CHECKS = 100;
 const MAX_STAGE_RUN_CHECK_MESSAGE_LENGTH = 500;
+
+/** Reads only today's archived trades and evaluates the navbar-style daily PnL stop. */
+async function evaluateCurrentDailyPnlLimit(params: {
+  currentTimeMs: number;
+  includePendingArchive?: boolean;
+  mode: SlowTradingMode;
+  modeState: SlowTradingModeState;
+  thresholdUsdt: number;
+}): Promise<DailyPnlLimitEvaluation> {
+  const period = slowTradingDailyPnlLimit.period.getCurrentUtc(
+    params.currentTimeMs,
+  );
+  let pnlUsdt =
+    params.modeState.dailyPnlLimitState?.d === period.day
+      ? params.modeState.dailyPnlLimitState.usdt
+      : null;
+  if (pnlUsdt === null) {
+    const archived = await slowTradingStorage.history.readRange({
+      endTime: period.endTime,
+      mode: params.mode,
+      startTime: period.startTime,
+    });
+    pnlUsdt = slowTradingDailyPnlLimit.pnl.sumForUtcDay(
+      archived,
+      period.day,
+    );
+  }
+
+  if (params.includePendingArchive) {
+    const pendingArchive = params.modeState.tradeSettings.flatMap(
+      (tradeSetting) => tradeSetting.model_memory.positionsSell ?? [],
+    );
+    pnlUsdt += slowTradingDailyPnlLimit.pnl.sumForUtcDay(
+      pendingArchive,
+      period.day,
+    );
+  }
+
+  return slowTradingDailyPnlLimit.guard.evaluatePnl({
+    currentTimeMs: params.currentTimeMs,
+    pnlUsdt,
+    thresholdUsdt: params.thresholdUsdt,
+  });
+}
 
 /** Builds one compact navbar-debug result from an execution report. */
 function buildStageRunExecutionCheck(params: {
@@ -251,20 +299,6 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
           )
           .filter(Boolean),
       );
-      const shouldAutoEnter =
-        !blackSwanProtectionActive &&
-        (stage === "capture-entry" && stageSymbols?.length === 0
-          ? false
-          : shouldCaptureEntry && forcedEntrySymbols.size > 0
-            ? true
-            : !shouldCaptureEntry || params?.disableAutoEntry === true
-              ? false
-              : storage.runtime.autoEntryEnabled);
-      const shouldAutoExit =
-        shouldMonitor &&
-        (storage.runtime.autoExitEnabled || forcedExitSymbols.size > 0);
-      const bypass = params?.bypass ?? storage.runtime.entrySignalBypass;
-
       if (!storage.runtime.runnerEnabled && !params?.ignoreRunnerEnabled) {
         const availableQuoteAsset =
           (modeState.dynamicTradeMemory.quoteAsset ?? 0) +
@@ -281,6 +315,51 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
           skipped: true,
         };
       }
+      let dailyPnlLimitThresholdUsdt =
+        storage.runtime.autoEntryDailyPnlLimitUSDT;
+      let dailyPnlLimitEvaluation = slowTradingDailyPnlLimit.guard.evaluate({
+        currentTimeMs: cycleStartedAt,
+        positions: [],
+        thresholdUsdt: dailyPnlLimitThresholdUsdt,
+      });
+      if (shouldCaptureEntry && forcedEntrySymbols.size === 0) {
+        dailyPnlLimitEvaluation = await profiler.time(
+          "cycle.dailyPnlLimit",
+          () =>
+            evaluateCurrentDailyPnlLimit({
+              currentTimeMs: cycleStartedAt,
+              mode: activeMode,
+              modeState,
+              thresholdUsdt: dailyPnlLimitThresholdUsdt,
+            }),
+        );
+        modeState.dailyPnlLimitState = {
+          d: dailyPnlLimitEvaluation.day,
+          usdt: dailyPnlLimitEvaluation.pnlUsdt,
+        };
+        await slowTradingNotifications.dailyPnlLimit.notify({
+          currentTimeMs: cycleStartedAt,
+          evaluation: dailyPnlLimitEvaluation,
+          exchangeType: storage.config.exchangeType,
+          mode: activeMode,
+          modeState,
+          notification: storage.runtime.notification,
+        });
+      }
+      const shouldAutoEnter =
+        !blackSwanProtectionActive &&
+        (stage === "capture-entry" && stageSymbols?.length === 0
+          ? false
+          : shouldCaptureEntry && forcedEntrySymbols.size > 0
+            ? true
+            : !shouldCaptureEntry || params?.disableAutoEntry === true
+              ? false
+              : storage.runtime.autoEntryEnabled &&
+                !dailyPnlLimitEvaluation.reached);
+      const shouldAutoExit =
+        shouldMonitor &&
+        (storage.runtime.autoExitEnabled || forcedExitSymbols.size > 0);
+      const bypass = params?.bypass ?? storage.runtime.entrySignalBypass;
 
       if (stage && stageSymbols?.length === 0) {
         const availableQuoteAsset =
@@ -652,6 +731,49 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
         );
         entryGuardMinimumPrice =
           latestEntryGuardStorage.runtime.autoRemoveSymbolMinPrice ?? 0;
+        if (forcedEntrySymbols.size === 0) {
+          dailyPnlLimitThresholdUsdt =
+            latestEntryGuardStorage.runtime.autoEntryDailyPnlLimitUSDT;
+          dailyPnlLimitEvaluation = await profiler.time(
+            "cycle.dailyPnlLimit",
+            () =>
+              evaluateCurrentDailyPnlLimit({
+                currentTimeMs: Date.now(),
+                mode: activeMode,
+                modeState,
+                thresholdUsdt: dailyPnlLimitThresholdUsdt,
+              }),
+          );
+          modeState.dailyPnlLimitState = {
+            d: dailyPnlLimitEvaluation.day,
+            usdt: dailyPnlLimitEvaluation.pnlUsdt,
+          };
+          if (dailyPnlLimitEvaluation.reached) {
+            for (const entrySignal of entrySignals) {
+              slowTradingShared.entrySignals.addSkipped(
+                skippedEntrySignals,
+                {
+                  symbol: String(entrySignal.symbol || "")
+                    .trim()
+                    .toUpperCase(),
+                  reason:
+                    slowTradingDailyPnlLimit.guard.describe(
+                      dailyPnlLimitEvaluation,
+                    ),
+                },
+              );
+            }
+            entrySignals = [];
+          }
+          await slowTradingNotifications.dailyPnlLimit.notify({
+            currentTimeMs: Date.now(),
+            evaluation: dailyPnlLimitEvaluation,
+            exchangeType: latestEntryGuardStorage.config.exchangeType,
+            mode: activeMode,
+            modeState,
+            notification: latestEntryGuardStorage.runtime.notification,
+          });
+        }
         entrySignals = entrySignals.filter((entrySignal) => {
           const symbol = String(entrySignal.symbol || "")
             .trim()
@@ -997,6 +1119,34 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
         }
       }
 
+      if (
+        reports.some((report) => report.tradingDetail?.action === "SELL")
+      ) {
+        dailyPnlLimitEvaluation = await profiler.time(
+          "cycle.dailyPnlLimit",
+          () =>
+            evaluateCurrentDailyPnlLimit({
+              currentTimeMs,
+              includePendingArchive: true,
+              mode: activeMode,
+              modeState: { ...modeState, tradeSettings },
+              thresholdUsdt: dailyPnlLimitThresholdUsdt,
+            }),
+        );
+        modeState.dailyPnlLimitState = {
+          d: dailyPnlLimitEvaluation.day,
+          usdt: dailyPnlLimitEvaluation.pnlUsdt,
+        };
+        await slowTradingNotifications.dailyPnlLimit.notify({
+          currentTimeMs,
+          evaluation: dailyPnlLimitEvaluation,
+          exchangeType,
+          mode: activeMode,
+          modeState,
+          notification: storage.runtime.notification,
+        });
+      }
+
       // G.1 Average only positions that remain open after exit evaluation.
       if (
         shouldMonitor &&
@@ -1107,6 +1257,7 @@ async function executeSlowTradingCycle(params?: RunSlowTradingCycleParams) {
       // G.2 Replenish a missing streak-break role after exits and averaging.
       if (
         shouldAutoEnter &&
+        !dailyPnlLimitEvaluation.reached &&
         bothDirection.config.isEnabled(storage.config.openDirection) &&
         !blackSwanProtectionActive &&
         !slowTradingBlackSwan.runtime.isProtectionPending(activeMode)
