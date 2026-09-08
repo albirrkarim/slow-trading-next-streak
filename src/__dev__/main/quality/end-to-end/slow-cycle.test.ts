@@ -16,6 +16,10 @@ const dynamicMocks = vi.hoisted(() => ({
   generateInitialPriceNorm: vi.fn(),
 }));
 
+const productionMocks = vi.hoisted(() => ({
+  assignVolatility: vi.fn(),
+}));
+
 const brainMocks = vi.hoisted(() => ({
   getInvestmentAmount: vi.fn(),
 }));
@@ -141,18 +145,22 @@ vi.mock("@/lib/exchange/adapters/binance", () => ({
 }));
 
 vi.mock("@/components/api/production/utils", async () => {
-  const actual = await vi.importActual<any>("@/components/api/production/utils");
+  const actual = await vi.importActual<any>(
+    "@/components/api/production/utils",
+  );
 
   return {
     ...actual,
-    assignVolatility: vi.fn(async (modelMemoryMap: Record<string, any>) => {
-      for (const symbol of Object.keys(modelMemoryMap)) {
-        modelMemoryMap[symbol].volatility = {
-          lastVolatility: symbol === "SUI" ? [{ ...e2eSignal }] : [],
-          symbol,
-        };
-      }
-    }),
+    assignVolatility: productionMocks.assignVolatility.mockImplementation(
+      async (modelMemoryMap: Record<string, any>) => {
+        for (const symbol of Object.keys(modelMemoryMap)) {
+          modelMemoryMap[symbol].volatility = {
+            lastVolatility: symbol === "SUI" ? [{ ...e2eSignal }] : [],
+            symbol,
+          };
+        }
+      },
+    ),
   };
 });
 
@@ -277,8 +285,7 @@ describe("slow end-to-end cycle", () => {
     const persisted = await slowTradingStorage.data.load({
       modeScope: "active",
     });
-    const dashboard =
-      slowTradingStorage.dashboard.buildState(persisted);
+    const dashboard = slowTradingStorage.dashboard.buildState(persisted);
 
     // PROD:SLOW_END_TO_END_CYCLE
     expect(result.executedEntrySignals).toBe(1);
@@ -298,7 +305,10 @@ describe("slow end-to-end cycle", () => {
     );
     expect(
       await fs.pathExists(
-        path.join(tmpRoot!, "slow/sandbox/balance_snapshots.json"),
+        path.join(
+          tmpRoot!,
+          `slow/sandbox/balance_snapshots/${storage.account.slug}.json`,
+        ),
       ),
     ).toBe(true);
     expect(dashboard.activeMode).toBe("sandbox");
@@ -314,6 +324,362 @@ describe("slow end-to-end cycle", () => {
     expect(dashboard.stats.lastRunSummary).toContain(
       "sandbox cycle finished with 1 report(s)",
     );
+  });
+
+  it("prepares shared market inputs once and executes both accounts", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const { TradingMode } = await import("@/lib/exchange");
+    const storage = slowTradingStorage.data.createDefault();
+    const template = storage.runtime.exchangeAccounts[0];
+
+    storage.config.symbols = ["SUI"];
+    storage.config.exchangeType = "binance";
+    storage.config.tradingMode = TradingMode.SPOT;
+    storage.config.enableWatchLogic = false;
+    storage.runtime.runnerEnabled = true;
+    storage.runtime.autoEntryEnabled = true;
+    storage.runtime.autoExitEnabled = false;
+    await slowTradingStorage.data.save(storage);
+    await slowTradingStorage.account.saveAccounts(
+      [
+        {
+          ...template,
+          slug: "alpha",
+          name: "Alpha",
+          sandbox: { enabled: true, initialBalanceUSDT: 1_000 },
+        },
+        {
+          ...template,
+          slug: "beta",
+          name: "Beta",
+          sandbox: { enabled: true, initialBalanceUSDT: 1_000 },
+        },
+      ],
+      storage.sharedConfig,
+    );
+
+    const result = await slowTrading.service.runSlowTradingCycle({
+      forceEntrySymbols: ["SUI"],
+      stage: "capture-entry",
+    });
+    const alpha = await slowTradingStorage.data.load({ account: "alpha" });
+    const beta = await slowTradingStorage.data.load({ account: "beta" });
+
+    // PROD:MULTI_ACCOUNT_SHARED_MARKET_PREPARATION
+    expect(productionMocks.assignVolatility).toHaveBeenCalledTimes(1);
+    expect(dynamicMocks.generateInitialPriceNorm).toHaveBeenCalledTimes(1);
+    // PROD:MULTI_ACCOUNT_SEQUENTIAL_ACCOUNT_EXECUTION
+    // PROD:MULTI_ACCOUNT_PRIVATE_STATE_ISOLATION
+    expect(result.executedEntrySignals).toBe(2);
+    expect(
+      alpha.modes.sandbox.tradeSettings[0].model_memory.positions,
+    ).toHaveLength(1);
+    expect(
+      beta.modes.sandbox.tradeSettings[0].model_memory.positions,
+    ).toHaveLength(1);
+    expect(alpha.modes.sandbox.dynamicTradeMemory.quoteAsset).toBe(980);
+    expect(beta.modes.sandbox.dynamicTradeMemory.quoteAsset).toBe(980);
+  });
+
+  it("blocks BOTH entry per non-HEDGE account and continues other accounts", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const { TradingMode } = await import("@/lib/exchange");
+    const storage = slowTradingStorage.data.createDefault();
+    const template = storage.runtime.exchangeAccounts[0];
+
+    storage.config.symbols = ["SUI"];
+    storage.config.exchangeType = "binance";
+    storage.config.tradingMode = TradingMode.FUTURES;
+    storage.config.openDirection = "BOTH";
+    storage.config.enableWatchLogic = false;
+    storage.runtime.runnerEnabled = true;
+    storage.runtime.autoEntryEnabled = true;
+    storage.runtime.autoExitEnabled = false;
+    await slowTradingStorage.data.save(storage);
+    await slowTradingStorage.account.saveAccounts(
+      [
+        {
+          ...template,
+          slug: "one-way",
+          name: "One Way",
+          futuresPositionMode: "ONE_WAY",
+          sandbox: { enabled: true, initialBalanceUSDT: 1_000 },
+        },
+        {
+          ...template,
+          slug: "hedge",
+          name: "Hedge",
+          futuresPositionMode: "HEDGE",
+          sandbox: { enabled: true, initialBalanceUSDT: 1_000 },
+        },
+      ],
+      storage.sharedConfig,
+    );
+
+    const result = await slowTrading.service.runSlowTradingCycle({
+      forceEntrySymbols: ["SUI"],
+      stage: "capture-entry",
+    });
+    const oneWay = await slowTradingStorage.data.load({ account: "one-way" });
+    const hedge = await slowTradingStorage.data.load({ account: "hedge" });
+    const oneWayPositions =
+      oneWay.modes.sandbox.tradeSettings[0].model_memory.positions ?? [];
+    const hedgePositions =
+      hedge.modes.sandbox.tradeSettings[0].model_memory.positions ?? [];
+
+    // PROD:MULTI_ACCOUNT_FAILURE_ISOLATION
+    expect(oneWayPositions).toEqual([]);
+    expect(hedgePositions).toEqual([
+      expect.objectContaining({ account: "hedge", role: "MAIN" }),
+      expect.objectContaining({ account: "hedge", role: "COUNTER" }),
+    ]);
+    expect(result.executedEntrySignals).toBe(1);
+    expect(result.skippedEntrySignals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          symbol: "SUI",
+          reason: expect.stringContaining(
+            'account "one-way" requires futuresPositionMode HEDGE',
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("opens each account's selected MAIN-only or COUNTER-only Hedge leg", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const { TradingMode } = await import("@/lib/exchange");
+    const storage = slowTradingStorage.data.createDefault();
+    const template = storage.runtime.exchangeAccounts[0];
+
+    storage.config.symbols = ["SUI"];
+    storage.config.exchangeType = "binance";
+    storage.config.tradingMode = TradingMode.FUTURES;
+    storage.config.openDirection = "BOTH";
+    storage.config.enableWatchLogic = false;
+    storage.runtime.runnerEnabled = true;
+    storage.runtime.autoEntryEnabled = true;
+    storage.runtime.autoExitEnabled = false;
+    await slowTradingStorage.data.save(storage);
+    await slowTradingStorage.account.saveAccounts(
+      [
+        {
+          ...template,
+          slug: "main-only",
+          name: "Main Only",
+          futuresPositionMode: "HEDGE",
+          trading: { ...template.trading, entryLegs: "MAIN" },
+          sandbox: { enabled: true, initialBalanceUSDT: 1_000 },
+        },
+        {
+          ...template,
+          slug: "counter-only",
+          name: "Counter Only",
+          futuresPositionMode: "HEDGE",
+          trading: { ...template.trading, entryLegs: "COUNTER" },
+          sandbox: { enabled: true, initialBalanceUSDT: 1_000 },
+        },
+      ],
+      storage.sharedConfig,
+    );
+
+    const result = await slowTrading.service.runSlowTradingCycle({
+      forceEntrySymbols: ["SUI"],
+      stage: "capture-entry",
+    });
+    const mainOnly = await slowTradingStorage.data.load({
+      account: "main-only",
+    });
+    const counterOnly = await slowTradingStorage.data.load({
+      account: "counter-only",
+    });
+
+    // PROD:ACCOUNT_ENTRY_LEGS
+    expect(
+      mainOnly.modes.sandbox.tradeSettings[0].model_memory.positions,
+    ).toEqual([
+      expect.objectContaining({
+        account: "main-only",
+        direction: "LONG",
+        entryLegs: "MAIN",
+        role: "MAIN",
+      }),
+    ]);
+    // PROD:ACCOUNT_ENTRY_LEGS
+    expect(
+      counterOnly.modes.sandbox.tradeSettings[0].model_memory.positions,
+    ).toEqual([
+      expect.objectContaining({
+        account: "counter-only",
+        direction: "SHORT",
+        entryLegs: "COUNTER",
+        role: "COUNTER",
+      }),
+    ]);
+    expect(result.executedEntrySignals).toBe(2);
+  });
+
+  it("classifies a persisted averaged position with shared volatility", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const { createTestPosition } = await import("../fixtures/position");
+    const storage = slowTradingStorage.data.createDefault();
+    const position = createTestPosition({
+      direction: "LONG",
+      entryPrice: 100,
+      entryTime: e2eSignal.t - 60_000,
+      executionMode: "sandbox",
+      pnl: {
+        markPrice: 103,
+        maxDownPct: 0,
+        maxUpPct: 0,
+        netPct: 0,
+        netUsdt: 0,
+      },
+      symbol: "SUI",
+    });
+    position.strategy.averaging.executions = [
+      {
+        allocationPct: 3,
+        level: -3,
+        marginUsdt: 10,
+        price: 100,
+        t: e2eSignal.t,
+      },
+    ];
+
+    storage.config.symbols = ["SUI"];
+    storage.config.enableWatchLogic = false;
+    storage.config.modelConfig.takeProfitPercent = 20;
+    storage.config.modelConfig.useStopLossPlus = false;
+    storage.runtime.autoEntryEnabled = false;
+    storage.runtime.autoExitEnabled = false;
+    storage.runtime.runnerEnabled = true;
+    storage.runtime.sandboxEnabled = true;
+    storage.runtime.speedupStageNegativePnlThresholdPct = 10;
+    storage.runtime.speedupStagePositivePnlThresholdPct = 10;
+    storage.modes.sandbox = slowTradingStorage.mode.ensureTradeSettings(
+      storage.modes.sandbox,
+      storage.config.symbols,
+    );
+    storage.modes.sandbox.tradeSettings[0].model_memory.positions = [position];
+    delete storage.modes.sandbox.tradeSettings[0].model_memory.volatility;
+    await slowTradingStorage.data.save(storage);
+
+    const result = await slowTrading.service.runSlowTradingCycle({
+      stage: "speedup",
+    });
+    const persisted = await slowTradingStorage.data.load({
+      modeScope: "active",
+    });
+    const persistedPosition =
+      persisted.modes.sandbox.tradeSettings[0].model_memory.positions?.[0];
+
+    // PROD:SPEEDUP_STAGE_SHARED_VOLATILITY_CLASSIFICATION
+    expect(productionMocks.assignVolatility).toHaveBeenCalledTimes(1);
+    expect(result.symbols).toEqual(["SUI"]);
+    expect(persistedPosition?.lastMonitoringStage).toMatchObject({
+      reason: "post-average target approach",
+      stage: "speedup",
+    });
+  });
+
+  it("classifies a persisted position after its target vPoint", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const { createTestPosition } = await import("../fixtures/position");
+    const storage = slowTradingStorage.data.createDefault();
+    const position = createTestPosition({
+      direction: "SHORT",
+      entryPrice: 100,
+      entryTime: e2eSignal.t - 60_000,
+      executionMode: "sandbox",
+      pnl: {
+        markPrice: 100,
+        maxDownPct: 0,
+        maxUpPct: 0,
+        netPct: 0,
+        netUsdt: 0,
+      },
+      symbol: "SUI",
+    });
+    productionMocks.assignVolatility.mockImplementationOnce(
+      async (modelMemoryMap: Record<string, any>) => {
+        modelMemoryMap.SUI.volatility = {
+          lastVolatility: [
+            {
+              ...e2eSignal,
+              id: "SUI_e2e_target",
+              lvl: 0,
+            },
+          ],
+          symbol: "SUI",
+        };
+      },
+    );
+
+    storage.config.symbols = ["SUI"];
+    storage.config.enableWatchLogic = false;
+    storage.config.modelConfig.takeProfitPercent = 20;
+    storage.config.modelConfig.useStopLossPlus = false;
+    storage.runtime.autoEntryEnabled = false;
+    storage.runtime.autoExitEnabled = false;
+    storage.runtime.runnerEnabled = true;
+    storage.runtime.sandboxEnabled = true;
+    storage.runtime.speedupStageNegativePnlThresholdPct = 10;
+    storage.runtime.speedupStagePositivePnlThresholdPct = 10;
+    storage.modes.sandbox = slowTradingStorage.mode.ensureTradeSettings(
+      storage.modes.sandbox,
+      storage.config.symbols,
+    );
+    storage.modes.sandbox.tradeSettings[0].model_memory.positions = [position];
+    delete storage.modes.sandbox.tradeSettings[0].model_memory.volatility;
+    await slowTradingStorage.data.save(storage);
+
+    const result = await slowTrading.service.runSlowTradingCycle({
+      stage: "speedup",
+    });
+    const persisted = await slowTradingStorage.data.load({
+      modeScope: "active",
+    });
+    const persistedPosition =
+      persisted.modes.sandbox.tradeSettings[0].model_memory.positions?.[0];
+
+    // PROD:SPEEDUP_STAGE_SHARED_VOLATILITY_CLASSIFICATION
+    expect(result.symbols).toEqual(["SUI"]);
+    expect(persistedPosition?.lastMonitoringStage).toMatchObject({
+      reason: "target vPoint hit",
+      stage: "speedup",
+    });
+  });
+
+  it("does no market or private exchange I/O for empty monitoring", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const slowTradingStorage = slowTrading.storage;
+    const storage = slowTradingStorage.data.createDefault();
+    const template = storage.runtime.exchangeAccounts[0];
+
+    storage.config.symbols = ["SUI"];
+    storage.runtime.runnerEnabled = true;
+    await slowTradingStorage.data.save(storage);
+    await slowTradingStorage.account.saveAccounts(
+      [
+        { ...template, slug: "alpha", name: "Alpha" },
+        { ...template, slug: "beta", name: "Beta" },
+      ],
+      storage.sharedConfig,
+    );
+
+    await slowTrading.service.runSlowTradingCycle({ stage: "speedup" });
+
+    // PROD:EMPTY_MONITORING_NO_MARKET_IO
+    expect(productionMocks.assignVolatility).not.toHaveBeenCalled();
+    expect(exchangeMocks.getKlines).not.toHaveBeenCalled();
+    expect(exchangeMocks.getBalance).not.toHaveBeenCalled();
+    expect(exchangeMocks.getPositions).not.toHaveBeenCalled();
   });
 
   it("removes a sandbox coin at the configured absolute level", async () => {
@@ -338,13 +704,10 @@ describe("slow end-to-end cycle", () => {
       storage.config.symbols,
     );
     await slowTradingStorage.data.save(storage);
-    await fs.outputJSON(
-      `${FILES.slow.volatility("binance")}/SUI.json`,
-      {
-        lastVolatility: [e2eSignal],
-        symbol: "SUI",
-      },
-    );
+    await fs.outputJSON(`${FILES.slow.volatility("binance")}/SUI.json`, {
+      lastVolatility: [e2eSignal],
+      symbol: "SUI",
+    });
 
     const result = await slowTrading.management.run();
     const persisted = await slowTradingStorage.data.load({ modeScope: "all" });
@@ -367,16 +730,13 @@ describe("slow end-to-end cycle", () => {
     storage.runtime.runnerEnabled = true;
     storage.runtime.autoRemoveSymbolMinVPointPct = 15;
     await slowTradingStorage.data.save(storage);
-    await fs.outputJSON(
-      `${FILES.slow.volatility("binance")}/SUI.json`,
-      {
-        lastVolatility: [
-          { ...e2eSignal, id: "old-spike", pct: 15, t: 1 },
-          { ...e2eSignal, id: "latest-small", pct: 2, t: 2 },
-        ],
-        symbol: "SUI",
-      },
-    );
+    await fs.outputJSON(`${FILES.slow.volatility("binance")}/SUI.json`, {
+      lastVolatility: [
+        { ...e2eSignal, id: "old-spike", pct: 15, t: 1 },
+        { ...e2eSignal, id: "latest-small", pct: 2, t: 2 },
+      ],
+      symbol: "SUI",
+    });
 
     const result = await slowTrading.management.run();
     const persisted = await slowTradingStorage.data.load({ modeScope: "all" });
@@ -388,8 +748,7 @@ describe("slow end-to-end cycle", () => {
     expect(logs.management).toEqual([
       expect.objectContaining({
         action: "remove",
-        reason:
-          "Stored vPoint old-spike movement 15% reached threshold 15%.",
+        reason: "Stored vPoint old-spike movement 15% reached threshold 15%.",
         source:
           "slow-trading.sandbox-cycle.coin-management:auto-remove-vpoint-pct",
         symbol: "SUI",
@@ -578,8 +937,7 @@ describe("slow end-to-end cycle", () => {
       expect.objectContaining({
         action: "remove",
         reason: "Latest price 100 USDT fell below minimum 101 USDT.",
-        source:
-          "slow-trading.live-cycle.coin-management:auto-remove-min-price",
+        source: "slow-trading.live-cycle.coin-management:auto-remove-min-price",
         symbol: "SUI",
       }),
     ]);
@@ -623,8 +981,7 @@ describe("slow end-to-end cycle", () => {
     const persisted = await slowTradingStorage.data.load({
       modeScope: "active",
     });
-    const dashboard =
-      slowTradingStorage.dashboard.buildState(persisted);
+    const dashboard = slowTradingStorage.dashboard.buildState(persisted);
 
     // PROD:SLOW_LARGE_END_TO_END_CYCLE
     expect(storage.config.symbols).toHaveLength(80);

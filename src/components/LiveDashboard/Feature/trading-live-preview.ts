@@ -1,5 +1,9 @@
 import type { EntryRecommendation } from "@/lib/brain/algorithms/type-execute";
-import type { AdaptiveAveragingConfig, OpenDirection } from "@/lib/dynamic";
+import type {
+  AdaptiveAveragingConfig,
+  EntryLegs,
+  OpenDirection,
+} from "@/lib/dynamic";
 import type { TradingMode } from "@/lib/exchange/types";
 import slowTradingClient, {
   type SlowTradingDashboardState,
@@ -11,6 +15,7 @@ import postAverageStopLoss from "@/lib/trading/post-average-stop-loss";
 export interface TradingLivePreviewConfig {
   adaptiveAveraging?: AdaptiveAveragingConfig;
   enableWatchLogic?: boolean;
+  entryLegs?: EntryLegs;
   exactLeverage?: number;
   maxEntryMargin?: number;
   maxEntryMarginPct?: number;
@@ -82,6 +87,7 @@ export interface TradingLivePreviewData {
   bailoutCandidates: TradingLivePreviewBailoutCandidate[];
   bailoutBufferUsdt: number;
   entryBudgetUsdt: number;
+  entryLegs: EntryLegs;
   entryMarginUsdt: number;
   exitStages: TradingLivePreviewExitStage[];
   leverage: number;
@@ -314,6 +320,12 @@ export function buildTradingLivePreview(params: {
     config,
     spendableUsdt,
   });
+  const entryLegs =
+    config.openDirection === "BOTH"
+      ? config.entryLegs === "MAIN" || config.entryLegs === "COUNTER"
+        ? config.entryLegs
+        : "BOTH"
+      : "MAIN";
   const bailoutCandidates = dashboardState.openPositions.flatMap(
     (position, positionIndex): TradingLivePreviewBailoutCandidate[] => {
       if (position.closed) {
@@ -579,6 +591,7 @@ export function buildTradingLivePreview(params: {
     bailoutCandidates,
     bailoutBufferUsdt: capacity.bailoutBufferUsdt,
     entryBudgetUsdt: capacity.entryBudgetUsdt,
+    entryLegs,
     entryMarginUsdt: capacity.entryMarginUsdt,
     exitStages,
     leverage,

@@ -26,7 +26,7 @@ function createConfigDraft(): ConfigDraft {
     decisionEngineVersion: "decision.v19",
     description: "",
     entrySignalBypass: false,
-    exchangeAccountId: "1",
+    exchangeAccountSlug: "1",
     exchangeAccounts: [
       {
         createdAt: now,
@@ -35,9 +35,17 @@ function createConfigDraft(): ConfigDraft {
           apiSecret: "",
         },
         description: "",
-        id: "1",
+        futuresPositionMode: "ONE_WAY",
+        slug: "new-binance-account",
         name: "New Binance Account",
         type: "binance",
+        enabled: true,
+        trading: {
+          entryLegs: "BOTH",
+          notes: "",
+          modelConfig: { takeProfitPercent: 5 },
+        },
+        sandbox: { enabled: false, initialBalanceUSDT: 1000 },
         updatedAt: now,
       },
     ],
@@ -99,9 +107,7 @@ describe("exchange account manager dialog", () => {
       screen.getByRole("button", { name: "Manage exchange accounts" }),
     );
 
-    const apiKey = screen.getByLabelText(
-      "Binance API Key",
-    ) as HTMLInputElement;
+    const apiKey = screen.getByLabelText("Binance API Key") as HTMLInputElement;
     const apiSecret = screen.getByLabelText(
       "Binance API Secret",
     ) as HTMLInputElement;

@@ -54,20 +54,46 @@ neutral.
 
 TC: `BOTH:MONTHLY_TRADE_SHARPE`
 
+### C.3.2 Multi-account Daily Balance Snapshots
+
+Each account writes its own live and sandbox UTC-day balance snapshot. The
+Daily PnL Calendar aggregates snapshots, starting balances, and closed-trade
+history for enabled accounts only. For an account without a snapshot on an
+observed day, the calendar carries forward that account's latest earlier
+balance; it does not include an account before that account's first snapshot.
+
+The pre-launch multi-account format is a hard cutover. The former mode-wide
+snapshot file is not read, assigned to an account, or combined with
+account-scoped data.
+
+TC: `PROD:MULTI_ACCOUNT_DAILY_BALANCE_SNAPSHOTS`
+
 ## C.4 Live Exchange Account Storage
 
-SLOW stores live exchange accounts in `accounts.json`, separate from strategy
-`config.json`. Each account has a stable `id`, dashboard label, exchange
-`type`, and credentials for that exchange. `runtime.exchangeAccountId` in
-`config.json` selects which saved account is used for private live calls.
-Existing exchange environment credentials may seed the default saved accounts
-on first boot and remain a fallback when no stored account context is active.
+SLOW stores Binance account profiles in `accounts.json`, separate from shared
+strategy `config.json`. Each account has an immutable unique `slug`, dashboard
+label, credentials, enabled state, Trading-tab configuration (including the
+`entryLegs` Hedge selection), Sandbox controls,
+and declared futures position mode. `runtime.exchangeAccountSlug` selects the
+profile edited by account-scoped settings and API actions; it does not limit
+which enabled accounts execute.
+
+Live and sandbox execution memory is isolated under each account slug in
+`memory.json`. Closed history remains shared, and every open, closed, sandbox,
+live, and backtest position carries its owning account slug. Deleted slugs are
+retired permanently. There is no ID-profile or single-account-memory migration:
+this pre-launch project uses the slug-based format as a hard cutover.
 
 A Binance account may also persist `futuresPositionMode` as `ONE_WAY` or
 `HEDGE`. The account manager exposes this value, and storage normalization
 preserves only those two recognized literals. Both-direction runtime entry
 requires `HEDGE`; the saved value is a declared prerequisite and does not
 replace live verification against Binance.
+
+Enabled accounts execute sequentially with shared public market preparation.
+Disabling an account blocks new entries but keeps its existing positions under
+monitoring, protection, averaging, and exit management. Disabled accounts are
+excluded from combined dashboard and MCP output.
 
 Loading accounts is read-only when `accounts.json` already exists. Explicit
 account, config, and memory saves stage complete JSON in a unique temporary file
@@ -82,9 +108,16 @@ must abort the cycle so the production error boundary records it in
 Sandbox futures entries use the same leverage calculation but must not call
 private exchange account-configuration endpoints.
 
+Each account's `trading.notes` is a user-authored strategy reminder stored in
+`accounts.json`. It is account metadata: it must survive account normalization,
+backup and restore, and Trading-editor account switches, but it must not be
+projected into the effective execution configuration or affect calculations.
+
 TC: `PROD:FUTURES_ENTRY_ACCOUNT_SETUP`
 
 TC: `PROD:ATOMIC_PERSISTENT_JSON`
+
+TC: `PROD:MULTI_ACCOUNT_TRADING_NOTES`
 
 ## C.5 Backtest Storage
 
@@ -190,3 +223,20 @@ The snapshot is shared by live and sandbox monitoring and is retained when the
 position moves into closed history. Legacy and spot positions may omit it.
 
 TC: `PROD:MONITORING_POSITION_FUNDING_RATE`
+
+## C.11 Incremental Volatility Persistence
+
+Production volatility assignment remains sequential. After one symbol's
+prediction-engine refresh succeeds, its volatility memory is merged by point
+id and atomically persisted before assignment advances to the next symbol.
+
+If a later symbol fails, every earlier successful symbol remains available on
+the next cycle and is not discarded with the failed cycle. Concurrent callers
+for the same exchange, market, symbol, and actionable-level configuration join
+one in-progress calculation. This is part of the existing assignment loop and
+does not introduce a separate bootstrap queue or storage format.
+
+Account balances, positions, decisions, orders, and mode memory remain outside
+the shared volatility calculation.
+
+TC: `PROD:VOLATILITY_INCREMENTAL_PERSISTENCE`

@@ -2,12 +2,15 @@ import { fetchKlinesFunction } from "@lib/datasets/fetchKlines";
 import type { FetchKlinesFunction } from "@lib/datasets/type";
 import type { Position } from "@/lib/trading/models";
 import type { TradingFeeReturn } from "@lib/exchange/platform/tokocrypto";
-import { calculateTradingFee, OrderSide, tokocrypto } from "@lib/exchange/platform/tokocrypto";
+import {
+  calculateTradingFee,
+  OrderSide,
+  tokocrypto,
+} from "@lib/exchange/platform/tokocrypto";
 import { tradeLog } from "./log";
 import { TRADE_MESSAGE } from "../message";
 import { TradingMode, getExchange, type ExchangeType } from "@/lib/exchange";
-
-
+import { getCurrentExchangeAccountSlug } from "@/lib/exchange/account-context";
 
 interface GetLastPositionProps {
   symbol: string;
@@ -26,7 +29,7 @@ export async function getLastPosition({
   // Reset position if last order exists but no baseAsset (USDT) left
   if (baseAsset === 0) {
     tradeLog.log(
-      "Reset position! Reset position if last order exists but no baseAsset (USDT) left"
+      "Reset position! Reset position if last order exists but no baseAsset (USDT) left",
     );
     return null;
   }
@@ -46,6 +49,7 @@ export async function getLastPosition({
 
   // Recreate position from last executed order
   currentPosition = {
+    account: getCurrentExchangeAccountSlug(),
     symbol: symbol.split("_")[0],
     executionMode: "live",
     tradingMode: TradingMode.SPOT,
@@ -113,7 +117,8 @@ export async function getLastPosition({
     const current = candles.at(-1); // Last candle is current market price
 
     if (current) {
-      const priceInUSDT = currentPosition.exposure.quantity * parseFloat(current[4]);
+      const priceInUSDT =
+        currentPosition.exposure.quantity * parseFloat(current[4]);
       tradeLog.log("Price in USDT ", priceInUSDT);
 
       if (priceInUSDT < 1.5) {
@@ -200,8 +205,7 @@ export function mergePositions(positions?: Position[]): Position | null {
         0,
       ),
       estimatedExitUsdt: positions.reduce(
-        (total, position) =>
-          total + (position.fees.estimatedExitUsdt ?? 0),
+        (total, position) => total + (position.fees.estimatedExitUsdt ?? 0),
         0,
       ),
     },
@@ -322,9 +326,10 @@ export interface CalculateProfitReturn {
 export async function calculateProfit(
   currentPosition: Position,
   currentPrice: number,
-  tradingSymbol: string
+  tradingSymbol: string,
 ): Promise<CalculateProfitReturn> {
-  const exchangeType = (currentPosition.strategy.entry.label as ExchangeType) || "tokocrypto";
+  const exchangeType =
+    (currentPosition.strategy.entry.label as ExchangeType) || "tokocrypto";
   const exchange = getExchange(exchangeType);
 
   // A. BUY fee
@@ -337,7 +342,7 @@ export async function calculateProfit(
   // B. SELL fee
   const sellQuantity = await exchange.adjustQuantity(
     currentPosition.exposure.quantity,
-    tradingSymbol
+    tradingSymbol,
   );
 
   const sellFee = calculateTradingFee({
@@ -357,12 +362,13 @@ export async function calculateProfit(
 
   // Net profit/loss %
   const netProfitPercent = parseFloat(
-    (((net - costBasis) / costBasis) * 100).toFixed(2)
+    (((net - costBasis) / costBasis) * 100).toFixed(2),
   );
 
   return {
     netProfitPercent,
-    netProfitPercentWithLeverage: netProfitPercent * (currentPosition.exposure.leverage || 1),
+    netProfitPercentWithLeverage:
+      netProfitPercent * (currentPosition.exposure.leverage || 1),
     net,
     sellFee,
     buyFee,

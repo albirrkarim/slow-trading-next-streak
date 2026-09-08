@@ -14,16 +14,27 @@ export default async function handler(
       return;
     }
 
-    const symbol = String(req.body?.symbol || "").trim().toUpperCase();
+    const symbol = String(req.body?.symbol || "")
+      .trim()
+      .toUpperCase();
     if (!symbol) {
       res.status(400).json({ error: "Symbol is required" });
       return;
     }
 
     const currentStorage = await slowTrading.storage.data.load({
+      account: String(req.body?.account || "").trim() || undefined,
       modeScope: "active",
     });
-    const activeMode = currentStorage.runtime.sandboxEnabled ? "sandbox" : "live";
+    const activeMode = currentStorage.runtime.sandboxEnabled
+      ? "sandbox"
+      : "live";
+    if (!currentStorage.account.enabled) {
+      res.status(409).json({
+        error: `Account ${currentStorage.account.slug} is disabled for new entries`,
+      });
+      return;
+    }
     const protectionState = currentStorage.modes[activeMode].blackSwan;
     if (blackSwan.state.isProtective(protectionState)) {
       res.status(423).json({
@@ -33,7 +44,9 @@ export default async function handler(
     }
     const hasOpenPosition = currentStorage.modes[activeMode].tradeSettings.some(
       (item) =>
-        String(item.symbol || "").trim().toUpperCase() === symbol &&
+        String(item.symbol || "")
+          .trim()
+          .toUpperCase() === symbol &&
         (item.model_memory.positions?.length ?? 0) > 0,
     );
 
@@ -45,6 +58,7 @@ export default async function handler(
     }
 
     const result = await slowTrading.service.runSlowTradingCycle({
+      account: currentStorage.account.slug,
       ignoreRunnerEnabled: true,
       forceEntrySymbols: [symbol],
     });
@@ -53,16 +67,24 @@ export default async function handler(
       includeHistory: true,
     });
     const report = result.reports.find(
-      (item) => String(item.symbol || "").trim().toUpperCase() === symbol,
+      (item) =>
+        String(item.symbol || "")
+          .trim()
+          .toUpperCase() === symbol,
     );
     const skippedEntrySignal = result.skippedEntrySignals.find(
-      (item) => String(item.symbol || "").trim().toUpperCase() === symbol,
+      (item) =>
+        String(item.symbol || "")
+          .trim()
+          .toUpperCase() === symbol,
     );
     const wasExecuted = Boolean(
       report?.tradingDetail?.action === "BUY" ||
       nextStorage.modes[activeMode].tradeSettings.some(
         (item) =>
-          String(item.symbol || "").trim().toUpperCase() === symbol &&
+          String(item.symbol || "")
+            .trim()
+            .toUpperCase() === symbol &&
           (item.model_memory.positions?.length ?? 0) > 0,
       ),
     );
@@ -79,7 +101,8 @@ export default async function handler(
         ? undefined
         : (report?.message ?? skippedEntrySignal?.reason),
       result,
-      state: await slowTrading.storage.dashboard.buildStateRealtime(nextStorage),
+      state:
+        await slowTrading.storage.dashboard.buildStateRealtime(nextStorage),
     });
   } catch (error: any) {
     await slowTrading.notifications.notifySlowTradingOperationalError({

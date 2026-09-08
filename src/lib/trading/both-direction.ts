@@ -1,4 +1,4 @@
-import type { OpenDirection, VolatilityPoint } from "@/lib/dynamic";
+import type { EntryLegs, OpenDirection, VolatilityPoint } from "@/lib/dynamic";
 import type {
   Position,
   PositionDirection,
@@ -21,20 +21,33 @@ function isEnabled(value: unknown): boolean {
   return normalizeOpenDirection(value) === "BOTH";
 }
 
+function normalizeEntryLegs(value: unknown): EntryLegs {
+  if (value === "MAIN" || value === "COUNTER") return value;
+  return "BOTH";
+}
+
 function resolveRole(position: Pick<Position, "role">): PositionRole {
   return position.role === "COUNTER" ? "COUNTER" : "MAIN";
 }
 
+function isHedgeStrategyPosition(
+  position: Pick<Position, "entryLegs">,
+): boolean {
+  return (
+    position.entryLegs === "MAIN" ||
+    position.entryLegs === "COUNTER" ||
+    position.entryLegs === "BOTH"
+  );
+}
+
 /** Builds the stable identity shared by every generation of a worker pair. */
-function buildPairId(
-  position: {
-    opened: {
-      t: Position["opened"]["t"];
-      vPoint: Pick<Position["opened"]["vPoint"], "id">;
-    };
-    symbol: string;
-  },
-): string {
+function buildPairId(position: {
+  opened: {
+    t: Position["opened"]["t"];
+    vPoint: Pick<Position["opened"]["vPoint"], "id">;
+  };
+  symbol: string;
+}): string {
   return [
     String(position.symbol || "").toUpperCase(),
     position.opened.vPoint.id,
@@ -71,6 +84,7 @@ function hasCounterpart(position: Position, positions: Position[]): boolean {
 function isPairLeg(position: Position, positions: Position[]): boolean {
   return Boolean(
     position.pairId ||
+      isHedgeStrategyPosition(position) ||
       resolveRole(position) === "COUNTER" ||
       hasCounterpart(position, positions),
   );
@@ -81,19 +95,44 @@ function oppositeDirection(direction: PositionDirection): PositionDirection {
 }
 
 function resolveEntryLegs(params: {
+  entryLegs?: EntryLegs;
   mainDirection: PositionDirection;
   openDirection?: OpenDirection;
 }): Array<{ direction: PositionDirection; role: PositionRole }> {
+  // BOTH:ACCOUNT_ENTRY_LEGS
   const main = { direction: params.mainDirection, role: "MAIN" as const };
-  return isEnabled(params.openDirection)
-    ? [
-        main,
-        {
-          direction: oppositeDirection(params.mainDirection),
-          role: "COUNTER" as const,
-        },
-      ]
-    : [main];
+  if (!isEnabled(params.openDirection)) return [main];
+
+  const counter = {
+    direction: oppositeDirection(params.mainDirection),
+    role: "COUNTER" as const,
+  };
+  const entryLegs = normalizeEntryLegs(params.entryLegs);
+  if (entryLegs === "MAIN") return [main];
+  if (entryLegs === "COUNTER") return [counter];
+  return [main, counter];
+}
+
+/** Resolves the position roles consumed by one fresh entry selection. */
+function resolveEntryRoles(params: {
+  entryLegs?: EntryLegs;
+  openDirection?: OpenDirection;
+}): PositionRole[] | undefined {
+  if (!isEnabled(params.openDirection)) return undefined;
+  return resolveEntryLegs({
+    entryLegs: params.entryLegs,
+    mainDirection: "LONG",
+    openDirection: params.openDirection,
+  }).map((leg) => leg.role);
+}
+
+/** Counts the legs funded and opened by one new logical worker. */
+function countEntryLegs(params: {
+  entryLegs?: EntryLegs;
+  openDirection?: OpenDirection;
+}): number {
+  if (!isEnabled(params.openDirection)) return 1;
+  return normalizeEntryLegs(params.entryLegs) === "BOTH" ? 2 : 1;
 }
 
 function getPostEntryPoints<TPoint extends Pick<VolatilityPoint, "t">>(
@@ -102,10 +141,7 @@ function getPostEntryPoints<TPoint extends Pick<VolatilityPoint, "t">>(
 ): TPoint[] {
   const anchorTime = position.opened.vPoint.t ?? position.opened.t;
   return volatilityPoints
-    .filter(
-      (point) =>
-        Number.isFinite(point.t) && point.t > anchorTime,
-    )
+    .filter((point) => Number.isFinite(point.t) && point.t > anchorTime)
     .sort((left, right) => left.t - right.t);
 }
 
@@ -116,11 +152,7 @@ export interface VolatilityTargetState<TPoint> {
   isCurrent: boolean;
 }
 
-/**
- * Resolves the shared volatility target. A non-zero entry level arms it
- * immediately; otherwise, the first later non-zero level arms it. The next
- * post-entry level zero is the target regardless of TOP/BOTTOM direction.
- */
+/** Resolves the first level-zero target after a position becomes armed. */
 function resolveLevelZeroVolatilityTarget<
   TPoint extends Pick<VolatilityPoint, "id" | "lvl" | "t">,
 >(params: {
@@ -174,9 +206,7 @@ function resolveDirectionalVolatilityTarget<
     params.position,
     params.volatilityPoints,
   );
-  const targetPoint = postEntryPoints.find(
-    (point) => point.l === targetLabel,
-  );
+  const targetPoint = postEntryPoints.find((point) => point.l === targetLabel);
   const currentPoint = postEntryPoints.at(-1);
 
   return {
@@ -186,6 +216,40 @@ function resolveDirectionalVolatilityTarget<
       targetPoint && currentPoint && targetPoint.id === currentPoint.id,
     ),
   };
+}
+
+/** Checks whether a leg passed one whole level in its profit direction. */
+function hasPassedProfitLevel(params: {
+  position: Pick<Position, "direction" | "opened">;
+  volatilityPoints: VolatilityPoint[];
+}): boolean {
+  const entryLevel = params.position.opened.vPoint.lvl;
+  return getPostEntryPoints(params.position, params.volatilityPoints).some(
+    (point) =>
+      (params.position.direction === "LONG" && point.lvl >= entryLevel + 1) ||
+      (params.position.direction === "SHORT" && point.lvl <= entryLevel - 1),
+  );
+}
+
+/** Resolves whether ordinary TP/SL+ protection is allowed for this position. */
+function mayUseProfitProtection(params: {
+  position: Position;
+  positions: Position[];
+  volatilityPoints: VolatilityPoint[];
+}): boolean {
+  if (params.position.entryLegs === "COUNTER") {
+    return hasPassedProfitLevel({
+      position: params.position,
+      volatilityPoints: params.volatilityPoints,
+    });
+  }
+  if (
+    isHedgeStrategyPosition(params.position) ||
+    isPairLeg(params.position, params.positions)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function countOpenPairs(positions: Position[]): number {
@@ -206,10 +270,13 @@ const bothDirection = {
     opposite: oppositeDirection,
   },
   entry: {
+    count: countEntryLegs,
+    normalizeSelection: normalizeEntryLegs,
     pairId: {
       build: buildPairId,
     },
     resolveLegs: resolveEntryLegs,
+    resolveRoles: resolveEntryRoles,
   },
   pair: {
     countOpen: countOpenPairs,
@@ -219,11 +286,17 @@ const bothDirection = {
     resolveId: resolvePairId,
   },
   position: {
+    isHedgeStrategy: isHedgeStrategyPosition,
     role: {
       resolve: resolveRole,
     },
   },
+  profitProtection: {
+    counterAllowed: mayUseProfitProtection,
+    hasPassedProfitLevel,
+  },
   volatilityTarget: {
+    resolve: resolveLevelZeroVolatilityTarget,
     directional: {
       resolve: resolveDirectionalVolatilityTarget,
     },

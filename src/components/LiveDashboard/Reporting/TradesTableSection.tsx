@@ -39,9 +39,7 @@ import type {
   SlowTradingDashboardState,
   SlowTradingMode,
 } from "@/lib/slowTrading";
-import RangedValueText, {
-  type RangedValueColorRange,
-} from "./RangedValueText";
+import RangedValueText, { type RangedValueColorRange } from "./RangedValueText";
 import type { SlowTradingReportRow } from "./types";
 import { formatHoldMs } from "./utils";
 import positionData from "@/lib/trading/position";
@@ -216,10 +214,12 @@ function formatUsdt(value: number | null | undefined) {
     : "—";
 }
 
-
 /** Gets the entry margin for display, with legacy fallbacks for old rows. */
 function getEntryMarginUsdt(row: SlowTradingReportRow) {
-  if (typeof row.exposure.marginUsdt === "number" && Number.isFinite(row.exposure.marginUsdt)) {
+  if (
+    typeof row.exposure.marginUsdt === "number" &&
+    Number.isFinite(row.exposure.marginUsdt)
+  ) {
     return row.exposure.marginUsdt;
   }
 
@@ -233,7 +233,8 @@ function getEntryMarginUsdt(row: SlowTradingReportRow) {
     return row.exposure.notionalUsdt / row.exposure.leverage;
   }
 
-  return typeof row.exposure.notionalUsdt === "number" && Number.isFinite(row.exposure.notionalUsdt)
+  return typeof row.exposure.notionalUsdt === "number" &&
+    Number.isFinite(row.exposure.notionalUsdt)
     ? row.exposure.notionalUsdt
     : 0;
 }
@@ -331,14 +332,15 @@ function TradeChartDialog({
             header={
               <>
                 <Typography variant="body2">
-                  <strong>Entry:</strong> {row.exposure.averageEntryPrice?.toFixed(6)} @{" "}
-                  {row.opened.t
-                    ? new Date(row.opened.t).toLocaleString()
-                    : "—"}
+                  <strong>Entry:</strong>{" "}
+                  {row.exposure.averageEntryPrice?.toFixed(6)} @{" "}
+                  {row.opened.t ? new Date(row.opened.t).toLocaleString() : "—"}
                 </Typography>
                 <Typography variant="body2">
                   <strong>Exit:</strong> {row.closed?.price?.toFixed(6)} @{" "}
-                  {row.closed?.t ? new Date(row.closed?.t).toLocaleString() : "—"}
+                  {row.closed?.t
+                    ? new Date(row.closed?.t).toLocaleString()
+                    : "—"}
                 </Typography>
                 <Typography
                   variant="body2"
@@ -501,7 +503,7 @@ export function TradesTableSection({
   };
 
   const buildRowKey = (row: SlowTradingReportRow, index: number) =>
-    `${row.symbol}-${row.role ?? "MAIN"}-${row.direction}-${row.opened.t}-${row.closed?.t}-${index}`;
+    `${row.account}-${row.symbol}-${row.role ?? "MAIN"}-${row.direction}-${row.opened.t}-${row.closed?.t}-${index}`;
 
   const handleDeleteRow = async (row: SlowTradingReportRow, rowKey: string) => {
     if (readOnly) return;
@@ -520,6 +522,7 @@ export function TradesTableSection({
         state?: SlowTradingDashboardState;
       }>(endpoints.slow.prod.history, {
         data: {
+          account: row.account,
           mode,
           symbol: row.symbol,
           direction: row.direction,
@@ -633,9 +636,7 @@ export function TradesTableSection({
               <TableCell width={125} align="right">
                 <TableSortLabel
                   active={sortKey === "maxRunUpUsdt"}
-                  direction={
-                    sortKey === "maxRunUpUsdt" ? sortDirection : "asc"
-                  }
+                  direction={sortKey === "maxRunUpUsdt" ? sortDirection : "asc"}
                   onClick={() => handleRequestSort("maxRunUpUsdt")}
                 >
                   Max Up USD
@@ -668,8 +669,7 @@ export function TradesTableSection({
           </TableHead>
           <TableBody>
             {pagedHistory.map((row, index) => {
-              const holdMs =
-                (row.closed?.t ?? 0) - row.opened.t;
+              const holdMs = (row.closed?.t ?? 0) - row.opened.t;
               const feeUsdt = positionData.fees.totalUsdt(row);
               const pnlPercent = row.pnl.netPct ?? 0;
               const pnlUsdt = row.pnl.netUsdt ?? 0;
@@ -720,7 +720,8 @@ export function TradesTableSection({
                           };
                         }}
                       />
-                      {typeof row.exposure.leverage === "number" && row.exposure.leverage > 1 ? (
+                      {typeof row.exposure.leverage === "number" &&
+                      row.exposure.leverage > 1 ? (
                         <Chip
                           label={`${row.exposure.leverage}x`}
                           size="small"
@@ -731,6 +732,14 @@ export function TradesTableSection({
                           }}
                         />
                       ) : null}
+                    </Typography>
+
+                    <Typography
+                      color="text.secondary"
+                      display="block"
+                      variant="caption"
+                    >
+                      Account: {row.account}
                     </Typography>
 
                     <CoinTagsInline
@@ -763,8 +772,14 @@ export function TradesTableSection({
                         timeMs: row.opened.t,
                       })}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      {row.exposure.averageEntryPrice ? `$${row.exposure.averageEntryPrice.toFixed(6)}` : "—"}
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      gutterBottom
+                    >
+                      {row.exposure.averageEntryPrice
+                        ? `$${row.exposure.averageEntryPrice.toFixed(6)}`
+                        : "—"}
                     </Typography>
                     <Typography variant="body2" gutterBottom>
                       {positionData.entry.label(row)}
@@ -791,8 +806,14 @@ export function TradesTableSection({
                         timeMs: row.closed?.t,
                       })}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      {row.closed?.price ? `$${row.closed?.price.toFixed(6)}` : "—"}
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      gutterBottom
+                    >
+                      {row.closed?.price
+                        ? `$${row.closed?.price.toFixed(6)}`
+                        : "—"}
                     </Typography>
 
                     <Typography variant="body2" color="text.secondary">

@@ -25,13 +25,12 @@ import SidebarButton from "@/components/ui/SidebarButton";
 
 import UtcClock from "../Feature/UtcClock";
 import SlowTradingReporting from "../Reporting";
-import { getPnlPercentBg } from "./helpers";
+import { computeBalanceSummaryFromBalances, getPnlPercentBg } from "./helpers";
 import NavbarBalanceSummary from "./NavbarBalanceSummary";
 import NavbarStageRuns from "./NavbarStageRuns";
 import NavbarVolatilityThreshold from "./NavbarVolatilityThreshold";
 import SettingsDialog from "./SettingsDialog";
 import type {
-  BalanceSummary,
   ConfigDraft,
   DashboardState,
   DayPreviewSummary,
@@ -40,7 +39,6 @@ import type {
 } from "./types";
 
 interface NavbarIdentitySectionProps {
-  balanceSummary: BalanceSummary;
   configDraft: ConfigDraft | null;
   dashboardState: DashboardState | null;
 }
@@ -101,21 +99,33 @@ function BalanceTooltipText({
 }
 
 export function NavbarIdentitySection({
-  balanceSummary,
   configDraft,
   dashboardState,
 }: NavbarIdentitySectionProps) {
-  const exchangeAccountId =
-    configDraft?.exchangeAccountId ??
-    dashboardState?.runtime.exchangeAccountId ??
-    "1";
-  const exchangeAccountName =
-    configDraft?.exchangeAccounts.find((account) => account.id === exchangeAccountId)
-      ?.name ??
-    dashboardState?.runtime.exchangeAccounts?.find(
-      (account) => account.id === exchangeAccountId,
-    )?.name ??
-    exchangeAccountId;
+  const accountSummaries = dashboardState
+    ? (
+        dashboardState.accountSummaries ?? [
+          {
+            slug: dashboardState.runtime.exchangeAccountSlug,
+            name:
+              dashboardState.runtime.exchangeAccounts.find(
+                (account) =>
+                  account.slug === dashboardState.runtime.exchangeAccountSlug,
+              )?.name ?? dashboardState.runtime.exchangeAccountSlug,
+            enabled: true,
+            activeMode: dashboardState.activeMode,
+            balances: dashboardState.balances,
+          },
+        ]
+      ).filter((account) => account.enabled)
+    : [];
+  const activeModes = new Set(
+    accountSummaries.map((account) => account.activeMode),
+  );
+  const modeLabel =
+    activeModes.size === 1
+      ? accountSummaries[0]?.activeMode.toUpperCase()
+      : "MULTI MODE";
 
   return (
     <Box
@@ -124,6 +134,7 @@ export function NavbarIdentitySection({
         alignItems: "center",
         gap: { xs: 0.75, md: 1 },
         flexWrap: { xs: "wrap", md: "nowrap" },
+        gridArea: "identity",
         minWidth: 0,
       }}
     >
@@ -158,18 +169,9 @@ export function NavbarIdentitySection({
                 configDraft.decisionEngineVersion ||
                 dashboardState.config.decisionEngineVersion ||
                 "decision.v14"
-              ).replace("decision.", "")}{" - "}
-              {dashboardState.activeMode.toUpperCase()}
+              ).replace("decision.", "")}
+              {modeLabel && ` - ${modeLabel}`}
             </Typography>
-            <Chip
-              size="small"
-              icon={<AccountCircleIcon fontSize="small" />}
-              label={exchangeAccountName}
-              variant="outlined"
-              color="default"
-              sx={{ maxWidth: "100%" }}
-              title={`Exchange account ID: ${exchangeAccountId}`}
-            />
             <NavbarVolatilityThreshold
               volatilityThresholdPct={
                 dashboardState.globalConfig.volatilityThresholdPct
@@ -180,7 +182,48 @@ export function NavbarIdentitySection({
         </Box>
       ) : null}
 
-      {dashboardState && <NavbarBalanceSummary balanceSummary={balanceSummary} />}
+      {dashboardState && (
+        <Box
+          sx={{
+            alignItems: "stretch",
+            display: "flex",
+            flex: "1 1 auto",
+            flexWrap: "wrap",
+            gap: 0.75,
+            minWidth: 0,
+          }}
+        >
+          {accountSummaries.map((account) => (
+            <Box
+              aria-label={`${account.name} balance`}
+              key={account.slug}
+              role="group"
+              sx={{
+                alignItems: "center",
+                display: "flex",
+                flex: "1 1 220px",
+                gap: 0.5,
+                minWidth: 0,
+              }}
+            >
+              <Chip
+                size="small"
+                icon={<AccountCircleIcon fontSize="small" />}
+                label={`${account.name} · ${account.activeMode.toUpperCase()}`}
+                variant="outlined"
+                color="default"
+                sx={{ maxWidth: 150 }}
+                title={`Account slug: ${account.slug}`}
+              />
+              <NavbarBalanceSummary
+                balanceSummary={computeBalanceSummaryFromBalances(
+                  account.balances,
+                )}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -203,6 +246,8 @@ export function NavbarDayPreviewSection({
         gap: { xs: 0.5, md: 1 },
         flexWrap: "wrap",
         alignItems: "center",
+        gridArea: "pnl",
+        justifySelf: { xs: "start", md: "center" },
         minWidth: 0,
       }}
     >
@@ -308,7 +353,6 @@ export function NavbarDayPreviewSection({
 }
 
 interface NavbarActionsSectionProps {
-  coinTags?: Record<string, string[]>;
   configDraft: ConfigDraft | null;
   dashboardState: DashboardState | null;
   onRefresh: LiveDashboardNavbarProps["onRefresh"];
@@ -316,8 +360,8 @@ interface NavbarActionsSectionProps {
   onSettingsDialogClose: () => void;
   onSettingsDialogOpen: () => void;
   reinitializing: boolean;
-  resetSandbox: () => Promise<void>;
-  resettingSandbox: boolean;
+  resetSandbox: (accountSlug: string) => Promise<void>;
+  resettingSandboxAccount: string | null;
   runCycle: () => Promise<void>;
   runningCycle: boolean;
   saveConfig: (handleClose?: () => void) => Promise<void>;
@@ -325,14 +369,11 @@ interface NavbarActionsSectionProps {
   setConfigDraft: React.Dispatch<React.SetStateAction<ConfigDraft | null>>;
   syncOnlineStorageToLocal: (onlineBaseUrl: string) => Promise<void>;
   syncingOnlineStorage: boolean;
-  tagColors?: Record<string, string>;
-  tagDescriptions?: Record<string, string>;
   tryWithdrawNow: (scheduleId: string) => Promise<void>;
   tryingWithdraw: boolean;
 }
 
 export function NavbarActionsSection({
-  coinTags,
   configDraft,
   dashboardState,
   onRefresh,
@@ -341,7 +382,7 @@ export function NavbarActionsSection({
   onSettingsDialogOpen,
   reinitializing,
   resetSandbox,
-  resettingSandbox,
+  resettingSandboxAccount,
   runCycle,
   runningCycle,
   saveConfig,
@@ -349,8 +390,6 @@ export function NavbarActionsSection({
   setConfigDraft,
   syncOnlineStorageToLocal,
   syncingOnlineStorage,
-  tagColors,
-  tagDescriptions,
   tryWithdrawNow,
   tryingWithdraw,
 }: NavbarActionsSectionProps) {
@@ -360,7 +399,9 @@ export function NavbarActionsSection({
         display: "flex",
         gap: { xs: 0.25, md: 1 },
         alignItems: "center",
+        gridArea: "actions",
         justifyContent: { xs: "flex-start", md: "flex-end" },
+        justifySelf: { xs: "stretch", md: "end" },
         flexWrap: "wrap",
         minWidth: 0,
       }}
@@ -387,11 +428,8 @@ export function NavbarActionsSection({
             {() =>
               dashboardState ? (
                 <SlowTradingReporting
-                  coinTags={coinTags}
                   dashboardState={dashboardState}
                   onRefresh={onRefresh}
-                  tagColors={tagColors}
-                  tagDescriptions={tagDescriptions}
                 />
               ) : (
                 <Box sx={{ p: 2 }}>
@@ -426,11 +464,9 @@ export function NavbarActionsSection({
             {() =>
               dashboardState ? (
                 <DailyPnlCalendarWrapper
+                  accountSummaries={dashboardState.accountSummaries}
                   activeMode={dashboardState.activeMode}
                   history={dashboardState.history}
-                  startingBalanceUSDT={
-                    dashboardState.balances.startingBalanceUSDT
-                  }
                 />
               ) : (
                 <Box sx={{ p: 2 }}>
@@ -450,7 +486,7 @@ export function NavbarActionsSection({
             onReinitialize={onReinitialize}
             reinitializing={reinitializing}
             resetSandbox={resetSandbox}
-            resettingSandbox={resettingSandbox}
+            resettingSandboxAccount={resettingSandboxAccount}
             saveConfig={saveConfig}
             savingConfig={savingConfig}
             setConfigDraft={setConfigDraft}

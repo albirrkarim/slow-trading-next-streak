@@ -25,9 +25,11 @@ import slowTradingDailyPerformance, {
   type SlowTradingDailyPerformanceReport,
 } from "./daily-performance";
 import type { DailyPnlLimitEvaluation } from "./daily-pnl-limit";
+import { BinanceCooldownError } from "@/lib/exchange/platform/binance/request-coordinator";
 
 const HOUR_MS = 60 * 60 * 1000;
 const NOTIFICATION_CHANNELS: NotificationChannel[] = ["telegram", "email"];
+let lastNotifiedBinanceCooldownRetryAt = 0;
 
 export const STALE_POSITION_THRESHOLD_MS =
   DEFAULT_STALE_POSITION_HOUR * HOUR_MS;
@@ -88,10 +90,7 @@ export async function notifySlowTradingDailyPnlLimit(params: {
   if (!params.evaluation.reached) {
     let changed = false;
     for (const channel of NOTIFICATION_CHANNELS) {
-      if (
-        state[channel]?.d === params.evaluation.day &&
-        state[channel]?.b
-      ) {
+      if (state[channel]?.d === params.evaluation.day && state[channel]?.b) {
         state[channel] = { b: false, d: params.evaluation.day };
         changed = true;
       }
@@ -280,6 +279,7 @@ export function buildSlowTradingDailyPerformanceNotification(params: {
 
 /** Sends the previous completed UTC day's performance once per enabled channel. */
 export async function notifySlowTradingDailyPerformance(params: {
+  account: string;
   currentTimeMs?: number;
   exchangeType: SlowTradingStorageData["config"]["exchangeType"];
   mode: SlowTradingMode;
@@ -311,11 +311,15 @@ export async function notifySlowTradingDailyPerformance(params: {
   try {
     const [history, balanceSnapshots] = await Promise.all([
       slowTradingStorage.history.readRange({
+        account: params.account,
         endTime: period.dayEndMs,
         mode: params.mode,
         startTime: period.dayStartMs,
       }),
-      slowTradingStorage.balanceSnapshots.read(params.mode),
+      slowTradingStorage.balanceSnapshots.read({
+        account: params.account,
+        mode: params.mode,
+      }),
     ]);
     const report = slowTradingDailyPerformance.report.create({
       balanceSnapshots,
@@ -383,7 +387,9 @@ export function buildSlowTradingManagementActions(params: {
   t?: number;
 }): SlowTradingManagementAction[] {
   const previousSymbols = new Set(
-    params.previousSymbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean),
+    params.previousSymbols
+      .map((symbol) => normalizeSymbol(symbol))
+      .filter(Boolean),
   );
   const nextSymbols = new Set(
     params.nextSymbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean),
@@ -516,6 +522,14 @@ export async function notifySlowTradingOperationalError(params: {
   error: unknown;
   details?: Record<string, unknown>;
 }) {
+  if (params.error instanceof BinanceCooldownError) {
+    if (params.error.retryAt === lastNotifiedBinanceCooldownRetryAt) {
+      return;
+    }
+    // PROD:BINANCE_GLOBAL_COOLDOWN
+    lastNotifiedBinanceCooldownRetryAt = params.error.retryAt;
+  }
+
   const errorMessage = getErrorMessage(params.error);
   const hourBucket = Math.floor(Date.now() / (60 * 60 * 1000));
 
@@ -572,8 +586,7 @@ export async function notifyHighVolatilityLevels(params: {
   exchangeType: SlowTradingStorageData["config"]["exchangeType"];
   notification: DashboardNotificationConfig;
 }) {
-  const { modeState, volatilityPointsMap, exchangeType, notification } =
-    params;
+  const { modeState, volatilityPointsMap, exchangeType, notification } = params;
   const nextState = { ...modeState.highVolatilityNotificationState };
 
   for (const channel of NOTIFICATION_CHANNELS) {
@@ -599,10 +612,7 @@ export async function notifyHighVolatilityLevels(params: {
     for (const [rawSymbol, points] of Object.entries(volatilityPointsMap)) {
       const symbol = normalizeSymbol(rawSymbol);
       const latestPoint = points.at(-1);
-      const zone = getHighVolatilityZone(
-        latestPoint?.lvl,
-        minAbsoluteLevel,
-      );
+      const zone = getHighVolatilityZone(latestPoint?.lvl, minAbsoluteLevel);
       const previousZone = channelState[symbol] ?? null;
 
       if (!zone) {
@@ -618,13 +628,11 @@ export async function notifyHighVolatilityLevels(params: {
       const level = latestPoint?.lvl ?? 0;
       const label = latestPoint?.l ?? "UNKNOWN";
       const price =
-        typeof latestPoint?.p === "number" &&
-        Number.isFinite(latestPoint.p)
+        typeof latestPoint?.p === "number" && Number.isFinite(latestPoint.p)
           ? latestPoint.p.toFixed(6)
           : "-";
       const percentage =
-        typeof latestPoint?.pct === "number" &&
-        Number.isFinite(latestPoint.pct)
+        typeof latestPoint?.pct === "number" && Number.isFinite(latestPoint.pct)
           ? `${latestPoint.pct.toFixed(2)}%`
           : "-";
       const time = latestPoint?.t ?? "-";
@@ -721,9 +729,7 @@ export async function notifyStalePositions(params: {
         continue;
       }
 
-      const thresholdHour = normalizeStalePositionHour(
-        typeConfig.params?.hour,
-      );
+      const thresholdHour = normalizeStalePositionHour(typeConfig.params?.hour);
       if (elapsedMs <= thresholdHour * HOUR_MS) {
         continue;
       }

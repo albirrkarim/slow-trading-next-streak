@@ -9,22 +9,15 @@ import {
 } from "./NavbarSections";
 import type { LiveDashboardNavbarProps } from "./types";
 import { useLiveDashboardNavbar } from "./useLiveDashboardNavbar";
-import {
-  getNavbarBackgroundColor,
-  useNavbarThemeColor,
-} from "./theme-color";
+import { getNavbarBackgroundColor, useNavbarThemeColor } from "./theme-color";
 
 export default function LiveDashboardNavbar({
-  coinTags,
   dashboardState,
   onRefresh,
   onReinitialize,
   reinitializing,
-  tagColors,
-  tagDescriptions,
 }: LiveDashboardNavbarProps) {
   const {
-    balanceSummary,
     configDraft,
     dayPreview,
     isActive,
@@ -32,7 +25,7 @@ export default function LiveDashboardNavbar({
     closeSettingsDialog,
     openSettingsDialog,
     resetSandbox,
-    resettingSandbox,
+    resettingSandboxAccount,
     runCycle,
     runningCycle,
     saveConfig,
@@ -52,10 +45,7 @@ export default function LiveDashboardNavbar({
     ? theme.palette.getContrastText(navbarBackgroundColor)
     : theme.palette.text.primary;
 
-  useNavbarThemeColor(
-    navbarBackgroundColor,
-    theme.palette.background.default,
-  );
+  useNavbarThemeColor(navbarBackgroundColor, theme.palette.background.default);
 
   return (
     <Box
@@ -67,9 +57,13 @@ export default function LiveDashboardNavbar({
         boxShadow: 2,
         gap: { xs: 0.75, md: 1 },
         display: "grid",
+        gridTemplateAreas: {
+          xs: '"identity" "pnl" "actions"',
+          md: '"identity pnl actions"',
+        },
         gridTemplateColumns: {
           xs: "minmax(0, 1fr)",
-          md: "minmax(0, 1fr) auto auto",
+          md: "minmax(0, 1fr) auto minmax(0, 1fr)",
         },
         width: "100%",
         maxWidth: "100%",
@@ -78,9 +72,7 @@ export default function LiveDashboardNavbar({
         overflowX: "hidden",
       }}
     >
-
       <NavbarIdentitySection
-        balanceSummary={balanceSummary}
         configDraft={configDraft}
         dashboardState={dashboardState}
       />
@@ -92,7 +84,6 @@ export default function LiveDashboardNavbar({
       />
 
       <NavbarActionsSection
-        coinTags={coinTags}
         configDraft={configDraft}
         dashboardState={dashboardState}
         onRefresh={onRefresh}
@@ -101,7 +92,7 @@ export default function LiveDashboardNavbar({
         onSettingsDialogClose={closeSettingsDialog}
         onSettingsDialogOpen={openSettingsDialog}
         resetSandbox={resetSandbox}
-        resettingSandbox={resettingSandbox}
+        resettingSandboxAccount={resettingSandboxAccount}
         runCycle={runCycle}
         runningCycle={runningCycle}
         saveConfig={saveConfig}
@@ -109,12 +100,9 @@ export default function LiveDashboardNavbar({
         setConfigDraft={setConfigDraft}
         syncOnlineStorageToLocal={syncOnlineStorageToLocal}
         syncingOnlineStorage={syncingOnlineStorage}
-        tagColors={tagColors}
-        tagDescriptions={tagDescriptions}
         tryWithdrawNow={tryWithdrawNow}
         tryingWithdraw={tryingWithdraw}
       />
-
     </Box>
   );
 }

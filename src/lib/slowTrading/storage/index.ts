@@ -1,17 +1,20 @@
 import {
-  getSlowTradingExchangeAccountId,
-  getSlowTradingExchangeAccount,
+  createUniqueExchangeAccountSlug,
   loadSlowTradingExchangeAccounts,
+  normalizeExchangeAccountSlug,
   runWithSlowTradingExchangeAccount,
   saveSlowTradingExchangeAccounts,
 } from "./account";
 import {
+  aggregateSlowTradingBalanceSnapshots,
+  readCombinedSlowTradingBalanceSnapshots,
   readSlowTradingBalanceSnapshots,
   upsertSlowTradingBalanceSnapshot,
 } from "./balance-snapshots";
 import {
   buildSlowTradingDashboardState,
   buildSlowTradingDashboardStateRealtime,
+  buildCombinedSlowTradingDashboardStateRealtime,
 } from "./dashboard";
 import {
   clearSlowTradingHistory,
@@ -22,6 +25,7 @@ import {
 } from "./history";
 import {
   hydrateSlowTradingHistoryFromFiles,
+  readHistoryForAccounts,
   readHistoryRange,
 } from "./history-files";
 import {
@@ -42,6 +46,7 @@ import {
 } from "./mode";
 import {
   createDefaultSlowTradingStorage,
+  deleteSlowTradingAccountState,
   loadSlowTradingStorage,
   resetSandboxSlowTrading,
   saveSlowTradingModeState,
@@ -65,11 +70,12 @@ const slowTradingStorage = {
     updateErrorStatuses: updateSlowTradingErrorLogStatuses,
   },
   account: {
-    get: getSlowTradingExchangeAccount,
-    getExchangeAccountId: getSlowTradingExchangeAccountId,
+    createUniqueSlug: createUniqueExchangeAccountSlug,
     loadAccounts: loadSlowTradingExchangeAccounts,
+    normalizeSlug: normalizeExchangeAccountSlug,
     runWithExchangeAccount: runWithSlowTradingExchangeAccount,
     saveAccounts: saveSlowTradingExchangeAccounts,
+    deleteState: deleteSlowTradingAccountState,
   },
   mode: {
     createState: createModeState,
@@ -93,14 +99,18 @@ const slowTradingStorage = {
     getClosed: getSlowTradingHistory,
     getOpen: getSlowTradingOpenPositions,
     hydrate: hydrateSlowTradingHistoryFromFiles,
+    readAccounts: readHistoryForAccounts,
     readRange: readHistoryRange,
     updateNotes: updateSlowTradingHistoryEntryNotes,
   },
   dashboard: {
     buildState: buildSlowTradingDashboardState,
     buildStateRealtime: buildSlowTradingDashboardStateRealtime,
+    buildCombinedStateRealtime: buildCombinedSlowTradingDashboardStateRealtime,
   },
   balanceSnapshots: {
+    aggregate: aggregateSlowTradingBalanceSnapshots,
+    readCombined: readCombinedSlowTradingBalanceSnapshots,
     read: readSlowTradingBalanceSnapshots,
     upsert: upsertSlowTradingBalanceSnapshot,
   },

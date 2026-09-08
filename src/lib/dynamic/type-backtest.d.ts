@@ -11,6 +11,7 @@ import type { EventPosition, TradingModelConfig } from "@/lib/trading/models";
 import type {
     AdaptiveAveragingConfig,
     DynamicTradeMemory,
+    EntryLegs,
     OpenDirection,
 } from "./type-dynamic";
 import type { VolatilityPoint } from "./utils/volatility";
@@ -85,6 +86,9 @@ export interface BacktestConfigDynamic {
 
     /** Whether each signal opens only its main leg or a hedged leg pair. */
     openDirection?: OpenDirection;
+
+    /** Hedge-strategy legs opened when openDirection is BOTH. */
+    entryLegs?: EntryLegs;
 
     /**
      * Maximum leverage applied for futures backtest. Set 0 to use engine calculation.

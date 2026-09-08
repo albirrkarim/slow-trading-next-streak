@@ -44,15 +44,13 @@ import WorkerEntrySequenceMetrics from "./Feature/WorkerEntrySequenceMetrics";
 import WorkerNeededEstimation from "./Feature/WorkerNeededEstimation";
 import LiveDashboardNavbar from "./Navbar";
 import BlackSwanStatusSection from "./BlackSwanStatusSection";
+import SystemAccountSummary from "./SystemAccountSummary";
 import DateSelectionDialog from "./Navbar/DateSelectionDialog";
 import { DASHBOARD_POLL_INTERVAL_MS } from "./constants";
 import { applyTimeWindowClient, calculateTimeRange, makeSeries } from "./utils";
 import EntrySequenceMetrics from "./Feature/EntrySequences";
 import CoinMetadataDownloadDialog from "./Feature/CoinMetadataDownloadDialog";
-import {
-  computeDayPreview,
-  formatDailyPnlMetaTitle,
-} from "./Navbar/helpers";
+import { computeDayPreview, formatDailyPnlMetaTitle } from "./Navbar/helpers";
 
 export interface DashboardConfig {
   range: string;
@@ -128,6 +126,7 @@ export default function DynamicTradeHistoryPage({
   const [loading, setLoading] = useState(false);
   const [reinitializing, setReinitializing] = useState(false);
   const [exitingPosition, setExitingPosition] = useState<{
+    account: string;
     role?: PositionRole;
     symbol: string;
   } | null>(null);
@@ -492,15 +491,28 @@ export default function DynamicTradeHistoryPage({
     }
   };
 
-  const manualExit = async (symbol: string, role?: PositionRole) => {
-    const targetLabel = role ? `${role} leg` : "both legs";
+  const manualExit = async (
+    position: SlowTradingDashboardState["openPositions"][number],
+    closeBoth = false,
+  ) => {
+    const { account, symbol } = position;
+    const role: PositionRole = position.role === "COUNTER" ? "COUNTER" : "MAIN";
+    const targetLabel = closeBoth ? "both legs" : `${role} leg`;
     if (!confirm(`Exit ${symbol} ${targetLabel} manually now?`)) {
       return;
     }
 
-    setExitingPosition({ role, symbol });
+    setExitingPosition({
+      account,
+      role: closeBoth ? undefined : role,
+      symbol,
+    });
     try {
-      await axios.post(endpoints.slow.prod.exit, { ...(role && { role }), symbol });
+      await axios.post(endpoints.slow.prod.exit, {
+        account,
+        ...(!closeBoth && { role }),
+        symbol,
+      });
       enqueueSnackbar(`Successfully exited ${symbol} ${targetLabel}`, {
         variant: "success",
       });
@@ -523,7 +535,10 @@ export default function DynamicTradeHistoryPage({
         success: boolean;
         executed?: boolean;
         message?: string;
-      }>(endpoints.slow.prod.entry, { symbol });
+      }>(endpoints.slow.prod.entry, {
+        account: dashboardState?.runtime.exchangeAccountSlug,
+        symbol,
+      });
 
       if (response.data.executed) {
         enqueueSnackbar(
@@ -533,7 +548,7 @@ export default function DynamicTradeHistoryPage({
       } else {
         enqueueSnackbar(
           response.data.message ||
-          `Manual entry did not open a position for ${symbol}`,
+            `Manual entry did not open a position for ${symbol}`,
           { variant: "warning" },
         );
       }
@@ -800,18 +815,15 @@ export default function DynamicTradeHistoryPage({
         )
       }
     </HeaderMetrics>
-  )
+  );
 
   return (
     <Box>
       <LiveDashboardNavbar
-        coinTags={coinMetadata.coinTags}
         dashboardState={dashboardState}
         onRefresh={execute}
         onReinitialize={() => execute(true)}
         reinitializing={reinitializing}
-        tagColors={tagColors}
-        tagDescriptions={tagDescriptions}
       />
       {(loading || reinitializing) && (
         <LinearProgress
@@ -824,15 +836,14 @@ export default function DynamicTradeHistoryPage({
       )}
 
       <Box sx={{ m: 1 }}>
-        {dashboardState?.config.description?.trim() && (
-          <Typography sx={{ mb: 1, whiteSpace: "pre-wrap", }} variant="body1">
-            {dashboardState.config.description.trim()}
-          </Typography>
+        {dashboardState && (
+          <SystemAccountSummary
+            accounts={dashboardState.runtime.exchangeAccounts}
+            description={dashboardState.config.description}
+          />
         )}
 
-        {!isMobile && (
-          VOLATILITY_POINT
-        )}
+        {!isMobile && VOLATILITY_POINT}
 
         {data && dashboardState && (
           <>
@@ -867,7 +878,7 @@ export default function DynamicTradeHistoryPage({
                     void updateCoinMetadata(symbol, { tags })
                   }
                   onExit={manualExit}
-                  onExitBoth={(symbol) => manualExit(symbol)}
+                  onExitBoth={(position) => manualExit(position, true)}
                   tagColors={tagColors}
                   tagDescriptions={tagDescriptions}
                   volatilityMap={volatilityMap ?? {}}
@@ -902,9 +913,7 @@ export default function DynamicTradeHistoryPage({
                   </Box>
                 )}
 
-                {isMobile && (
-                  VOLATILITY_POINT
-                )}
+                {isMobile && VOLATILITY_POINT}
               </>
             ) : (
               <Grid container spacing={2}>
@@ -933,7 +942,7 @@ export default function DynamicTradeHistoryPage({
                       void updateCoinMetadata(symbol, { tags })
                     }
                     onExit={manualExit}
-                    onExitBoth={(symbol) => manualExit(symbol)}
+                    onExitBoth={(position) => manualExit(position, true)}
                     tagColors={tagColors}
                     tagDescriptions={tagDescriptions}
                     volatilityMap={volatilityMap ?? {}}
@@ -1079,10 +1088,7 @@ export default function DynamicTradeHistoryPage({
 
         <HeaderMetrics
           title={
-            <Typography
-              variant="body1"
-              sx={{ fontWeight: "bold" }}
-            >
+            <Typography variant="body1" sx={{ fontWeight: "bold" }}>
               Price Normalized
             </Typography>
           }

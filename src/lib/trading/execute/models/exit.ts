@@ -187,8 +187,7 @@ export async function dynamicExit({
           currentKline: current,
           memory,
           exitMessage: reason,
-          closeReason:
-            targetPosition.control.forceExit.closeReason ?? "FORCED",
+          closeReason: targetPosition.control.forceExit.closeReason ?? "FORCED",
           index,
           roundTripFeeRatio: roundTripFee,
         });
@@ -542,7 +541,12 @@ export async function dynamicExit({
   // C.2 STOP LOSS PLUS
   // PROD:SL_PLUS
   const allowProfitProtection =
-    !isPairPosition;
+    // BOTH:ACCOUNT_ENTRY_LEGS
+    bothDirection.profitProtection.counterAllowed({
+      position: lastPosition,
+      positions: allPairPositions,
+      volatilityPoints: memory.volatility.lastVolatility,
+    });
   const useSLPlus =
     allowProfitProtection &&
     (config.useStopLossPlus === undefined ? true : config.useStopLossPlus);

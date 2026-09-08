@@ -12,6 +12,7 @@ import type {
   DashboardState,
 } from "@/components/LiveDashboard/Navbar/types";
 import { TradingMode } from "@/lib/exchange";
+import type { SlowTradingAccount } from "@/lib/slowTrading";
 
 const configDraft = {
   adaptiveAveraging: {
@@ -27,7 +28,7 @@ const configDraft = {
   description: "",
   enableWatchLogic: false,
   entrySignalBypass: false,
-  exchangeAccountId: "1",
+  exchangeAccountSlug: "1",
   exchangeAccounts: [],
   exchangeType: "binance",
   maxEntryBased24HourVolPct: 0.2,
@@ -67,7 +68,101 @@ const dashboardState = {
   openPositions: [],
 } as unknown as DashboardState;
 
+const exchangeAccounts = [
+  {
+    createdAt: 1,
+    credentials: { apiKey: "source-key", apiSecret: "source-secret" },
+    description: "",
+    enabled: true,
+    futuresPositionMode: "ONE_WAY",
+    name: "Source",
+    sandbox: { enabled: true, initialBalanceUSDT: 100 },
+    slug: "1",
+    trading: {
+      entryLegs: "BOTH",
+      maxOpenPositions: 3,
+      modelConfig: { ...configDraft.modelConfig, takeProfitPercent: 1.5 },
+      notes: "Source strategy",
+    },
+    type: "binance",
+    updatedAt: 1,
+  },
+  {
+    createdAt: 2,
+    credentials: { apiKey: "target-key", apiSecret: "target-secret" },
+    description: "",
+    enabled: true,
+    futuresPositionMode: "ONE_WAY",
+    name: "Target",
+    sandbox: { enabled: true, initialBalanceUSDT: 200 },
+    slug: "2",
+    trading: {
+      entryLegs: "BOTH",
+      maxOpenPositions: 8,
+      modelConfig: { ...configDraft.modelConfig, takeProfitPercent: 4 },
+      notes: "Target strategy",
+    },
+    type: "binance",
+    updatedAt: 2,
+  },
+] satisfies SlowTradingAccount[];
+
 describe("SettingsDialogTradingTab", () => {
+  it("edits JSON for only the selected account", () => {
+    let nextConfigDraft: ConfigDraft | null = {
+      ...configDraft,
+      exchangeAccountSlug: "2",
+      exchangeAccounts,
+      maxOpenPositions: 8,
+      modelConfig: { ...exchangeAccounts[1].trading.modelConfig },
+    };
+    const setConfigDraft = vi.fn(
+      (update: SetStateAction<ConfigDraft | null>) => {
+        nextConfigDraft =
+          typeof update === "function" ? update(nextConfigDraft) : update;
+      },
+    );
+
+    render(
+      <SettingsDialogTradingTab
+        configDraft={nextConfigDraft}
+        dashboardState={dashboardState}
+        setConfigDraft={setConfigDraft}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit Trading configuration as JSON",
+      }),
+    );
+
+    expect(screen.getByLabelText("Editing Account")).toBeDefined();
+    expect(screen.queryByLabelText("Strategy Notes")).toBeNull();
+
+    const editor = screen.getByLabelText(
+      "Trading configuration JSON",
+    ) as HTMLTextAreaElement;
+    expect(editor.value).toContain('"notes": "Target strategy"');
+    expect(editor.value).not.toContain("target-secret");
+
+    fireEvent.change(editor, {
+      target: {
+        value: JSON.stringify(exchangeAccounts[0].trading, null, 2),
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Apply JSON to Target" }),
+    );
+
+    expect(nextConfigDraft?.exchangeAccounts[0]).toEqual(exchangeAccounts[0]);
+    expect(nextConfigDraft?.exchangeAccounts[1].trading).toEqual(
+      exchangeAccounts[0].trading,
+    );
+    expect(nextConfigDraft?.maxOpenPositions).toBe(3);
+    expect(nextConfigDraft?.modelConfig.takeProfitPercent).toBe(1.5);
+  });
+
   it("edits the maximum-open-position guard as a non-negative integer", () => {
     let nextConfigDraft: ConfigDraft | null = configDraft;
     const setConfigDraft = vi.fn(
@@ -329,14 +424,15 @@ describe("SettingsDialogTradingTab", () => {
     );
 
     expect(
-      (screen.getByLabelText(
-        "Exit On Absolute vPoint Level",
-      ) as HTMLInputElement).value,
+      (
+        screen.getByLabelText(
+          "Exit On Absolute vPoint Level",
+        ) as HTMLInputElement
+      ).value,
     ).toBe("0");
     expect(
-      (screen.getByLabelText(
-        "Stop Loss By Net USDT Loss",
-      ) as HTMLInputElement).value,
+      (screen.getByLabelText("Stop Loss By Net USDT Loss") as HTMLInputElement)
+        .value,
     ).toBe("50");
 
     fireEvent.change(screen.getByLabelText("Exit On Absolute vPoint Level"), {
@@ -367,14 +463,10 @@ describe("SettingsDialogTradingTab", () => {
 
     expect(screen.getByText("Automatic Exit Order")).toBeDefined();
     expect(screen.getByText("1. Queued sideways worker release")).toBeDefined();
-    expect(
-      screen.getByText("2. Exit on absolute vPoint level"),
-    ).toBeDefined();
+    expect(screen.getByText("2. Exit on absolute vPoint level")).toBeDefined();
     expect(screen.getByText("3. Stop loss by net USDT loss")).toBeDefined();
     expect(screen.getByText("4. Hard stop loss")).toBeDefined();
-    expect(
-      screen.getByText("5. Volatility target stop loss"),
-    ).toBeDefined();
+    expect(screen.getByText("5. Volatility target stop loss")).toBeDefined();
     expect(screen.getByText("6. Post-average stop loss")).toBeDefined();
     expect(screen.getByText("7. Post-average rescue exit")).toBeDefined();
     expect(screen.getByText("8. StopLoss+ trailing exit")).toBeDefined();
@@ -409,9 +501,7 @@ describe("SettingsDialogTradingTab", () => {
       ".MuiAccordion-root",
     ) as HTMLElement;
     expect(
-      within(postAverageAccordion).getAllByLabelText(
-        "Minimum Averaging Count",
-      ),
+      within(postAverageAccordion).getAllByLabelText("Minimum Averaging Count"),
     ).toHaveLength(3);
     expect(
       within(postAverageAccordion).getAllByLabelText("Minimum Net PnL (%)"),

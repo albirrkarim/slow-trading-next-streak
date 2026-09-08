@@ -244,6 +244,11 @@ TC: `BOTH:ENTRY_BOTH_DIRECTION`
 
 see `PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT` it protect entry when price drift from vpoint.price to the profit direction. using pct how it has drift.
 
+The guard is controlled per account by
+`trading.lateEntryVPointPriceDriftEnabled` and defaults to enabled. Disabling it
+skips the late-entry price-zone check only for that account's future live and
+sandbox entries.
+
 but allowed to the adverse direction.
 
 since we entering both direction the rule is we must protect
@@ -336,3 +341,41 @@ when one way so it just open the `main leg`
 Binance pair entry requires two sequential orders. If the first leg fills but the second fails, should SLOW immediately close the filled leg and report the pair entry as failed?
 
 yes, so it never intentionally leaves an accidental unpaired position.
+
+## config each account trade leg
+
+1. Should the new selector be per account under Trading → Entry, as shown in your screenshot?
+
+   yes. Add:
+
+   ```ts
+   entryLegs: "MAIN" | "COUNTER" | "BOTH";
+   ```
+
+   This lets each account independently select which legs it opens. Keep the shared `openDirection` as the master switch for the overall one-way/BOTH strategy.
+
+2. What should the default `entryLegs` value be?
+
+   I assume `BOTH`, based on your request. This would be a new default specifically for `entryLegs`; the existing application default is currently `openDirection: "ONE_WAY"`.
+
+3. How should COUNTER-only exits behave when no MAIN leg exists?
+
+   Currently, COUNTER disables ordinary percentage take-profit and Stop-Loss Plus until its MAIN counterpart closes. With COUNTER-only, that event can never happen.
+
+   Answer: retain COUNTER structural behavior, but treat “MAIN intentionally not opened” like “MAIN already closed,” allowing normal TP after the counter passes one level in its profit direction.
+
+4. When shared `openDirection` is `BOTH`, should MAIN-only and COUNTER-only accounts still require Binance Futures Hedge Mode?
+
+yes. They remain legs of the Hedge strategy, use explicit `positionSide`, and can safely change to BOTH later. Only true `ONE_WAY` mode would support One-way Mode/spot.
+
+5. Changing `entryLegs` will affect only future entries. Existing MAIN/COUNTER positions will continue being managed using their stored roles. I assume this is correct.
+
+yes
+
+Implementation contract: `entryLegs` defaults to `BOTH`, is persisted in each
+account's Trading configuration, and is ignored when shared `openDirection` is
+`ONE_WAY`. Backtest and production must open and fund exactly the selected legs.
+The selected Hedge entry shape is captured on new positions so later account
+configuration changes do not alter their exit behavior.
+
+TC: `BOTH:ACCOUNT_ENTRY_LEGS`

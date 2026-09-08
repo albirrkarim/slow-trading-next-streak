@@ -33,6 +33,7 @@ import { getMarketCapUSDForSymbol } from "../market-cap";
 import { tradeLog } from "@/lib/trading/helper/log";
 import exchangeExit from "../ensure-closed";
 import binanceFuturesFunding from "@/lib/exchange/platform/binance/futures/funding";
+import binanceRequestCoordinator from "@/lib/exchange/platform/binance/request-coordinator";
 
 type BinanceFuturesPositionSide = "BOTH" | "LONG" | "SHORT";
 
@@ -158,15 +159,25 @@ export class BinanceExchange implements IExchange {
    */
   denormalizeSymbol(symbol: string): string {
     let s = symbol.replace(/_/g, "");
-    
+
     // Auto-append USDT if the symbol is just the base asset (e.g. XLM)
-    const quoteAssets = ["USDT", "BUSD", "USDC", "FDUSD", "BTC", "ETH", "BIDR", "IDRT", "BNB"];
-    const hasQuote = quoteAssets.some(quote => s.endsWith(quote));
-    
+    const quoteAssets = [
+      "USDT",
+      "BUSD",
+      "USDC",
+      "FDUSD",
+      "BTC",
+      "ETH",
+      "BIDR",
+      "IDRT",
+      "BNB",
+    ];
+    const hasQuote = quoteAssets.some((quote) => s.endsWith(quote));
+
     if (!hasQuote) {
       s += "USDT";
     }
-    
+
     return s;
   }
 
@@ -214,11 +225,13 @@ export class BinanceExchange implements IExchange {
 
       return balance;
     } catch (error) {
-      notifyBinanceBalanceFailure({
-        symbol,
-        tradingMode,
-        reason: formatBinanceBalanceError(error),
-      });
+      if (!binanceRequestCoordinator.error.isRateLimit(error)) {
+        notifyBinanceBalanceFailure({
+          symbol,
+          tradingMode,
+          reason: formatBinanceBalanceError(error),
+        });
+      }
 
       throw error;
     }
@@ -300,7 +313,9 @@ export class BinanceExchange implements IExchange {
       .toUpperCase();
 
     if (asset !== "USDT") {
-      throw new Error(`Binance withdrawal is currently implemented only for USDT.`);
+      throw new Error(
+        `Binance withdrawal is currently implemented only for USDT.`,
+      );
     }
 
     const response = await binance.account.withdrawUSDT({
@@ -499,7 +514,10 @@ export class BinanceExchange implements IExchange {
     binanceOrderType: BinanceOrderType,
   ): Promise<UnifiedOrderResponse> {
     const positionMode = await this.resolveFuturesPositionMode();
-    const positionSide = resolveBinanceFuturesPositionSide(params, positionMode);
+    const positionSide = resolveBinanceFuturesPositionSide(
+      params,
+      positionMode,
+    );
 
     // Map Spot Enum types to specific Futures API strings if different
     let orderTypeString = binanceOrderType.toString();
@@ -874,10 +892,7 @@ export class BinanceExchange implements IExchange {
 
     // 1. Set Margin Type to ISOLATED (Default for this agent).
     // A failure must stop setup so the caller cannot place an order with unknown margin settings.
-    const marginTypeSet = await setFuturesMarginType(
-      binanceSymbol,
-      "ISOLATED",
-    );
+    const marginTypeSet = await setFuturesMarginType(binanceSymbol, "ISOLATED");
 
     if (!marginTypeSet) {
       return false;
@@ -1053,9 +1068,7 @@ export class BinanceExchange implements IExchange {
 
       // Close position by placing opposite market order
       const closeSide =
-        position.side === "LONG"
-          ? UnifiedOrderSide.SELL
-          : UnifiedOrderSide.BUY;
+        position.side === "LONG" ? UnifiedOrderSide.SELL : UnifiedOrderSide.BUY;
 
       tradeLog.log(
         `[Binance] Closing ${position.side} position for ${symbol} with ${closeSide} order`,
@@ -1070,7 +1083,7 @@ export class BinanceExchange implements IExchange {
         tradingMode: TradingMode.FUTURES,
         positionSide:
           positionMode === "HEDGE"
-            ? position.side.toLowerCase() as "long" | "short"
+            ? (position.side.toLowerCase() as "long" | "short")
             : undefined,
         reduceOnly: positionMode === "ONE_WAY",
       });

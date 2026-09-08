@@ -44,11 +44,15 @@ interface OpenPositionsProps {
   captureEntryLastRunAt?: number;
   positions: SlowTradingHistoryPosition[];
   spendableQuoteAsset: number;
-  exitingPosition?: { role?: PositionRole; symbol: string } | null;
+  exitingPosition?: {
+    account: string;
+    role?: PositionRole;
+    symbol: string;
+  } | null;
   onCoinDescriptionChange: (symbol: string, description: string) => void;
   onCoinTagsChange: (symbol: string, tags: string[]) => void;
-  onExit?: (symbol: string, role: PositionRole) => Promise<void>;
-  onExitBoth?: (symbol: string) => Promise<void>;
+  onExit?: (position: SlowTradingHistoryPosition) => Promise<void>;
+  onExitBoth?: (position: SlowTradingHistoryPosition) => Promise<void>;
   tagColors: Record<string, string>;
   tagDescriptions: Record<string, string>;
   volatilityMap: Record<string, VolatilityPoint[]>;
@@ -245,9 +249,9 @@ export default function OpenPositions({
                     volatilityPoints={volatilityPoints}
                     volume24h={
                       volume24hBySymbol[
-                      String(position.symbol || "")
-                        .trim()
-                        .toUpperCase()
+                        String(position.symbol || "")
+                          .trim()
+                          .toUpperCase()
                       ]
                     }
                   />
@@ -282,20 +286,30 @@ function PairedOpenPositions(props: OpenPositionsProps) {
   const configuredPairs = new Map<
     string,
     {
+      account: string;
       symbol: string;
       main?: SlowTradingHistoryPosition;
       counter?: SlowTradingHistoryPosition;
     }
   >(
-    (props.config.symbols ?? []).map((symbol) => [
-      symbol.trim().toUpperCase(),
-      { symbol: symbol.trim().toUpperCase() },
-    ]),
+    (props.config.symbols ?? []).map((rawSymbol) => {
+      const symbol = rawSymbol.trim().toUpperCase();
+      return [
+        `:${symbol}`,
+        {
+          account: "",
+          symbol,
+        },
+      ];
+    }),
   );
   const pairs = Array.from(
     activePositions.reduce((map, position) => {
       const symbol = position.symbol.trim().toUpperCase();
-      const current = map.get(symbol) ?? {
+      const key = `${position.account}:${symbol}`;
+      map.delete(`:${symbol}`);
+      const current = map.get(key) ?? {
+        account: position.account,
         symbol,
       };
       if (position.role === "COUNTER") {
@@ -303,7 +317,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
       } else {
         current.main = position;
       }
-      map.set(symbol, current);
+      map.set(key, current);
       return map;
     }, configuredPairs),
   ).map(([, pair]) => pair);
@@ -473,7 +487,8 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                 (pair.main?.pnl.netUsdt ?? 0) +
                 (pair.counter?.pnl.netUsdt ?? 0);
               const hasExitPendingForPair =
-                props.exitingPosition?.symbol === pair.symbol;
+                props.exitingPosition?.account === pair.account &&
+                props.exitingPosition.symbol === pair.symbol;
               const isExitingPair =
                 hasExitPendingForPair && !props.exitingPosition?.role;
               const coinPosition =
@@ -485,8 +500,8 @@ function PairedOpenPositions(props: OpenPositionsProps) {
 
               return (
                 <HeaderMetrics
-                  key={pair.symbol}
-                  rememberExpand={`open-position-${pair.symbol}`}
+                  key={`${pair.account}:${pair.symbol}`}
+                  rememberExpand={`open-position-${pair.account}-${pair.symbol}`}
                   toggleLabel={`${pair.symbol} position`}
                   sx={{
                     bgcolor: "background.paper",
@@ -505,10 +520,18 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                           {pair.symbol}
                           <Typography
                             color={netUsdt >= 0 ? "success.main" : "error.main"}
-                            sx={{ fontVariantNumeric: "tabular-nums", ml: 1, display: { lg: "inline", md: "none", sm: "none", xs: "none", } }}
+                            sx={{
+                              fontVariantNumeric: "tabular-nums",
+                              ml: 1,
+                              display: {
+                                lg: "inline",
+                                md: "none",
+                                sm: "none",
+                                xs: "none",
+                              },
+                            }}
                             variant="body1"
                             component="span"
-
                           >
                             ${netUsdt.toFixed(2)}
                           </Typography>
@@ -516,7 +539,15 @@ function PairedOpenPositions(props: OpenPositionsProps) {
 
                         <Typography
                           color={netUsdt >= 0 ? "success.main" : "error.main"}
-                          sx={{ fontVariantNumeric: "tabular-nums", display: { lg: "none", md: "block", sm: "block", xs: "block", } }}
+                          sx={{
+                            fontVariantNumeric: "tabular-nums",
+                            display: {
+                              lg: "none",
+                              md: "block",
+                              sm: "block",
+                              xs: "block",
+                            },
+                          }}
                           variant="body1"
                         >
                           ${netUsdt.toFixed(2)}
@@ -569,7 +600,8 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                                   !props.onExitBoth || hasExitPendingForPair
                                 }
                                 onClick={() =>
-                                  void props.onExitBoth?.(pair.symbol)
+                                  coinPosition &&
+                                  void props.onExitBoth?.(coinPosition)
                                 }
                                 size="small"
                                 sx={{ textTransform: "none" }}
@@ -598,7 +630,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                             tagDescriptions={props.tagDescriptions}
                             volume24h={
                               props.volume24hBySymbol[
-                              coinPosition.symbol.trim().toUpperCase()
+                                coinPosition.symbol.trim().toUpperCase()
                               ]
                             }
                           />

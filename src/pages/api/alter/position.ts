@@ -13,6 +13,7 @@ import type {
 } from "@/lib/trading/models";
 import type { VolatilityPoint } from "@/lib/dynamic";
 import { TradingMode } from "@/lib/exchange";
+import { DEFAULT_EXCHANGE_ACCOUNT_SLUG } from "@/lib/exchange/account-context";
 import tradingPosition from "@/lib/trading/position";
 import fs from "fs-extra";
 import type { NextApiRequest, NextApiResponse } from "next";
@@ -23,9 +24,7 @@ interface MigrationContext {
   vPointSourcesBySymbol?: Record<string, PositionVPointSource[]>;
 }
 
-type PositionVPointSource = Array<
-  Pick<VolatilityPoint, "id" | "lvl" | "t">
->;
+type PositionVPointSource = Array<Pick<VolatilityPoint, "id" | "lvl" | "t">>;
 
 interface MigrationResult {
   changed: boolean;
@@ -161,7 +160,9 @@ function resolveEntrySource(
   return undefined;
 }
 
-function resolveCloseReason(value: Record<string, unknown>): PositionCloseReason {
+function resolveCloseReason(
+  value: Record<string, unknown>,
+): PositionCloseReason {
   const text =
     `${String(value.exitMessage ?? "")} ${String(value.category ?? "")}`.toUpperCase();
   if (text.includes("EXIT_ON_VPOINT_LEVEL")) return "EXIT_ON_VPOINT_LEVEL";
@@ -301,9 +302,7 @@ function migrateAveragingExecution(
       ? legacyNotionalUsdt / leverage
       : undefined);
   const price = positiveNumber(value.price);
-  const allocationPct = positiveNumber(
-    value.allocationPct ?? value.pctAlloc,
-  );
+  const allocationPct = positiveNumber(value.allocationPct ?? value.pctAlloc);
   if (
     t === undefined ||
     level === undefined ||
@@ -325,8 +324,7 @@ function migrateAveragingExecution(
       value.adaptiveMultiplier ?? value.adaptiveAveragingMultiplier,
     ),
     projectedProfitPct: finiteNumber(
-      value.projectedProfitPct ??
-        value.adaptiveAveragingProjectedProfitPct,
+      value.projectedProfitPct ?? value.adaptiveAveragingProjectedProfitPct,
     ),
   };
 }
@@ -343,11 +341,10 @@ function migrateAveraging(
   const watch = isRecord(entryFeature?.watchState)
     ? entryFeature.watchState
     : undefined;
-  const rawSteps = Array.isArray(watch?.reserveSteps)
-    ? watch.reserveSteps
-    : [];
-  const steps = rawSteps.map(migrateReserveStep).filter(Boolean) as
-    PositionReserveStep[];
+  const rawSteps = Array.isArray(watch?.reserveSteps) ? watch.reserveSteps : [];
+  const steps = rawSteps
+    .map(migrateReserveStep)
+    .filter(Boolean) as PositionReserveStep[];
   const rawExecutions = Array.isArray(watch?.addPositionTriggers)
     ? watch.addPositionTriggers
     : [];
@@ -357,8 +354,7 @@ function migrateAveraging(
 
   return {
     entryLevel: finiteNumber(watch?.entryLevel) ?? entryLevel,
-    lastHandledLevel:
-      finiteNumber(watch?.lastHandledLevel) ?? entryLevel,
+    lastHandledLevel: finiteNumber(watch?.lastHandledLevel) ?? entryLevel,
     reserveBaseMarginUsdt:
       positiveNumber(watch?.reserveBaseMarginUsdt) ?? marginUsdt,
     reservedRemainingMarginUsdt:
@@ -402,6 +398,7 @@ export function migrateLegacyPosition(
         : context.defaultExecutionMode;
 
   const position: Position = {
+    account: String(value.account ?? DEFAULT_EXCHANGE_ACCOUNT_SLUG),
     symbol: String(value.symbol),
     executionMode: mode,
     tradingMode: resolveTradingMode(value.tradingMode),
@@ -441,12 +438,7 @@ export function migrateLegacyPosition(
         feature: migrateFeature(value),
         label,
       },
-      averaging: migrateAveraging(
-        value,
-        entryLevel,
-        marginUsdt,
-        leverage,
-      ),
+      averaging: migrateAveraging(value, entryLevel, marginUsdt, leverage),
     },
     pnl: {
       markPrice: optionalPositiveNumber(value.markPrice),
@@ -465,8 +457,7 @@ export function migrateLegacyPosition(
               pct: Number(point.pct),
             }))
             .filter(
-              (point) =>
-                Number.isFinite(point.t) && Number.isFinite(point.pct),
+              (point) => Number.isFinite(point.t) && Number.isFinite(point.pct),
             )
         : undefined,
     },
@@ -647,10 +638,8 @@ export function validateCanonicalPosition(
     averaging.executions !== undefined &&
     (!Array.isArray(averaging.executions) ||
       averaging.executions.some(
-        (execution) => !migrateAveragingExecution(
-          execution,
-          value.exposure.leverage,
-        ),
+        (execution) =>
+          !migrateAveragingExecution(execution, value.exposure.leverage),
       ))
   ) {
     throw new Error(`${location}.strategy.averaging.executions is invalid`);
@@ -682,9 +671,7 @@ export function validateCanonicalPosition(
     value.funding !== undefined &&
     (!isRecord(value.funding) ||
       !POSITION_FUNDING_EXCHANGES.has(
-        value.funding.exchange as NonNullable<
-          Position["funding"]
-        >["exchange"],
+        value.funding.exchange as NonNullable<Position["funding"]>["exchange"],
       ) ||
       finiteNumber(value.funding.rate) === undefined ||
       !positiveNumber(value.funding.t) ||
@@ -733,7 +720,10 @@ function addIntermediateVPointPath(
     return { changed: false, position };
   }
 
-  const symbol = position.symbol.trim().toUpperCase().replace(/_USDT$/, "");
+  const symbol = position.symbol
+    .trim()
+    .toUpperCase()
+    .replace(/_USDT$/, "");
   const sources = context.vPointSourcesBySymbol?.[symbol] ?? [];
   const source = sources.find((points) =>
     points.some((point) => point.id === position.opened.vPoint.id),
@@ -812,11 +802,7 @@ function migrateNode(
     let positions = 0;
     let vPointPathsAdded = 0;
     const migrated = value.map((item, index) => {
-      const result = migrateNode(
-        item,
-        context,
-        `${location}[${index}]`,
-      );
+      const result = migrateNode(item, context, `${location}[${index}]`);
       changed ||= result.changed;
       duplicatesRemoved += result.duplicatesRemoved;
       positions += result.positions;
@@ -872,15 +858,10 @@ function migrateNode(
           key === "live" || key === "sandbox"
             ? {
                 ...context,
-                defaultExecutionMode:
-                  key as Position["executionMode"],
+                defaultExecutionMode: key as Position["executionMode"],
               }
             : context;
-        const result = migrateNode(
-          item,
-          childContext,
-          `${location}.${key}`,
-        );
+        const result = migrateNode(item, childContext, `${location}.${key}`);
         changed ||= result.changed;
         duplicatesRemoved += result.duplicatesRemoved;
         positions += result.positions;
@@ -967,7 +948,9 @@ function executionModeForFile(file: string): Position["executionMode"] {
   return normalized.includes("/live/") ? "live" : "sandbox";
 }
 
-function readPositionVPointSource(value: unknown): PositionVPointSource | undefined {
+function readPositionVPointSource(
+  value: unknown,
+): PositionVPointSource | undefined {
   const rawPoints = Array.isArray(value)
     ? value
     : isRecord(value) && Array.isArray(value.lastVolatility)
@@ -999,7 +982,10 @@ function addPositionVPointSource(
   symbol: string,
   source: PositionVPointSource | undefined,
 ) {
-  const normalizedSymbol = symbol.trim().toUpperCase().replace(/_USDT$/, "");
+  const normalizedSymbol = symbol
+    .trim()
+    .toUpperCase()
+    .replace(/_USDT$/, "");
   if (!normalizedSymbol || !source) {
     return;
   }
@@ -1054,12 +1040,13 @@ function mergePositionVPointSources(
 async function loadPersistedVPointSources(
   slowRoot: string,
 ): Promise<Record<string, PositionVPointSource[]>> {
-  const config = await fs.readJSON(path.join(slowRoot, "config.json")).catch(
-    () => ({}),
-  );
-  const configuredExchange = isRecord(config) && isRecord(config.config)
-    ? String(config.config.exchangeType ?? "")
-    : "";
+  const config = await fs
+    .readJSON(path.join(slowRoot, "config.json"))
+    .catch(() => ({}));
+  const configuredExchange =
+    isRecord(config) && isRecord(config.config)
+      ? String(config.config.exchangeType ?? "")
+      : "";
   const exchangeEntries = await fs
     .readdir(slowRoot, { withFileTypes: true })
     .catch(() => []);
@@ -1078,17 +1065,14 @@ async function loadPersistedVPointSources(
     const volatilityRoot = path.join(slowRoot, exchangeName, "volatility");
     const files = await fs.readdir(volatilityRoot).catch(() => []);
     for (const name of files.filter((file) => file.endsWith(".json"))) {
-      const value = await fs.readJSON(path.join(volatilityRoot, name)).catch(
-        () => undefined,
-      );
-      const symbol = isRecord(value) && typeof value.symbol === "string"
-        ? value.symbol
-        : path.basename(name, ".json");
-      addPositionVPointSource(
-        sources,
-        symbol,
-        readPositionVPointSource(value),
-      );
+      const value = await fs
+        .readJSON(path.join(volatilityRoot, name))
+        .catch(() => undefined);
+      const symbol =
+        isRecord(value) && typeof value.symbol === "string"
+          ? value.symbol
+          : path.basename(name, ".json");
+      addPositionVPointSource(sources, symbol, readPositionVPointSource(value));
     }
   }
 

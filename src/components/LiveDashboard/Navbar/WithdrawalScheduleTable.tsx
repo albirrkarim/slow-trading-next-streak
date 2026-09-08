@@ -21,10 +21,7 @@ import {
   WithdrawalScheduleTestDialog,
   WithdrawalScheduleUpdateDialog,
 } from "./WithdrawalScheduleDialogs";
-import type {
-  WithdrawalScheduleDraft,
-  WithdrawalWalletDraft,
-} from "./types";
+import type { WithdrawalScheduleDraft, WithdrawalWalletDraft } from "./types";
 
 function normalizeSchedule(
   schedule: WithdrawalScheduleDraft,
@@ -49,8 +46,10 @@ function formatNextOccurrence(schedule: WithdrawalScheduleDraft): {
 } {
   const normalized = normalizeSchedule(schedule);
   const now = Date.now();
-  const occurrenceAt =
-    slowTradingWithdrawalSchedule.timing.getNextOccurrenceAt(normalized, now);
+  const occurrenceAt = slowTradingWithdrawalSchedule.timing.getNextOccurrenceAt(
+    normalized,
+    now,
+  );
   const date = new Date(occurrenceAt);
   const due = slowTradingWithdrawalSchedule.timing.isDue(
     { ...normalized, enabled: true },
@@ -98,6 +97,7 @@ function getWalletDisplay(
 }
 
 export default function WithdrawalScheduleTable(props: {
+  accounts: Array<{ name: string; slug: string }>;
   onDelete: (scheduleId: string) => void;
   onTest: (scheduleId: string) => Promise<void>;
   onUpdate: (schedule: WithdrawalScheduleDraft) => void;
@@ -105,7 +105,15 @@ export default function WithdrawalScheduleTable(props: {
   testing: boolean;
   walletBook: WithdrawalWalletDraft[];
 }) {
-  const { onDelete, onTest, onUpdate, schedules, testing, walletBook } = props;
+  const {
+    accounts,
+    onDelete,
+    onTest,
+    onUpdate,
+    schedules,
+    testing,
+    walletBook,
+  } = props;
 
   if (schedules.length === 0) {
     return (
@@ -122,6 +130,7 @@ export default function WithdrawalScheduleTable(props: {
         <TableHead>
           <TableRow>
             <TableCell>Name</TableCell>
+            <TableCell>Account</TableCell>
             <TableCell>Amount</TableCell>
             <TableCell>Monthly Date</TableCell>
             <TableCell>Next Occurrence</TableCell>
@@ -153,6 +162,10 @@ export default function WithdrawalScheduleTable(props: {
                       variant="outlined"
                     />
                   </Stack>
+                </TableCell>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>
+                  {accounts.find((account) => account.slug === schedule.account)
+                    ?.name ?? schedule.account}
                 </TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                   {formatAmount(schedule.amountUSDT)}
@@ -197,6 +210,7 @@ export default function WithdrawalScheduleTable(props: {
                     sx={{ whiteSpace: "nowrap" }}
                   >
                     <WithdrawalScheduleUpdateDialog
+                      accounts={accounts}
                       onUpdate={onUpdate}
                       schedule={schedule}
                       walletBook={walletBook}

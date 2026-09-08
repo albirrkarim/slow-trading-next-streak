@@ -3,6 +3,7 @@ import type {
   UnifiedFuturesPositionMode,
   UnifiedOrderParams,
 } from "@/lib/exchange";
+import { getCurrentExchangeAccountSlug } from "@/lib/exchange/account-context";
 import {
   getExchange,
   TradingMode,
@@ -64,10 +65,12 @@ export interface ExecuteEntryProps {
   /** Internal controls used while coordinating an atomic two-leg entry. */
   internalLeg?: {
     direction: Position["direction"];
+    entryLegs: NonNullable<DynamicTradeConfig["entryLegs"]>;
     fundingWorkerLegs?: number;
     pairId?: string;
     replenishPair?: boolean;
     role: PositionRole;
+    skipOpenPositionGuard?: boolean;
     suppressNotification?: boolean;
   };
 }
@@ -218,7 +221,7 @@ export async function executeEntry({
   // BOTH:MAX_OPEN_POSITIONS_ENTRY_GUARD
   if (
     openPositionGuard.blocked &&
-    internalLeg?.role !== "COUNTER" &&
+    !internalLeg?.skipOpenPositionGuard &&
     !internalLeg?.replenishPair
   ) {
     return {
@@ -348,6 +351,7 @@ export async function executeEntry({
     ),
     currentPrice: price,
     direction,
+    enabled: dynamicTradeConfig.lateEntryVPointPriceDriftEnabled !== false,
     vPointPrice: entrySignal.p,
   });
 
@@ -433,8 +437,7 @@ export async function executeEntry({
     /**
      * Get the amount of USDT from model suggestion or the all in with all USDT asset in balance
      */
-    const requestedDecisionMarginUsdt =
-      decision.amount ?? quoteAssetBefore;
+    const requestedDecisionMarginUsdt = decision.amount ?? quoteAssetBefore;
 
     // Calculate total buy fee early because futures reserve fitting is based on margin.
     const totalFeePercent = exchange.getFees().getTotalFeePercent({
@@ -487,8 +490,7 @@ export async function executeEntry({
     const availableSaldo = fundingPlan.availableNotionalUsdt;
     const enableWatchLogic = dynamicTradeConfig.enableWatchLogic !== false;
     const watchReserveLevels = dynamicTradeConfig.watchReserveLevels ?? 2;
-    const watchReservePctAlloc =
-      dynamicTradeConfig.watchReservePctAlloc ?? 2;
+    const watchReservePctAlloc = dynamicTradeConfig.watchReservePctAlloc ?? 2;
 
     const preferredQuantity = availableSaldo / price;
 
@@ -535,9 +537,12 @@ export async function executeEntry({
         role: internalLeg?.role,
       });
       modelMemory.positions.push({
+        // BOTH:MULTI_ACCOUNT_POSITION_OWNER
+        account: getCurrentExchangeAccountSlug(),
         symbol,
         pairId: internalLeg?.pairId,
         role: internalLeg?.role ?? "MAIN",
+        entryLegs: internalLeg?.entryLegs,
         executionMode,
         tradingMode,
         direction,
@@ -563,8 +568,7 @@ export async function executeEntry({
         strategy: {
           entry: {
             engine: dynamicTradeConfig.decisionEngineVersion as
-              | Position["strategy"]["entry"]["engine"]
-              | undefined,
+              Position["strategy"]["entry"]["engine"] | undefined,
             feature: buildPersistedEntryFeature(entrySignal),
             label: decision.category?.replaceAll("[", "").replaceAll("]", ""),
           },
@@ -640,9 +644,8 @@ export async function executeEntry({
         price,
         tradingMode,
         positionSide:
-          tradingMode === TradingMode.FUTURES &&
-          futuresPositionMode === "HEDGE"
-            ? direction.toLowerCase() as "long" | "short"
+          tradingMode === TradingMode.FUTURES && futuresPositionMode === "HEDGE"
+            ? (direction.toLowerCase() as "long" | "short")
             : undefined,
         // timeInForce handled in adapter for LIMIT orders
       };
@@ -715,9 +718,12 @@ export async function executeEntry({
           role: internalLeg?.role,
         });
         modelMemory.positions.push({
+          // BOTH:MULTI_ACCOUNT_POSITION_OWNER
+          account: getCurrentExchangeAccountSlug(),
           symbol,
           pairId: internalLeg?.pairId,
           role: internalLeg?.role ?? "MAIN",
+          entryLegs: internalLeg?.entryLegs,
           executionMode,
           tradingMode,
           direction,
@@ -743,12 +749,9 @@ export async function executeEntry({
           strategy: {
             entry: {
               engine: dynamicTradeConfig.decisionEngineVersion as
-                | Position["strategy"]["entry"]["engine"]
-                | undefined,
+                Position["strategy"]["entry"]["engine"] | undefined,
               feature: buildPersistedEntryFeature(entrySignal),
-              label: decision.category
-                ?.replaceAll("[", "")
-                .replaceAll("]", ""),
+              label: decision.category?.replaceAll("[", "").replaceAll("]", ""),
             },
             averaging:
               liveWatchState ??
@@ -905,6 +908,7 @@ async function validateBothDirectionEntry(
     | "tradingMode"
   >,
 ): Promise<string | undefined> {
+  const accountSlug = getCurrentExchangeAccountSlug();
   if (
     params.tradingMode !== TradingMode.FUTURES ||
     params.exchangeType !== "binance"
@@ -914,7 +918,10 @@ async function validateBothDirectionEntry(
 
   // PROD:VALIDATE_HEDGE_POSITION_MODE_SANDBOX
   if (params.futuresPositionMode !== "HEDGE") {
-    return "[VALIDATE_HEDGE_POSITION_MODE] Both-direction entry requires account futuresPositionMode HEDGE";
+    return (
+      `[VALIDATE_HEDGE_POSITION_MODE] Both-direction entry for account ` +
+      `"${accountSlug}" requires futuresPositionMode HEDGE`
+    );
   }
 
   const exchange = getExchange(params.exchangeType, {
@@ -927,10 +934,17 @@ async function validateBothDirectionEntry(
     try {
       authoritativeMode = await exchange.getFuturesPositionMode?.();
     } catch (error) {
-      return `[VALIDATE_HEDGE_POSITION_MODE] Unable to validate Binance Hedge Mode: ${error instanceof Error ? error.message : String(error)}`;
+      return (
+        `[VALIDATE_HEDGE_POSITION_MODE] Unable to validate Binance Hedge Mode ` +
+        `for account "${accountSlug}": ${error instanceof Error ? error.message : String(error)}`
+      );
     }
     if (authoritativeMode !== "HEDGE") {
-      return `[VALIDATE_HEDGE_POSITION_MODE] Binance account mode is ${authoritativeMode ?? "unavailable"}; expected HEDGE`;
+      return (
+        `[VALIDATE_HEDGE_POSITION_MODE] Binance account mode is ` +
+        `${authoritativeMode ?? "unavailable"}; expected HEDGE for account ` +
+        `"${accountSlug}"`
+      );
     }
   }
 
@@ -953,6 +967,7 @@ async function executeBothDirectionEntry(
 
   const mainDirection = params.entrySignal.l === "T" ? "SHORT" : "LONG";
   const legs = bothDirection.entry.resolveLegs({
+    entryLegs: params.dynamicTradeConfig.entryLegs,
     mainDirection,
     openDirection: "BOTH",
   });
@@ -965,6 +980,9 @@ async function executeBothDirectionEntry(
       },
     },
   });
+  const entryLegs = bothDirection.entry.normalizeSelection(
+    params.dynamicTradeConfig.entryLegs,
+  );
   const positionsBefore = cloneJson(params.modelMemory.positions ?? []);
   const reports: TradingReturn[] = [];
   let sandboxBalance = params.balanceOverride;
@@ -981,15 +999,18 @@ async function executeBothDirectionEntry(
               maxEntryMargin:
                 params.modelMemory.positions?.find(
                   (position) => position.role === "MAIN" && !position.closed,
-                )?.exposure.marginUsdt ?? params.dynamicTradeConfig.maxEntryMargin,
+                )?.exposure.marginUsdt ??
+                params.dynamicTradeConfig.maxEntryMargin,
             }
           : {}),
       },
       internalLeg: {
         direction: leg.direction,
+        entryLegs,
         fundingWorkerLegs: index === 0 ? legs.length : 1,
         pairId,
         role: leg.role,
+        skipOpenPositionGuard: index > 0,
         suppressNotification: true,
       },
     });
@@ -1019,8 +1040,7 @@ async function executeBothDirectionEntry(
             const confirmation = await exchange.ensureClosed({
               direction: position.direction,
               positionSide: position.direction.toLowerCase() as
-                | "long"
-                | "short",
+                "long" | "short",
               symbol: symbol.includes("_") ? symbol : `${symbol}_USDT`,
             });
             if (!confirmation.closed) {
@@ -1066,14 +1086,18 @@ async function executeBothDirectionEntry(
   const tradingDetail: TradingDetail = {
     baseAssetSymbol: symbol,
     action: "BUY",
-    finalBalance: details.at(-1)?.finalBalance ?? params.balanceOverride?.quoteAsset ?? 0,
+    finalBalance:
+      details.at(-1)?.finalBalance ?? params.balanceOverride?.quoteAsset ?? 0,
     usdtSpent: details.reduce((sum, detail) => sum + detail.usdtSpent, 0),
     totalFee: details.reduce((sum, detail) => sum + detail.totalFee, 0),
     totalTax: details.reduce((sum, detail) => sum + detail.totalTax, 0),
     totalProfit: 0,
     totalProfitPercent: 0,
   };
-  const message = `[ENTRY_BOTH_DIRECTION] Opened MAIN ${legs[0].direction} and COUNTER ${legs[1].direction} for ${symbol}`;
+  const openedLegs = legs
+    .map((leg) => `${leg.role} ${leg.direction}`)
+    .join(" and ");
+  const message = `[ENTRY_BOTH_DIRECTION] Opened ${openedLegs} for ${symbol}`;
   if (params.notificationTarget) {
     void notif.central({
       dashboard: params.notificationTarget.dashboard,
@@ -1096,6 +1120,7 @@ export interface ExecutePairLegEntryProps extends Omit<
   "internalLeg"
 > {
   direction: Position["direction"];
+  entryLegs?: Position["entryLegs"];
   pairId: string;
   role: PositionRole;
 }
@@ -1118,10 +1143,16 @@ export async function executePairLegEntry(
     },
     internalLeg: {
       direction: params.direction,
+      entryLegs:
+        params.entryLegs ??
+        bothDirection.entry.normalizeSelection(
+          params.dynamicTradeConfig.entryLegs,
+        ),
       fundingWorkerLegs: 1,
       pairId: params.pairId,
       replenishPair: true,
       role: params.role,
+      skipOpenPositionGuard: true,
     },
   });
 }

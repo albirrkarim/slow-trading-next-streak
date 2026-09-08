@@ -107,7 +107,11 @@ broadcast is also available as a separate tool.
 - `slow_finance_summary`
 
 Trade history is read-only. It can return closed history and optional open
-positions for the active, live, or sandbox mode.
+positions for the active, live, or sandbox mode. It concatenates positions from
+every enabled account, globally sorts the combined rows, and applies the symbol
+filter and result limit after aggregation. Every position retains its immutable
+account slug. The response also identifies the included accounts. Disabled
+accounts are excluded.
 
 `slow_finance_summary` accepts an inclusive UTC `start`/`end` range of at most
 731 days and defaults to live mode. It returns realized net P&L, winning and
@@ -116,8 +120,13 @@ points in USDT. It reads only closed positions by `closed.t`; balance changes,
 deposits, withdrawals, open positions, and unrealized P&L are excluded. Gross
 profit and gross loss are sums of the already-net winning and losing trade
 results, so known fees are informational and must not be subtracted again.
+The summary is calculated once from the combined closed history of every
+enabled account and includes the identities of those accounts. Disabled
+accounts do not contribute trades or P&L.
 
 TC: `PROD:MCP_FINANCE_SUMMARY`
+
+TC: `PROD:MULTI_ACCOUNT_COMBINED_MCP_DATA`
 
 ### Balance
 
@@ -125,8 +134,12 @@ TC: `PROD:MCP_FINANCE_SUMMARY`
 
 The balance tool uses the dedicated `balance.read` permission and accepts
 `active`, `live`, or `sandbox` mode. It returns one documented USDT balance
-object with `available`, `spendable`, `reserved`, `safeHaven`, `locked`, and
-`totalAsset`, plus the equations and a plain-language meaning for every field.
+object summed across all enabled exchange accounts, plus an `accounts[]`
+breakdown containing each enabled account's slug, name, mode, and balance.
+Disabled accounts are excluded. Both aggregate and account balances contain
+`available`, `spendable`, `reserved`, `safeHaven`, `locked`, and `totalAsset`,
+and the response includes equations and a plain-language meaning for every
+field.
 
 `available` is the exchange-free quote balance before SLOW's virtual reserve
 subtraction. `spendable`, `reserved`, and `safeHaven` are virtual allocations
@@ -139,6 +152,13 @@ persisted balance if the exchange read fails. Sandbox reads use simulation
 state and do not query the exchange.
 
 TC: `PROD:MCP_BALANCE`
+
+TC: `PROD:MULTI_ACCOUNT_COMBINED_MCP_BALANCE`
+
+All account-scoped MCP reads therefore use the same enabled-account boundary:
+balance, trade history, open positions, and finance totals are combined across
+enabled accounts. Tags and coin metadata are shared instance datasets and are
+returned once rather than duplicated for each account.
 
 ## Agent Confirmation Rule
 

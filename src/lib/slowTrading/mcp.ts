@@ -4,15 +4,15 @@ import coinTags from "@/lib/devBacktest/coins/tags";
 import { coinMetadataSync } from "@/lib/devBacktest/coins/tag-sync";
 import type { CoinTagState } from "@/lib/devBacktest/coins/tag-types";
 
-import slowTradingBalanceSummary from "./balance-summary";
 import slowTradingFinanceSummary from "./finance-summary";
+import slowTradingMcpBalance from "./mcp/balance";
+import slowTradingMcpHistory from "./mcp/history";
 import slowTradingStorage from "./storage";
 import {
   SLOW_TRADING_MCP_PERMISSIONS,
   type SlowTradingMcpPermission,
   type SlowTradingMcpPublicTokenRecord,
   type SlowTradingMcpTokenRecord,
-  type SlowTradingMode,
 } from "./types";
 
 const WRITE_TOOL_NOTICE =
@@ -68,9 +68,7 @@ function hashToken(token: string) {
 
 function getTokenSecretEncryptionKey() {
   const secret = String(
-    process.env.MCP_TOKEN_ENCRYPTION_SECRET ??
-      process.env.DASHBOARD_PIN ??
-      "",
+    process.env.MCP_TOKEN_ENCRYPTION_SECRET ?? process.env.DASHBOARD_PIN ?? "",
   ).trim();
   if (!secret) {
     throw new Error(
@@ -286,7 +284,10 @@ function assertPermission(
   }
 }
 
-function jsonSchema(properties: Record<string, unknown>, required: string[] = []) {
+function jsonSchema(
+  properties: Record<string, unknown>,
+  required: string[] = [],
+) {
   return {
     type: "object",
     properties,
@@ -311,8 +312,14 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
     inputSchema: jsonSchema(
       {
         text: { type: "string", description: "Tag name." },
-        color: { type: "string", description: "Hex color, for example #00ff00." },
-        description: { type: "string", description: "Optional tag description." },
+        color: {
+          type: "string",
+          description: "Hex color, for example #00ff00.",
+        },
+        description: {
+          type: "string",
+          description: "Optional tag description.",
+        },
         filters: {
           type: ["object", "null"],
           description: "Optional coin filter JSON stored on the tag.",
@@ -329,8 +336,14 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
       {
         tagId: { type: "number", description: "Existing tag id." },
         text: { type: "string", description: "Tag name." },
-        color: { type: "string", description: "Hex color, for example #00ff00." },
-        description: { type: "string", description: "Optional tag description." },
+        color: {
+          type: "string",
+          description: "Hex color, for example #00ff00.",
+        },
+        description: {
+          type: "string",
+          description: "Optional tag description.",
+        },
         filters: {
           type: ["object", "null"],
           description: "Optional coin filter JSON stored on the tag.",
@@ -369,7 +382,10 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
     permission: "coin_metadata.write",
     inputSchema: jsonSchema(
       {
-        symbol: { type: "string", description: "Coin symbol, for example BTC." },
+        symbol: {
+          type: "string",
+          description: "Coin symbol, for example BTC.",
+        },
         description: {
           type: "string",
           description: "Optional description. Empty string clears it.",
@@ -400,7 +416,7 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
   {
     name: "slow_balance_read",
     description:
-      "Read the canonical SLOW USDT balance object. Returns available exchange-free balance, spendable capital, virtual reserve, Safe Haven, locked active-position margin, total asset, formulas, and a plain-language meaning for every field. totalAsset is available plus locked and is not floating equity or unrealized P&L.",
+      "Read the canonical SLOW USDT balance across all enabled exchange accounts, with an account breakdown. Returns available exchange-free balance, spendable capital, virtual reserve, Safe Haven, locked active-position margin, total asset, formulas, and a plain-language meaning for every field. totalAsset is available plus locked and is not floating equity or unrealized P&L.",
     permission: "balance.read",
     readOnlyHint: true,
     inputSchema: jsonSchema({
@@ -415,7 +431,7 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
   {
     name: "slow_finance_summary",
     description:
-      "Summarize realized net USDT P&L from closed SLOW trades inside one bounded UTC date range. Balance changes and open-position unrealized P&L are excluded.",
+      "Summarize realized net USDT P&L across every enabled exchange account from closed SLOW trades inside one bounded UTC date range. Disabled accounts, balance changes, and open-position unrealized P&L are excluded.",
     permission: "trade_history.read",
     readOnlyHint: true,
     inputSchema: jsonSchema(
@@ -440,7 +456,7 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
   {
     name: "slow_trade_history_read",
     description:
-      "Read SLOW trade history and open positions from the current storage snapshot.",
+      "Read combined SLOW trade history and open positions across every enabled exchange account. Each position retains its account slug and disabled accounts are excluded.",
     permission: "trade_history.read",
     readOnlyHint: true,
     inputSchema: jsonSchema({
@@ -466,7 +482,9 @@ const toolDefinitions: SlowTradingMcpToolDefinition[] = [
 ];
 
 function getAllowedTools(auth: SlowTradingMcpAuthenticatedToken) {
-  return toolDefinitions.filter((tool) => auth.permissions.has(tool.permission));
+  return toolDefinitions.filter((tool) =>
+    auth.permissions.has(tool.permission),
+  );
 }
 
 function getMcpToolList(auth: SlowTradingMcpAuthenticatedToken) {
@@ -486,7 +504,10 @@ function getMcpToolList(auth: SlowTradingMcpAuthenticatedToken) {
 }
 
 function pickCoinMetadata(state: CoinTagState, symbol?: string) {
-  const normalizedSymbol = symbol?.trim().toUpperCase().replace(/_?USDT$/, "");
+  const normalizedSymbol = symbol
+    ?.trim()
+    .toUpperCase()
+    .replace(/_?USDT$/, "");
   if (!normalizedSymbol) return state;
 
   return {
@@ -580,77 +601,56 @@ async function callMcpTool(params: {
 
   if (params.name === "slow_balance_read") {
     // PROD:MCP_BALANCE
+    // PROD:MULTI_ACCOUNT_COMBINED_MCP_BALANCE
     assertPermission(params.auth, "balance.read");
-    const storage = await slowTradingStorage.data.load({
-      includeHistory: true,
-      modeScope: "all",
-    });
-    const activeMode = slowTradingStorage.mode.getActive(storage);
-    const requestedMode = String(args.mode ?? "active");
-    const mode: SlowTradingMode =
-      requestedMode === "live" || requestedMode === "sandbox"
-        ? requestedMode
-        : activeMode;
-    const selectedStorage = cloneJson(storage);
-    selectedStorage.runtime.sandboxEnabled = mode === "sandbox";
-    const dashboardState =
-      await slowTradingStorage.dashboard.buildStateRealtime(selectedStorage);
-
-    return slowTradingBalanceSummary.create({
-      activeMode,
-      dashboardState,
+    return slowTradingMcpBalance.read({
       instanceName: getMcpAppName(),
-      mode,
+      requestedMode: args.mode,
     });
   }
 
   if (params.name === "slow_trade_history_read") {
+    // PROD:MULTI_ACCOUNT_COMBINED_MCP_DATA
     assertPermission(params.auth, "trade_history.read");
-    const storage = await slowTradingStorage.data.load({ includeHistory: true });
-    const activeMode = slowTradingStorage.mode.getActive(storage);
-    const requestedMode = String(args.mode ?? "active");
-    const mode: SlowTradingMode =
-      requestedMode === "live" || requestedMode === "sandbox"
-        ? requestedMode
-        : activeMode;
-    const symbol = String(args.symbol ?? "").trim().toUpperCase();
     const limit = Math.min(500, Math.max(1, Number(args.limit) || 50));
     const includeOpenPositions = args.includeOpenPositions !== false;
-    const history = slowTradingStorage.history
-      .getClosed(storage, mode)
-      .filter((position) => !symbol || position.symbol === symbol)
-      .slice(-limit)
-      .reverse();
-    const openPositions = includeOpenPositions
-      ? slowTradingStorage.history
-          .getOpen(storage, mode)
-          .filter((position) => !symbol || position.symbol === symbol)
-      : [];
+    const combined = await slowTradingMcpHistory.read({
+      defaultMode: "active",
+      includeOpenPositions,
+      requestedMode: args.mode,
+      symbol: String(args.symbol ?? ""),
+    });
 
     return cloneJson({
-      activeMode,
-      mode,
-      history,
-      openPositions,
-      totalClosed: slowTradingStorage.history
-        .getClosed(storage, mode)
-        .filter((position) => !symbol || position.symbol === symbol).length,
+      accounts: combined.accounts,
+      activeMode: combined.activeMode,
+      mode: combined.mode,
+      history: combined.closed.slice(-limit).reverse(),
+      openPositions: combined.open,
+      totalClosed: combined.closed.length,
     });
   }
 
   if (params.name === "slow_finance_summary") {
     // PROD:MCP_FINANCE_SUMMARY
+    // PROD:MULTI_ACCOUNT_COMBINED_MCP_DATA
     assertPermission(params.auth, "trade_history.read");
-    const mode: SlowTradingMode = args.mode === "sandbox" ? "sandbox" : "live";
-    const storage = await slowTradingStorage.data.load({ includeHistory: true });
-
-    return slowTradingFinanceSummary.create({
-      end: String(args.end ?? ""),
-      instanceName: getMcpAppName(),
-      mode,
-      positions: slowTradingStorage.history.getClosed(storage, mode),
-      start: String(args.start ?? ""),
+    const combined = await slowTradingMcpHistory.read({
+      defaultMode: "live",
+      includeOpenPositions: false,
+      requestedMode: args.mode,
     });
+
+    return {
+      ...slowTradingFinanceSummary.create({
+        end: String(args.end ?? ""),
+        instanceName: getMcpAppName(),
+        mode: combined.mode,
+        positions: combined.closed,
+        start: String(args.start ?? ""),
+      }),
+      accounts: combined.accounts,
+    };
   }
 
   throw new Error(`Unknown MCP tool: ${params.name}`);

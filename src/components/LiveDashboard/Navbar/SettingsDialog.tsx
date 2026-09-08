@@ -69,8 +69,8 @@ export default function SettingsDialog(props: {
   onOpenDialog: () => void;
   onReinitialize: () => Promise<void>;
   reinitializing: boolean;
-  resetSandbox: () => Promise<void>;
-  resettingSandbox: boolean;
+  resetSandbox: (accountSlug: string) => Promise<void>;
+  resettingSandboxAccount: string | null;
   saveConfig: (handleClose?: () => void) => Promise<void>;
   savingConfig: boolean;
   setConfigDraft: ConfigDraftSetter;
@@ -88,7 +88,7 @@ export default function SettingsDialog(props: {
     onReinitialize,
     reinitializing,
     resetSandbox,
-    resettingSandbox,
+    resettingSandboxAccount,
     saveConfig,
     savingConfig,
     setConfigDraft,
@@ -119,43 +119,54 @@ export default function SettingsDialog(props: {
     >
       {(handleClose) => (
         <Box sx={{ p: 1 }}>
-          <Tabs
-            value={activeTab}
-            onChange={(_, value: SettingsTab) => {
-              setActiveTab(value);
-            }}
-            variant="scrollable"
-            scrollButtons="auto"
+          <Box
             sx={{
+              alignItems: "flex-start",
+              display: "flex",
+              gap: 1.5,
               mb: 1.5,
-              minHeight: 34,
-              "& .MuiTabs-indicator": {
-                height: 2,
-              },
-              "& .MuiTab-root": {
-                fontSize: "0.74rem",
-                fontWeight: 700,
-                minHeight: 34,
-                minWidth: 0,
-                px: 1.25,
-                py: 0.5,
-              },
-              "& .MuiTab-iconWrapper": {
-                fontSize: "1rem",
-                mr: 0.75,
-              },
+              flexDirection: { xs: "column", md: "row" },
             }}
           >
-            {SETTINGS_TABS.map((tab) => (
-              <Tab
-                icon={<SettingsTabIcon tab={tab.value} />}
-                iconPosition="start"
-                key={tab.value}
-                label={tab.label}
-                value={tab.value}
-              />
-            ))}
-          </Tabs>
+            <Tabs
+              value={activeTab}
+              onChange={(_, value: SettingsTab) => {
+                setActiveTab(value);
+              }}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{
+                flex: 1,
+                maxWidth: "100%",
+                minHeight: 34,
+                "& .MuiTabs-indicator": {
+                  height: 2,
+                },
+                "& .MuiTab-root": {
+                  fontSize: "0.74rem",
+                  fontWeight: 700,
+                  minHeight: 34,
+                  minWidth: 0,
+                  px: 1.25,
+                  py: 0.5,
+                },
+                "& .MuiTab-iconWrapper": {
+                  fontSize: "1rem",
+                  mr: 0.75,
+                },
+              }}
+            >
+              {SETTINGS_TABS.map((tab) => (
+                <Tab
+                  icon={<SettingsTabIcon tab={tab.value} />}
+                  iconPosition="start"
+                  key={tab.value}
+                  label={tab.label}
+                  value={tab.value}
+                />
+              ))}
+            </Tabs>
+          </Box>
 
           <Box sx={{ minHeight: 420 }}>
             {activeTab === "runtime" ? (
@@ -164,7 +175,7 @@ export default function SettingsDialog(props: {
                 onReinitialize={onReinitialize}
                 reinitializing={reinitializing}
                 resetSandbox={resetSandbox}
-                resettingSandbox={resettingSandbox}
+                resettingSandboxAccount={resettingSandboxAccount}
                 setConfigDraft={setConfigDraft}
                 syncOnlineStorageToLocal={syncOnlineStorageToLocal}
                 syncingOnlineStorage={syncingOnlineStorage}

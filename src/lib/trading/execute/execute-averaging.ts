@@ -1,9 +1,10 @@
-import type { ExchangeType, UnifiedOrderParams } from "@/lib/exchange";
-import type { AveragingRecommendation } from "@/lib/brain/algorithms/type-execute";
 import type {
-  AdaptiveAveragingConfig,
-  VolatilityPoint,
-} from "@/lib/dynamic";
+  ExchangeType,
+  UnifiedFuturesPositionMode,
+  UnifiedOrderParams,
+} from "@/lib/exchange";
+import type { AveragingRecommendation } from "@/lib/brain/algorithms/type-execute";
+import type { AdaptiveAveragingConfig, VolatilityPoint } from "@/lib/dynamic";
 import {
   getExchange,
   TradingMode,
@@ -38,6 +39,7 @@ interface ExecuteAveragingProps {
   modelMemory: TradingModelMemory;
   volatilityPoints: VolatilityPoint[];
   exchangeType: ExchangeType;
+  futuresPositionMode?: UnifiedFuturesPositionMode;
   tradingMode: TradingMode;
   bypass?: boolean;
   balanceOverride?: InitialBalance;
@@ -60,6 +62,7 @@ export async function executeAveraging({
   modelMemory,
   volatilityPoints,
   exchangeType = "tokocrypto",
+  futuresPositionMode,
   tradingMode = TradingMode.SPOT,
   bypass: _bypass = false,
   balanceOverride,
@@ -89,12 +92,10 @@ export async function executeAveraging({
       message: "[Averaging] No open position to average into",
     };
   }
-
   const pairPositions = [
     ...(modelMemory.positions ?? []),
     ...(modelMemory.positionsSell ?? []),
   ];
-
   if (
     hasPositionHitTargetVolatilityPoint({
       directional: bothDirection.pair.isLeg(
@@ -150,6 +151,7 @@ export async function executeAveraging({
 
   const exchange = getExchange(exchangeType, {
     defaultTradingMode: tradingMode,
+    futuresPositionMode,
   });
 
   // Derive sandbox mode from the position itself — never trust the caller to pass it correctly
@@ -181,8 +183,7 @@ export async function executeAveraging({
     quoteAsset: balanceOverride?.quoteAsset,
     reservedQuoteAsset,
     adaptiveAveraging: resolvedAdaptiveAveraging,
-    rescueProjectionGuardEnabled:
-      averagingRescueProjectionGuardEnabled,
+    rescueProjectionGuardEnabled: averagingRescueProjectionGuardEnabled,
     triggerVolatilityPct: averagingRecommendation?.pct,
   });
 
@@ -259,7 +260,10 @@ export async function executeAveraging({
 
   const preferredQuantity = targetNotionalUSDT / price;
 
-  const quantity = await exchange.adjustQuantity(preferredQuantity, tradingSymbol);
+  const quantity = await exchange.adjustQuantity(
+    preferredQuantity,
+    tradingSymbol,
+  );
 
   if (quantity === 0) {
     return {
@@ -277,18 +281,23 @@ export async function executeAveraging({
   if (isTest) {
     const executedQuoteQty = price * quantity;
     const executedMarginUSDT =
-      tradingMode === TradingMode.SPOT ? executedQuoteQty : executedQuoteQty / leverage;
+      tradingMode === TradingMode.SPOT
+        ? executedQuoteQty
+        : executedQuoteQty / leverage;
     executedFeeUSDT = executedQuoteQty * totalFeeRate;
     quoteSpentUSDT = executedMarginUSDT + executedFeeUSDT;
 
     const newQuantity = existingPosition.exposure.quantity + quantity;
     const newEntryPrice =
-      (existingPosition.exposure.averageEntryPrice * existingPosition.exposure.quantity + price * quantity) /
+      (existingPosition.exposure.averageEntryPrice *
+        existingPosition.exposure.quantity +
+        price * quantity) /
       newQuantity;
 
     existingPosition.exposure.averageEntryPrice = newEntryPrice;
     existingPosition.exposure.quantity = newQuantity;
-    existingPosition.exposure.notionalUsdt = (existingPosition.exposure.notionalUsdt ?? 0) + executedQuoteQty;
+    existingPosition.exposure.notionalUsdt =
+      (existingPosition.exposure.notionalUsdt ?? 0) + executedQuoteQty;
     existingPosition.exposure.marginUsdt =
       (existingPosition.exposure.marginUsdt ?? 0) + executedMarginUSDT;
     existingPosition.fees.entryUsdt =
@@ -314,6 +323,10 @@ export async function executeAveraging({
       projectedProfitPct: resolvedAdaptiveAveraging.enabled
         ? rescueProjection.projectedProfitPct
         : undefined,
+      // PROD:AVERAGING_MONITORING_STATE_SNAPSHOT
+      monitoringState: existingPosition.lastMonitoringStage
+        ? { ...existingPosition.lastMonitoringStage }
+        : undefined,
     });
 
     markReservedWatchStepUsed({
@@ -335,11 +348,7 @@ export async function executeAveraging({
       // PROD:NOTIF_AVG
       key: "NOTIF_AVERAGE",
       title: `[SANDBOX] ${message}`,
-      message: JSON.stringify(
-        { nextStep, sandbox: true, spendStep },
-        null,
-        2,
-      ),
+      message: JSON.stringify({ nextStep, sandbox: true, spendStep }, null, 2),
     });
   }
 
@@ -350,16 +359,21 @@ export async function executeAveraging({
       tradeType: "ENTRY",
       symbol: tradingSymbol,
       side: direction === "LONG" ? UnifiedOrderSide.BUY : UnifiedOrderSide.SELL,
-      type: orderType === "taker" ? UnifiedOrderType.MARKET : UnifiedOrderType.LIMIT,
+      type:
+        orderType === "taker"
+          ? UnifiedOrderType.MARKET
+          : UnifiedOrderType.LIMIT,
       quantity,
       price,
       tradingMode,
       positionSide:
         tradingMode === TradingMode.FUTURES &&
-        bothDirection.pair.hasCounterpart(
-          existingPosition,
-          modelMemory.positions ?? [],
-        )
+        (futuresPositionMode === "HEDGE" ||
+          bothDirection.position.isHedgeStrategy(existingPosition) ||
+          bothDirection.pair.hasCounterpart(
+            existingPosition,
+            modelMemory.positions ?? [],
+          ))
           ? (direction.toLowerCase() as "long" | "short")
           : undefined,
     };
@@ -367,7 +381,10 @@ export async function executeAveraging({
     try {
       tradeLog.log("[Averaging] BUY Params:", buyParam);
       const buyResult = await exchange.createOrder(buyParam);
-      tradeLog.log("[Averaging] BUY Result:", JSON.stringify(buyResult, null, 2));
+      tradeLog.log(
+        "[Averaging] BUY Result:",
+        JSON.stringify(buyResult, null, 2),
+      );
 
       success = true;
 
@@ -399,14 +416,17 @@ export async function executeAveraging({
       // Update weighted average position
       const newQuantity = existingPosition.exposure.quantity + executedQty;
       const newEntryPrice =
-        (existingPosition.exposure.averageEntryPrice * existingPosition.exposure.quantity +
+        (existingPosition.exposure.averageEntryPrice *
+          existingPosition.exposure.quantity +
           executedPrice * executedQty) /
         newQuantity;
 
       existingPosition.exposure.averageEntryPrice = newEntryPrice;
       existingPosition.exposure.quantity = newQuantity;
-      existingPosition.exposure.notionalUsdt = (existingPosition.exposure.notionalUsdt ?? 0) + executedQuoteQty;
-      existingPosition.exposure.marginUsdt = (existingPosition.exposure.marginUsdt ?? 0) + liveMarginUSDT;
+      existingPosition.exposure.notionalUsdt =
+        (existingPosition.exposure.notionalUsdt ?? 0) + executedQuoteQty;
+      existingPosition.exposure.marginUsdt =
+        (existingPosition.exposure.marginUsdt ?? 0) + liveMarginUSDT;
       existingPosition.fees.entryUsdt =
         (existingPosition.fees.entryUsdt ?? 0) + executedFeeUSDT;
       existingPosition.fees.estimatedExitUsdt =
@@ -429,6 +449,10 @@ export async function executeAveraging({
           : undefined,
         projectedProfitPct: resolvedAdaptiveAveraging.enabled
           ? rescueProjection.projectedProfitPct
+          : undefined,
+        // PROD:AVERAGING_MONITORING_STATE_SNAPSHOT
+        monitoringState: existingPosition.lastMonitoringStage
+          ? { ...existingPosition.lastMonitoringStage }
           : undefined,
       });
 
@@ -462,7 +486,11 @@ export async function executeAveraging({
         // PROD:NOTIF_AVG_FAILED
         key: "NOTIF_AVERAGE_FAILED",
         title: "AVERAGING ORDER FAILED",
-        message: JSON.stringify({ buyParam, error: error.message || error, nextStep }, null, 2),
+        message: JSON.stringify(
+          { buyParam, error: error.message || error, nextStep },
+          null,
+          2,
+        ),
       });
     }
   }
@@ -472,15 +500,15 @@ export async function executeAveraging({
     message,
     tradingDetail: success
       ? {
-        baseAssetSymbol: symbol,
-        action: "BUY",
-        finalBalance: 0, // not tracked here — handled by caller
-        usdtSpent: -quoteSpentUSDT,
-        totalFee: executedFeeUSDT,
-        totalTax: 0,
-        totalProfit: 0,
-        totalProfitPercent: 0,
-      }
+          baseAssetSymbol: symbol,
+          action: "BUY",
+          finalBalance: 0, // not tracked here — handled by caller
+          usdtSpent: -quoteSpentUSDT,
+          totalFee: executedFeeUSDT,
+          totalTax: 0,
+          totalProfit: 0,
+          totalProfitPercent: 0,
+        }
       : undefined,
   };
 }

@@ -78,8 +78,18 @@ describe("slow specs notification", () => {
       // PROD:NOTIF_DAILY_PNL_LIMIT
       'key: "NOTIF_DAILY_PNL_LIMIT"',
     ]);
-    await expectSourceContains("src/lib/slowTrading/cycle.ts", [
+    await expectSourceContains("src/lib/slowTrading/cycle/finalize.ts", [
       "dailyPerformance.notify",
+      // PROD:BOUNDED_POST_CYCLE_ASYNC_WORK
+      "PROD:BOUNDED_POST_CYCLE_ASYNC_WORK",
+      "await slowTradingNotifications.openPositions",
+      "await slowTradingStorage.balanceSnapshots.upsert",
+    ]);
+    await expectSourceContains("src/lib/slowTrading/cycle/entry.ts", [
+      // PROD:BOUNDED_POST_CYCLE_ASYNC_WORK
+      "PROD:BOUNDED_POST_CYCLE_ASYNC_WORK",
+      "await slowTradingNotifications.highVolatility",
+      "latestVolatilityPointsMap",
     ]);
   });
 
@@ -89,6 +99,8 @@ describe("slow specs notification", () => {
       "sendEmailViaN8nProxy",
       "N8N_EMAIL_PROXY_URL",
       "PROD:NOTIF_EMAIL_CRM_PROXY",
+      // PROD:NOTIFICATION_DELIVERY_RETRY
+      "PROD:NOTIFICATION_DELIVERY_RETRY",
     ]);
   });
 
@@ -132,11 +144,13 @@ describe("slow specs notification", () => {
     ];
     await slowTrading.storage.mode.saveState("live", storage.modes.live);
     await slowTrading.storage.balanceSnapshots.upsert({
+      account: storage.account.slug,
       mode: "live",
       timestamp: Date.UTC(2026, 5, 8, 23, 55),
       total: 100,
     });
     await slowTrading.storage.balanceSnapshots.upsert({
+      account: storage.account.slug,
       mode: "live",
       timestamp: Date.UTC(2026, 5, 9, 23, 55),
       total: 104.53,
@@ -148,6 +162,7 @@ describe("slow specs notification", () => {
       .mockResolvedValue(undefined);
 
     await slowTrading.notifications.dailyPerformance.notify({
+      account: loaded.account.slug,
       currentTimeMs: Date.UTC(2026, 5, 10, 1),
       exchangeType: loaded.config.exchangeType,
       mode: "live",
@@ -161,8 +176,7 @@ describe("slow specs notification", () => {
         channel: "telegram",
         dedupeKey: "slow-daily-performance:telegram:live:2026-06-09",
         key: "NOTIF_DAILY_PERFORMANCE",
-        title:
-          "[DAILY] 9 Jun UTC | +$7.00 | +$7.00 -$0.00 | WR 100% (1W / 0L)",
+        title: "[DAILY] 9 Jun UTC | +$7.00 | +$7.00 -$0.00 | WR 100% (1W / 0L)",
         message: expect.stringContaining(
           "Trade PnL: +$7.00\nTrade PnL %: +1.00%\nTrades: 1\nWins: 1\nLosses: 0\nWin rate: 100.00%\nBalance PnL: +$4.53",
         ),
@@ -173,6 +187,7 @@ describe("slow specs notification", () => {
     );
 
     await slowTrading.notifications.dailyPerformance.notify({
+      account: loaded.account.slug,
       currentTimeMs: Date.UTC(2026, 5, 10, 12),
       exchangeType: loaded.config.exchangeType,
       mode: "live",
@@ -182,7 +197,9 @@ describe("slow specs notification", () => {
     expect(centralSpy).toHaveBeenCalledTimes(1);
 
     await slowTrading.storage.mode.saveState("live", modeState);
-    const reloaded = await slowTrading.storage.data.load({ modeScope: "active" });
+    const reloaded = await slowTrading.storage.data.load({
+      modeScope: "active",
+    });
     expect(
       reloaded.modes.live.dailyPerformanceNotificationState?.telegram,
     ).toBe("2026-06-09");
@@ -263,5 +280,4 @@ describe("slow specs notification", () => {
       reloaded.modes.sandbox.dailyPnlLimitNotificationState?.telegram,
     ).toEqual({ b: true, d: "2026-08-31" });
   });
-
 });

@@ -9,7 +9,6 @@ import { tradeLog } from "@/lib/trading/helper/log";
 
 import {
   computeAutoEntryActive,
-  computeBalanceSummary,
   computeDayPreview,
   computeOpenPositionSummary,
   makeConfigDraft,
@@ -45,6 +44,7 @@ function buildWithdrawalPayload(configDraft: ConfigDraft) {
     autoEnabled: configDraft.withdrawalAutoEnabled,
     schedules: configDraft.withdrawalSchedules.map((schedule, index) => ({
       id: schedule.id || `schedule-${index + 1}`,
+      account: schedule.account || configDraft.exchangeAccountSlug,
       name: schedule.name || `Schedule ${index + 1}`,
       enabled: schedule.enabled,
       amountUSDT: Math.max(0, Number(schedule.amountUSDT) || 0),
@@ -72,18 +72,20 @@ function buildWithdrawalPayload(configDraft: ConfigDraft) {
 function buildSafeHavenPayload(configDraft: ConfigDraft) {
   return {
     autoEnabled: Boolean(configDraft.safeHavenAutoEnabled),
-    schedules: (configDraft.safeHavenSchedules ?? []).map((schedule, index) => ({
-      id: schedule.id || `safe-haven-${index + 1}`,
-      name: schedule.name || `Safe Haven ${index + 1}`,
-      enabled: schedule.enabled,
-      amountUSDT: Math.max(0, Number(schedule.amountUSDT) || 0),
-      pct: Math.min(100, Math.max(0, Number(schedule.pct) || 0)),
-      dayOfMonth: Math.min(
-        31,
-        Math.max(1, Math.floor(Number(schedule.dayOfMonth) || 1)),
-      ),
-      lastQueuedAt: schedule.lastQueuedAt,
-    })),
+    schedules: (configDraft.safeHavenSchedules ?? []).map(
+      (schedule, index) => ({
+        id: schedule.id || `safe-haven-${index + 1}`,
+        name: schedule.name || `Safe Haven ${index + 1}`,
+        enabled: schedule.enabled,
+        amountUSDT: Math.max(0, Number(schedule.amountUSDT) || 0),
+        pct: Math.min(100, Math.max(0, Number(schedule.pct) || 0)),
+        dayOfMonth: Math.min(
+          31,
+          Math.max(1, Math.floor(Number(schedule.dayOfMonth) || 1)),
+        ),
+        lastQueuedAt: schedule.lastQueuedAt,
+      }),
+    ),
   };
 }
 
@@ -93,7 +95,9 @@ export function useLiveDashboardNavbar({
 }: UseLiveDashboardNavbarArgs) {
   const [configDraft, setConfigDraftState] = useState<ConfigDraft | null>(null);
   const [runningCycle, setRunningCycle] = useState(false);
-  const [resettingSandbox, setResettingSandbox] = useState(false);
+  const [resettingSandboxAccount, setResettingSandboxAccount] = useState<
+    string | null
+  >(null);
   const [savingConfig, setSavingConfig] = useState(false);
   const [syncingOnlineStorage, setSyncingOnlineStorage] = useState(false);
   const [tryingWithdraw, setTryingWithdraw] = useState(false);
@@ -150,10 +154,12 @@ export function useLiveDashboardNavbar({
         0,
         Number(configDraft.sandboxInitialBalanceUSDT) || 0,
       );
-      const safeHavenUSDT = Math.max(
-        0,
-        Number(configDraft.safeHavenUSDT) || 0,
-      );
+      const safeHavenUSDT = Math.max(0, Number(configDraft.safeHavenUSDT) || 0);
+
+      await axios.put(endpoints.slow.prod.exchangeAccounts, {
+        accounts: configDraft.exchangeAccounts,
+        exchangeAccountSlug: configDraft.exchangeAccountSlug,
+      });
 
       await axios.put(endpoints.slow.prod.storage, {
         config: {
@@ -163,6 +169,8 @@ export function useLiveDashboardNavbar({
           exchangeType: configDraft.exchangeType,
           tradingMode: configDraft.tradingMode,
           openDirection: configDraft.openDirection ?? "ONE_WAY",
+          lateEntryVPointPriceDriftEnabled:
+            configDraft.lateEntryVPointPriceDriftEnabled !== false,
           symbols: symbolsParsed,
           modelConfig: configDraft.modelConfig,
           enableWatchLogic: configDraft.enableWatchLogic,
@@ -181,15 +189,13 @@ export function useLiveDashboardNavbar({
             0,
             Math.floor(Number(configDraft.maxOpenPositions) || 0),
           ),
-          minAbsLevelToEntry:
-            configDraft.minAbsLevelToEntry,
-          maxAbsLevelToEntry:
-            configDraft.maxAbsLevelToEntry,
+          minAbsLevelToEntry: configDraft.minAbsLevelToEntry,
+          maxAbsLevelToEntry: configDraft.maxAbsLevelToEntry,
           maxLeverage: configDraft.maxLeverage,
           exactLeverage: configDraft.exactLeverage,
           blackSwan: configDraft.blackSwan,
         },
-        exchangeAccountId: configDraft.exchangeAccountId,
+        exchangeAccountSlug: configDraft.exchangeAccountSlug,
         runnerEnabled: configDraft.runnerEnabled,
         autoEntryEnabled: configDraft.autoEntryEnabled,
         autoEntryDailyPnlLimitUSDT: Math.min(
@@ -275,9 +281,9 @@ export function useLiveDashboardNavbar({
       setIsConfigDraftDirty(false);
       handleClose?.();
       await onRefresh();
-    } catch (error) {
+    } catch (error: any) {
       tradeLog.error(error);
-      alert("Save config failed");
+      alert(error.response?.data?.error ?? "Save config failed");
     } finally {
       setSavingConfig(false);
     }
@@ -298,10 +304,7 @@ export function useLiveDashboardNavbar({
 
     setTryingWithdraw(true);
     try {
-      const safeHavenUSDT = Math.max(
-        0,
-        Number(configDraft.safeHavenUSDT) || 0,
-      );
+      const safeHavenUSDT = Math.max(0, Number(configDraft.safeHavenUSDT) || 0);
 
       await axios.put(endpoints.slow.prod.storage, {
         safeHavenUSDT,
@@ -340,26 +343,34 @@ export function useLiveDashboardNavbar({
     }
   };
 
-  const resetSandbox = async () => {
+  const resetSandbox = async (accountSlug: string) => {
     if (!configDraft) {
+      return;
+    }
+    const account = configDraft.exchangeAccounts.find(
+      (candidate) => candidate.slug === accountSlug,
+    );
+    if (!account) {
+      alert("Account not found");
       return;
     }
 
     if (
       !confirm(
-        "Reset sandbox history, positions, and balance to the configured initial balance?",
+        `Reset ${account.name} sandbox positions, history, and balance to its configured initial balance?`,
       )
     ) {
       return;
     }
 
-    setResettingSandbox(true);
+    setResettingSandboxAccount(account.slug);
     try {
       const sandboxInitialBalanceUSDT = Math.max(
         0,
-        Number(configDraft.sandboxInitialBalanceUSDT) || 0,
+        Number(account.sandbox.initialBalanceUSDT) || 0,
       );
       await axios.post(endpoints.slow.prod.reset, {
+        account: account.slug,
         sandboxInitialBalanceUSDT,
       });
       await onRefresh();
@@ -367,7 +378,7 @@ export function useLiveDashboardNavbar({
       tradeLog.error(error);
       alert("Reset sandbox failed");
     } finally {
-      setResettingSandbox(false);
+      setResettingSandboxAccount(null);
     }
   };
 
@@ -423,19 +434,13 @@ export function useLiveDashboardNavbar({
     [dashboardState],
   );
 
-  const balanceSummary = useMemo(
-    () => computeBalanceSummary(dashboardState, openPositionSummary),
-    [dashboardState, openPositionSummary],
-  );
-
   return {
-    balanceSummary,
     configDraft,
     dayPreview,
     isActive,
     openPositionSummary,
     resetSandbox,
-    resettingSandbox,
+    resettingSandboxAccount,
     runCycle,
     runningCycle,
     saveConfig,

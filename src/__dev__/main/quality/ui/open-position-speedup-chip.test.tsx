@@ -62,7 +62,13 @@ describe("OpenPositionItem", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close Position" }));
 
     // PROD:MANUAL_EXIT_POSITION_ROLE
-    expect(onExit).toHaveBeenCalledWith("SUI", "COUNTER");
+    expect(onExit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: "binance-1",
+        symbol: "SUI",
+        role: "COUNTER",
+      }),
+    );
   });
 
   it("shows the latest successful monitoring time for Speedup positions", async () => {

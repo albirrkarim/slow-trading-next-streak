@@ -4,6 +4,28 @@ import slowTrading, {
 } from "@/lib/slowTrading";
 import { tradeLog } from "@/lib/trading/helper/log";
 
+async function loadDashboardState() {
+  const catalog = await slowTrading.storage.data.load({ modeScope: "active" });
+  const orderedAccounts = [
+    catalog.account,
+    ...catalog.runtime.exchangeAccounts.filter(
+      (accountItem) => accountItem.slug !== catalog.account.slug,
+    ),
+  ];
+  const storages = [];
+  for (const accountItem of orderedAccounts) {
+    storages.push(
+      await slowTrading.storage.data.load({
+        account: accountItem.slug,
+        includeHistory: true,
+      }),
+    );
+  }
+  const combined =
+    await slowTrading.storage.dashboard.buildCombinedStateRealtime(storages);
+  return combined;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -14,12 +36,8 @@ export default async function handler(
     await slowTrading.runner.get();
 
     if (req.method === "GET") {
-      const storage = await slowTrading.storage.data.load({
-        includeHistory: true,
-      });
-      res
-        .status(200)
-        .json(await slowTrading.storage.dashboard.buildStateRealtime(storage));
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).json(await loadDashboardState());
       return;
     }
 
@@ -43,14 +61,14 @@ export default async function handler(
       const managementSource = Array.isArray(body.symbols)
         ? "dashboard.coin-management"
         : "dashboard.settings.coin-management";
-      const managementActions = slowTrading.notifications.managementAction.build(
-        {
+      const managementActions =
+        slowTrading.notifications.managementAction.build({
           previousSymbols: previousStorage.config.symbols,
           nextSymbols: storage.config.symbols,
-          reason: "Configured Symbols list was updated through the dashboard storage API.",
+          reason:
+            "Configured Symbols list was updated through the dashboard storage API.",
           source: managementSource,
-        },
-      );
+        });
 
       if (managementActions.length > 0) {
         await Promise.all(
@@ -83,24 +101,27 @@ export default async function handler(
           });
       }
 
-      res
-        .status(200)
-        .json(await slowTrading.storage.dashboard.buildStateRealtime(storage));
+      res.status(200).json(await loadDashboardState());
       return;
     }
 
     res.setHeader("Allow", ["GET", "PUT"]);
     res.status(405).end(`Method ${req.method} Not Allowed`);
   } catch (error: any) {
-    await slowTrading.storage.logs.appendError({
-      source: "api.slow-trading.storage",
-      error,
-      details: {
-        method: req.method,
-      },
-    }).catch((logError) => {
-      tradeLog.error("[slow-trading] failed to write storage error log", logError);
-    });
+    await slowTrading.storage.logs
+      .appendError({
+        source: "api.slow-trading.storage",
+        error,
+        details: {
+          method: req.method,
+        },
+      })
+      .catch((logError) => {
+        tradeLog.error(
+          "[slow-trading] failed to write storage error log",
+          logError,
+        );
+      });
     res.status(500).json({
       error: error?.message ?? "Failed to handle slow trading storage",
     });

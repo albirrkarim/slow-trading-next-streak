@@ -106,7 +106,9 @@ function createModeState(): SlowTradingModeState {
   } as SlowTradingModeState;
 }
 
-function createEntryRecommendation(overrides: Partial<EntryRecommendation> = {}) {
+function createEntryRecommendation(
+  overrides: Partial<EntryRecommendation> = {},
+) {
   return {
     symbol: "SUI",
     l: "B",
@@ -201,13 +203,12 @@ describe("slow specs entry", () => {
   });
 
   it("shares the exact production funding blockers with entry diagnostics", () => {
-    const requestedMarginUsdt =
-      entryFunding.requestedMargin.resolve({
-        bypass: false,
-        exchangeType: "binance",
-        investAmount: 20,
-        probability: 0.5,
-      });
+    const requestedMarginUsdt = entryFunding.requestedMargin.resolve({
+      bypass: false,
+      exchangeType: "binance",
+      investAmount: 20,
+      probability: 0.5,
+    });
     const fundingPlan = entryFunding.plan.calculate({
       activePositions: [],
       config: createBacktestConfig({
@@ -228,9 +229,7 @@ describe("slow specs entry", () => {
 
     // BOTH:ALWAYS_HAVE_SPENDABLE_TO_BAILING_OUT
     expect(requestedMarginUsdt).toBe(10);
-    expect(fundingPlan.blockCode).toBe(
-      "INSUFFICIENT_BAILOUT_BUFFER",
-    );
+    expect(fundingPlan.blockCode).toBe("INSUFFICIENT_BAILOUT_BUFFER");
     expect(fundingPlan.blockReason).toContain(
       "Not enough spendable balance to keep bailout buffer",
     );
@@ -260,13 +259,12 @@ describe("slow specs entry", () => {
   });
 
   it("applies candidate probability to margin before futures leverage", () => {
-    const autoRequestedMarginUsdt =
-      entryFunding.requestedMargin.resolve({
-        bypass: false,
-        exchangeType: "binance",
-        investAmount: 20,
-        probability: 0.75,
-      });
+    const autoRequestedMarginUsdt = entryFunding.requestedMargin.resolve({
+      bypass: false,
+      exchangeType: "binance",
+      investAmount: 20,
+      probability: 0.75,
+    });
     const autoFundingPlan = entryFunding.plan.calculate({
       activePositions: [],
       config: createBacktestConfig({
@@ -282,13 +280,12 @@ describe("slow specs entry", () => {
       spendableQuoteAsset: 20,
       tradingMode: TradingMode.FUTURES,
     });
-    const manualRequestedMarginUsdt =
-      entryFunding.requestedMargin.resolve({
-        bypass: false,
-        exchangeType: "binance",
-        investAmount: 20,
-        probability: 1,
-      });
+    const manualRequestedMarginUsdt = entryFunding.requestedMargin.resolve({
+      bypass: false,
+      exchangeType: "binance",
+      investAmount: 20,
+      probability: 1,
+    });
     const manualFundingPlan = entryFunding.plan.calculate({
       activePositions: [],
       config: createBacktestConfig({
@@ -403,6 +400,67 @@ describe("slow specs entry", () => {
       runtime.modelMemoryMap.SUI.positions[0].exposure.notionalUsdt * 0.001,
     );
     expect(runtime.dynamicTradeMemory.quoteAsset).toBeCloseTo(980);
+  });
+
+  it.each([
+    ["MAIN", "MAIN", "LONG"],
+    ["COUNTER", "COUNTER", "SHORT"],
+  ] as const)(
+    "opens only the selected %s Hedge-strategy leg",
+    (entryLegs, expectedRole, expectedDirection) => {
+      const runtime = createRuntime();
+      const config = createBacktestConfig({
+        enableWatchLogic: false,
+        entryLegs,
+        maxEntryMargin: 10,
+        openDirection: "BOTH",
+        tradingMode: TradingMode.FUTURES,
+      });
+
+      const didOpen = tryOpenBacktestEntry({
+        ...runtime,
+        config,
+        currentTimeMs: 1,
+        recommend: createEntryRecommendation({ investAmount: 10 }),
+      });
+
+      // BTEST:ACCOUNT_ENTRY_LEGS
+      expect(didOpen).toBe(true);
+      expect(runtime.modelMemoryMap.SUI.positions).toMatchObject([
+        {
+          direction: expectedDirection,
+          entryLegs,
+          role: expectedRole,
+        },
+      ]);
+      expect(runtime.dynamicTradeMemory.quoteAsset).toBeCloseTo(990);
+    },
+  );
+
+  it("ignores entryLegs while the shared strategy is ONE_WAY", () => {
+    const runtime = createRuntime();
+    const config = createBacktestConfig({
+      enableWatchLogic: false,
+      entryLegs: "COUNTER",
+      maxEntryMargin: 10,
+      openDirection: "ONE_WAY",
+      tradingMode: TradingMode.FUTURES,
+    });
+
+    expect(
+      tryOpenBacktestEntry({
+        ...runtime,
+        config,
+        currentTimeMs: 1,
+        recommend: createEntryRecommendation({ investAmount: 10 }),
+      }),
+    ).toBe(true);
+
+    // BTEST:ACCOUNT_ENTRY_LEGS
+    expect(runtime.modelMemoryMap.SUI.positions).toMatchObject([
+      { direction: "LONG", role: "MAIN" },
+    ]);
+    expect(runtime.modelMemoryMap.SUI.positions[0].entryLegs).toBeUndefined();
   });
 
   it("reopens each role across the documented streak-break rail sequence", () => {
@@ -614,41 +672,36 @@ describe("slow specs entry", () => {
       slowTrading.signals
         .filterSignalsWithActionableVolatilityLevel(signals)
         .map((item) => item.id),
-    ).toEqual([
-      "entry-neg-2",
-      "entry-pos-2",
-    ]);
+    ).toEqual(["entry-neg-2", "entry-pos-2"]);
     expect(
       slowTrading.signals
         .filterSignalsWithActionableVolatilityLevel(signals, 1)
         .map((item) => item.id),
-    ).toEqual([
-      "entry-neg-1",
-      "entry-pos-1",
-      "entry-neg-2",
-      "entry-pos-2",
-    ]);
+    ).toEqual(["entry-neg-1", "entry-pos-1", "entry-neg-2", "entry-pos-2"]);
   });
 
   it("creates manual production entry signals at configured level 1", () => {
-    const signals = getManualEntrySignal({
-      MOVR: {
-        justBuy: true,
-        positions: [],
-        positionsSell: [],
-        volatility: {
-          symbol: "MOVR",
-          lastVolatility: [
-            createEntryRecommendation({
-              id: "movr-level-1",
-              l: "T",
-              lvl: 1,
-              symbol: "MOVR",
-            }),
-          ],
-        },
-      } as TradingModelMemory,
-    }, 1);
+    const signals = getManualEntrySignal(
+      {
+        MOVR: {
+          justBuy: true,
+          positions: [],
+          positionsSell: [],
+          volatility: {
+            symbol: "MOVR",
+            lastVolatility: [
+              createEntryRecommendation({
+                id: "movr-level-1",
+                l: "T",
+                lvl: 1,
+                symbol: "MOVR",
+              }),
+            ],
+          },
+        } as TradingModelMemory,
+      },
+      1,
+    );
 
     // BOTH:DECISION_ENGINE_MIN_ACTIONABLE_LEVEL_CONFIG
     expect(signals).toHaveLength(1);

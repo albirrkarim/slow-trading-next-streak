@@ -64,3 +64,7 @@ readmore `EDGE_CASES.md`
 # H. Decision Engine
 
 readmore `DECISION_ENGINE.md`
+
+# I. Production Cycle Architecture
+
+readmore `CYCLE.md`

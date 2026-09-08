@@ -17,6 +17,7 @@ interface LateEntryVPointZoneParams {
 
 interface LateEntryEvaluationParams extends LateEntryVPointDriftParams {
   bothDirection: boolean;
+  enabled?: boolean;
 }
 
 /** Resolves the allowed profitable drift for the active volatility mode. */
@@ -109,6 +110,10 @@ function evaluateEntry(
   params: LateEntryEvaluationParams,
   volatilityThreshold = VOLATILITY_THRESHOLD,
 ) {
+  if (params.enabled === false) {
+    return { blocked: false, reason: undefined };
+  }
+
   return params.bothDirection
     ? evaluateZone(params, volatilityThreshold)
     : evaluate(params, volatilityThreshold);

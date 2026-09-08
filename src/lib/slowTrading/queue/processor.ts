@@ -19,114 +19,101 @@ function updateAttempt(
   message: string,
 ) {
   item.lastAttemptAt = currentTimeMs;
-  item.nextAttemptAt =
-    currentTimeMs + SLOW_TRADING_QUEUE_RETRY_INTERVAL_MS;
+  item.nextAttemptAt = currentTimeMs + SLOW_TRADING_QUEUE_RETRY_INTERVAL_MS;
   item.lastMessage = message;
 }
 
 /** Processes due Safe Haven items before external withdrawals. */
 async function processSafeHavenQueues(currentTimeMs: number): Promise<number> {
-  const storage = await slowTradingStorage.data.load({
-    modeScope: "active",
-  });
-  const activeMode = slowTradingStorage.mode.getActive(storage);
+  return mutateSlowTradingQueues(async (queues) => {
+    let processed = 0;
 
-  return mutateSlowTradingQueues(
-    async (queues) => {
-      let processed = 0;
+    for (let index = queues.safeHaven.length - 1; index >= 0; index -= 1) {
+      const item = queues.safeHaven[index];
+      const storage = await slowTradingStorage.data.load({
+        account: item.account,
+        modeScope: "active",
+      });
+      const activeMode = slowTradingStorage.mode.getActive(storage);
+      if (item.mode !== activeMode || item.nextAttemptAt > currentTimeMs) {
+        continue;
+      }
 
-      for (let index = queues.safeHaven.length - 1; index >= 0; index -= 1) {
-        const item = queues.safeHaven[index];
-        if (
-          item.mode !== activeMode ||
-          item.nextAttemptAt > currentTimeMs
-        ) {
-          continue;
-        }
+      processed += 1;
+      const dashboard = slowTradingStorage.dashboard.buildState(storage);
+      const spendableUSDT = roundUSDT(dashboard.balances.spendableQuoteAsset);
+      const minimumTradingCapitalUSDT = Math.max(
+        0,
+        Number(storage.config.modelConfig.minimalAssetOnTrade) || 0,
+      );
+      const currentTradingCapitalUSDT = roundUSDT(
+        dashboard.balances.availableQuoteAsset -
+          dashboard.balances.safeHaven +
+          dashboard.balances.lockedQuoteAsset,
+      );
+      const availableAboveMinimumUSDT = roundUSDT(
+        currentTradingCapitalUSDT - minimumTradingCapitalUSDT,
+      );
+      const amountUSDT = roundUSDT(
+        Math.min(item.remainingUSDT, spendableUSDT, availableAboveMinimumUSDT),
+      );
 
-        processed += 1;
-        const dashboard = slowTradingStorage.dashboard.buildState(storage);
-        const spendableUSDT = roundUSDT(
-          dashboard.balances.spendableQuoteAsset,
-        );
-        const minimumTradingCapitalUSDT = Math.max(
-          0,
-          Number(storage.config.modelConfig.minimalAssetOnTrade) || 0,
-        );
-        const currentTradingCapitalUSDT = roundUSDT(
-          dashboard.balances.availableQuoteAsset -
-            dashboard.balances.safeHaven +
-            dashboard.balances.lockedQuoteAsset,
-        );
-        const availableAboveMinimumUSDT = roundUSDT(
-          currentTradingCapitalUSDT - minimumTradingCapitalUSDT,
-        );
-        const amountUSDT = roundUSDT(
-          Math.min(
-            item.remainingUSDT,
-            spendableUSDT,
-            availableAboveMinimumUSDT,
-          ),
-        );
-
-        if (!(amountUSDT > 0)) {
-          updateAttempt(
-            item,
-            currentTimeMs,
-            `Waiting for ${activeMode} spendable balance. ${item.remainingUSDT} USDT remains for Safe Haven.`,
-          );
-          continue;
-        }
-
-        const modeState = storage.modes[activeMode];
-        const previousUSDT =
-          Number(modeState.dynamicTradeMemory.safeHaven) || 0;
-        const remainingUSDT = roundUSDT(item.remainingUSDT - amountUSDT);
-        const { nextUSDT } = slowTradingStorage.safeHaven.applyUpdate(
-          modeState,
-          previousUSDT + amountUSDT,
-        );
-        modeState.dynamicTradeMemory.safeHavenRequest = roundUSDT(
-          queues.safeHaven.reduce(
-            (total, candidate, candidateIndex) =>
-              total +
-              (candidate.mode !== activeMode
-                ? 0
-                : candidateIndex === index
-                  ? remainingUSDT
-                  : candidate.remainingUSDT),
-            0,
-          ),
-        );
-        await slowTradingStorage.mode.saveState(activeMode, modeState);
-        await slowTradingStorage.logs.appendSafeHaven({
-          mode: activeMode,
-          previousUSDT,
-          nextUSDT,
-          source: "safe_haven_queue",
-          reason: `Safe Haven queue ${item.id}`,
-          timestamp: currentTimeMs,
-        });
-
-        if (remainingUSDT <= 0) {
-          queues.safeHaven.splice(index, 1);
-          continue;
-        }
-
-        item.remainingUSDT = remainingUSDT;
+      if (!(amountUSDT > 0)) {
         updateAttempt(
           item,
           currentTimeMs,
-          `Moved ${amountUSDT} USDT into ${activeMode} Safe Haven. ${remainingUSDT} USDT remains.`,
+          `Waiting for ${activeMode} spendable balance. ${item.remainingUSDT} USDT remains for Safe Haven.`,
         );
+        continue;
       }
 
-      return processed;
-    },
-    {
-      legacySafeHavenMode: activeMode,
-    },
-  );
+      const modeState = storage.modes[activeMode];
+      const previousUSDT = Number(modeState.dynamicTradeMemory.safeHaven) || 0;
+      const remainingUSDT = roundUSDT(item.remainingUSDT - amountUSDT);
+      const { nextUSDT } = slowTradingStorage.safeHaven.applyUpdate(
+        modeState,
+        previousUSDT + amountUSDT,
+      );
+      modeState.dynamicTradeMemory.safeHavenRequest = roundUSDT(
+        queues.safeHaven.reduce(
+          (total, candidate, candidateIndex) =>
+            total +
+            (candidate.mode !== activeMode
+              ? 0
+              : candidateIndex === index
+                ? remainingUSDT
+                : candidate.remainingUSDT),
+          0,
+        ),
+      );
+      await slowTradingStorage.mode.saveState(activeMode, modeState, {
+        account: storage.account.slug,
+      });
+      await slowTradingStorage.logs.appendSafeHaven({
+        account: storage.account.slug,
+        mode: activeMode,
+        previousUSDT,
+        nextUSDT,
+        source: "safe_haven_queue",
+        reason: `Safe Haven queue ${item.id}`,
+        timestamp: currentTimeMs,
+      });
+
+      if (remainingUSDT <= 0) {
+        queues.safeHaven.splice(index, 1);
+        continue;
+      }
+
+      item.remainingUSDT = remainingUSDT;
+      updateAttempt(
+        item,
+        currentTimeMs,
+        `Moved ${amountUSDT} USDT into ${activeMode} Safe Haven. ${remainingUSDT} USDT remains.`,
+      );
+    }
+
+    return processed;
+  }, {});
 }
 
 /** Writes one changed queue failure without repeating the same log every tick. */
@@ -142,6 +129,7 @@ async function writeChangedWithdrawalFailure(params: {
   }
 
   await slowTradingStorage.logs.appendWithdrawal({
+    account: params.item.account,
     trigger: "automatic",
     status: "failed",
     mode: "live",
@@ -157,9 +145,7 @@ async function writeChangedWithdrawalFailure(params: {
 }
 
 /** Processes due withdrawal items all-or-nothing. */
-async function processWithdrawalQueues(
-  currentTimeMs: number,
-): Promise<number> {
+async function processWithdrawalQueues(currentTimeMs: number): Promise<number> {
   return mutateSlowTradingQueues(async (queues) => {
     let processed = 0;
 
@@ -172,6 +158,7 @@ async function processWithdrawalQueues(
       processed += 1;
       const previousMessage = item.lastMessage;
       const storage = await slowTradingStorage.data.load({
+        account: item.account,
         modeScope: "active",
       });
       const activeMode = slowTradingStorage.mode.getActive(storage);
@@ -241,6 +228,7 @@ async function processWithdrawalQueues(
         });
 
         await slowTradingStorage.logs.appendWithdrawal({
+          account: item.account,
           trigger: "automatic",
           status: "executed",
           mode: "live",
@@ -257,7 +245,9 @@ async function processWithdrawalQueues(
         queues.withdrawals.splice(index, 1);
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "Automatic withdrawal failed.";
+          error instanceof Error
+            ? error.message
+            : "Automatic withdrawal failed.";
         updateAttempt(item, currentTimeMs, message);
         await writeChangedWithdrawalFailure({
           item,

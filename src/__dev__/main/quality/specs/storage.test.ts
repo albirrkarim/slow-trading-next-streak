@@ -36,8 +36,12 @@ describe("slow specs storage", () => {
 
     // PROD:STORAGE_SOURCE_OF_TRUTH
     expect(FILES.slow.root).toBe(path.join(tmpRoot!, "slow"));
-    expect(await fs.pathExists(path.join(tmpRoot!, "slow/config.json"))).toBe(true);
-    expect(await fs.pathExists(path.join(tmpRoot!, "slow/memory.json"))).toBe(true);
+    expect(await fs.pathExists(path.join(tmpRoot!, "slow/config.json"))).toBe(
+      true,
+    );
+    expect(await fs.pathExists(path.join(tmpRoot!, "slow/memory.json"))).toBe(
+      true,
+    );
     expect(loaded.runtime.sandboxEnabled).toBe(true);
     expect(loaded.runtime.autoEntryDailyPnlLimitUSDT).toBe(-50);
     expect(
@@ -64,12 +68,90 @@ describe("slow specs storage", () => {
     expect(loaded.modes.live.stageRuns).toEqual({});
   });
 
+  it("stores account balances independently and aggregates selected accounts", async () => {
+    const { FILES } = await import("@/components/storage");
+    const slowTradingStorage = (await import("@/lib/slowTrading")).default
+      .storage;
+
+    await fs.outputJSON(FILES.slow.prod.balanceSnapshots, [
+      {
+        day: "2026-06-01",
+        timestamp: Date.UTC(2026, 5, 1, 20),
+        total: 999,
+      },
+    ]);
+    await slowTradingStorage.balanceSnapshots.upsert({
+      account: "main",
+      mode: "live",
+      timestamp: Date.UTC(2026, 5, 1, 23),
+      total: 100,
+    });
+    await slowTradingStorage.balanceSnapshots.upsert({
+      account: "main",
+      mode: "live",
+      timestamp: Date.UTC(2026, 5, 3, 23),
+      total: 110,
+    });
+    await slowTradingStorage.balanceSnapshots.upsert({
+      account: "second",
+      mode: "live",
+      timestamp: Date.UTC(2026, 5, 2, 23),
+      total: 50,
+    });
+    await slowTradingStorage.balanceSnapshots.upsert({
+      account: "second",
+      mode: "live",
+      timestamp: Date.UTC(2026, 5, 3, 22),
+      total: 55,
+    });
+    await slowTradingStorage.balanceSnapshots.upsert({
+      account: "disabled",
+      mode: "live",
+      timestamp: Date.UTC(2026, 5, 1, 21),
+      total: 500,
+    });
+
+    const main = await slowTradingStorage.balanceSnapshots.read({
+      account: "main",
+      mode: "live",
+    });
+    const second = await slowTradingStorage.balanceSnapshots.read({
+      account: "second",
+      mode: "live",
+    });
+    const combined = await slowTradingStorage.balanceSnapshots.readCombined({
+      accounts: ["main", "second"],
+      mode: "live",
+    });
+
+    // PROD:MULTI_ACCOUNT_DAILY_BALANCE_SNAPSHOTS
+    expect(main.map(({ total }) => total)).toEqual([100, 110]);
+    expect(second.map(({ total }) => total)).toEqual([50, 55]);
+    expect(combined).toEqual([
+      {
+        day: "2026-06-01",
+        timestamp: Date.UTC(2026, 5, 1, 23),
+        total: 100,
+      },
+      {
+        day: "2026-06-02",
+        timestamp: Date.UTC(2026, 5, 2, 23),
+        total: 150,
+      },
+      {
+        day: "2026-06-03",
+        timestamp: Date.UTC(2026, 5, 3, 23),
+        total: 165,
+      },
+    ]);
+  });
+
   it("loads an existing account file without rewriting it", async () => {
     const { FILES } = await import("@/components/storage");
     const slowTradingStorage = (await import("@/lib/slowTrading")).default
       .storage;
-    const accounts = slowTradingStorage.data.createDefault().runtime
-      .exchangeAccounts;
+    const accounts =
+      slowTradingStorage.data.createDefault().runtime.exchangeAccounts;
 
     await fs.outputJSON(FILES.slow.accounts, {
       accounts,
@@ -84,13 +166,50 @@ describe("slow specs storage", () => {
     expect(persisted.updatedAt).toBe(123);
   });
 
+  it("persists shared and account trading config with single owners", async () => {
+    const { FILES } = await import("@/components/storage");
+    const slowTradingStorage = (await import("@/lib/slowTrading")).default
+      .storage;
+    const storage = slowTradingStorage.data.createDefault();
+    storage.config.maxLeverage = 7;
+    storage.config.modelConfig.takeProfitPercent = 4;
+    storage.account.trading.notes = "Conservative main-account strategy.";
+
+    await slowTradingStorage.data.save(storage);
+
+    const configFile = await fs.readJSON(FILES.slow.config);
+    const accountsFile = await fs.readJSON(FILES.slow.accounts);
+
+    // PROD:MULTI_ACCOUNT_CONFIG_OWNERSHIP
+    expect(configFile.config).not.toHaveProperty("maxLeverage");
+    expect(configFile.config.modelConfig).not.toHaveProperty(
+      "takeProfitPercent",
+    );
+    expect(configFile.config).toMatchObject({
+      name: storage.config.name,
+      symbols: storage.config.symbols,
+    });
+    expect(accountsFile.accounts[0].trading).toMatchObject({
+      maxLeverage: 7,
+      notes: "Conservative main-account strategy.",
+      modelConfig: { takeProfitPercent: 4 },
+    });
+
+    const loaded = await slowTradingStorage.data.load();
+    // PROD:MULTI_ACCOUNT_TRADING_NOTES
+    expect(loaded.account.trading.notes).toBe(
+      "Conservative main-account strategy.",
+    );
+    expect(loaded.config).not.toHaveProperty("notes");
+    expect(loaded.config.maxLeverage).toBe(7);
+    expect(loaded.config.modelConfig.takeProfitPercent).toBe(4);
+  });
+
   it("enables the daily PnL notification when migrating a pre-feature config", async () => {
     const { FILES } = await import("@/components/storage");
     const slowTradingStorage = (await import("@/lib/slowTrading")).default
       .storage;
-    await slowTradingStorage.data.save(
-      slowTradingStorage.data.createDefault(),
-    );
+    await slowTradingStorage.data.save(slowTradingStorage.data.createDefault());
     const configFile = await fs.readJSON(FILES.slow.config);
 
     delete configFile.runtime.autoEntryDailyPnlLimitUSDT;
@@ -119,8 +238,8 @@ describe("slow specs storage", () => {
   it("persists the configured Binance futures position mode", async () => {
     const slowTradingStorage = (await import("@/lib/slowTrading")).default
       .storage;
-    const account = slowTradingStorage.data.createDefault().runtime
-      .exchangeAccounts[0];
+    const account =
+      slowTradingStorage.data.createDefault().runtime.exchangeAccounts[0];
 
     await slowTradingStorage.account.saveAccounts([
       { ...account, futuresPositionMode: "HEDGE" },
@@ -192,8 +311,7 @@ describe("slow specs storage", () => {
       pnlHistoryBucketMinutes: 15.8,
     });
     expect(
-      (await slowTradingStorage.data.load()).runtime
-        .pnlHistoryBucketMinutes,
+      (await slowTradingStorage.data.load()).runtime.pnlHistoryBucketMinutes,
     ).toBe(15);
 
     await slowTradingStorage.data.update({
@@ -202,8 +320,7 @@ describe("slow specs storage", () => {
 
     // PROD:MONITORING_OPEN_POSITION
     expect(
-      (await slowTradingStorage.data.load()).runtime
-        .pnlHistoryBucketMinutes,
+      (await slowTradingStorage.data.load()).runtime.pnlHistoryBucketMinutes,
     ).toBe(1);
   });
 
@@ -215,8 +332,7 @@ describe("slow specs storage", () => {
       autoEntryDailyPnlLimitUSDT: -75.5,
     });
     expect(
-      (await slowTradingStorage.data.load()).runtime
-        .autoEntryDailyPnlLimitUSDT,
+      (await slowTradingStorage.data.load()).runtime.autoEntryDailyPnlLimitUSDT,
     ).toBe(-75.5);
 
     const storage = await slowTradingStorage.data.load();
@@ -349,8 +465,9 @@ describe("slow specs storage", () => {
     });
 
     // PROD:SLOW_RUNTIME_MEMORY_LEAN
-    expect(lean.modes.live.tradeSettings[0].model_memory.positionsSell ?? [])
-      .toHaveLength(0);
+    expect(
+      lean.modes.live.tradeSettings[0].model_memory.positionsSell ?? [],
+    ).toHaveLength(0);
     expect(
       withHistory.modes.live.tradeSettings[0].model_memory.positionsSell ?? [],
     ).toHaveLength(1);
@@ -498,6 +615,7 @@ describe("slow specs storage", () => {
     await slowTradingStorage.mode.saveState("sandbox", storage.modes.sandbox);
 
     const identity = {
+      account: storage.account.slug,
       entryId: "note-entry",
       entryTime: Date.UTC(2026, 6, 1),
       exitTime: Date.UTC(2026, 6, 2),
@@ -578,8 +696,9 @@ describe("slow specs storage", () => {
     expect(activeOnly.modes.live.tradeSettings).toHaveLength(2);
     expect(activeOnly.modes.sandbox.tradeSettings).toHaveLength(0);
     expect(full.modes.live.dynamicTradeMemory.quoteAsset).toBe(123);
-    expect(full.modes.sandbox.tradeSettings[1].model_memory.positions)
-      .toHaveLength(1);
+    expect(
+      full.modes.sandbox.tradeSettings[1].model_memory.positions,
+    ).toHaveLength(1);
   });
 
   it("resets sandbox using the requested initial balance override", async () => {
@@ -605,10 +724,13 @@ describe("slow specs storage", () => {
     });
 
     expect(reset.runtime.sandboxInitialBalanceUSDT).toBe(180);
-    expect(reset.modes.sandbox.dynamicTradeMemory.startingBalanceUSDT).toBe(180);
+    expect(reset.modes.sandbox.dynamicTradeMemory.startingBalanceUSDT).toBe(
+      180,
+    );
     expect(reset.modes.sandbox.dynamicTradeMemory.quoteAsset).toBe(180);
-    expect(reset.modes.sandbox.tradeSettings[0].model_memory.positions)
-      .toHaveLength(0);
+    expect(
+      reset.modes.sandbox.tradeSettings[0].model_memory.positions,
+    ).toHaveLength(0);
   });
 
   it("serves dashboard volatility points from the same persisted array", async () => {
@@ -695,8 +817,12 @@ describe("slow specs storage", () => {
   });
 
   it("exports and imports full persistent storage with a local backup", async () => {
-    const onlineRoot = await fs.mkdtemp(path.join(os.tmpdir(), "slow-spec-online-"));
-    const localRoot = await fs.mkdtemp(path.join(os.tmpdir(), "slow-spec-local-"));
+    const onlineRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "slow-spec-online-"),
+    );
+    const localRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "slow-spec-local-"),
+    );
 
     try {
       const slowTrading = (await import("@/lib/slowTrading")).default;
@@ -714,18 +840,21 @@ describe("slow specs storage", () => {
 
       const bundle =
         await slowTrading.debugSync.exportPersistentStorageBundle(onlineRoot);
-      const result =
-        await slowTrading.debugSync.importPersistentStorageBundle(
-          bundle,
-          localRoot,
-        );
+      const result = await slowTrading.debugSync.importPersistentStorageBundle(
+        bundle,
+        localRoot,
+      );
 
       // PROD:SYNC_ONLINE_TO_LOCAL
-      expect(await fs.readJSON(path.join(localRoot, "slow/config.json"))).toEqual({
+      expect(
+        await fs.readJSON(path.join(localRoot, "slow/config.json")),
+      ).toEqual({
         source: "online",
       });
       expect(
-        await fs.readJSON(path.join(localRoot, "slow/binance/volatility/SUI.json")),
+        await fs.readJSON(
+          path.join(localRoot, "slow/binance/volatility/SUI.json"),
+        ),
       ).toEqual({ lastVolatility: [{ id: "online-vpoint" }] });
       expect(result.backupPath).toBeTruthy();
       expect(

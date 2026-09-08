@@ -48,7 +48,10 @@ describe("slow specs runtime", () => {
   });
 
   it("runs the five configurable production stage schedulers", async () => {
-    const runnerSource = await fs.readFile("src/lib/slowTrading/runner.ts", "utf8");
+    const runnerSource = await fs.readFile(
+      "src/lib/slowTrading/runner.ts",
+      "utf8",
+    );
 
     // PROD:SPEEDUP_STAGE
     // PROD:STANDARD_MONITORING_STAGE
@@ -69,7 +72,8 @@ describe("slow specs runtime", () => {
 
   it("partitions coins into mutually exclusive production stages", () => {
     const modeState = createModeState();
-    const speedupPosition = modeState.tradeSettings[0].model_memory.positions![0];
+    const speedupPosition =
+      modeState.tradeSettings[0].model_memory.positions![0];
     speedupPosition.pnl.netPct = -1.5;
     const standardPosition = createTestPosition({
       executionMode: "live",
@@ -435,15 +439,41 @@ describe("slow specs runtime", () => {
 
     // PROD:RUNNER_BOOTSTRAP_ON_SERVER_START
     expect(source).toContain("PROD:RUNNER_BOOTSTRAP_ON_SERVER_START");
-    expect(source).toContain("@/lib/slowTrading");
-    expect(source).toContain("slowTrading.default.runner.get()");
+    expect(source).toContain("@/lib/slowTrading/singleton");
+    expect(source).toContain("getSlowTradingRunner()");
+    expect(source).not.toContain('import("@/lib/slowTrading")');
+  });
+
+  it("keeps Quick Backtest out of the shared production runtime facade", async () => {
+    const [facade, quickBacktest, route] = await Promise.all([
+      fs.readFile("src/lib/slowTrading/index.ts", "utf8"),
+      fs.readFile("src/lib/slowTrading/quick-backtest.ts", "utf8"),
+      fs.readFile("src/pages/api/slow-trading/quick-backtest.ts", "utf8"),
+    ]);
+
+    // PROD:QUICK_BACKTEST_DEMAND_ONLY
+    expect(facade).not.toContain(
+      'import slowQuickBacktest from "./quick-backtest"',
+    );
+    expect(route).toContain("PROD:QUICK_BACKTEST_DEMAND_ONLY");
+    expect(route).toContain("@/lib/slowTrading/quick-backtest");
+    expect(quickBacktest).toContain("PROD:QUICK_BACKTEST_DEMAND_ONLY");
+    expect(quickBacktest).toContain(
+      'await import("../dynamic/backtest-volatility")',
+    );
   });
 
   it("reuses the dev runner singleton unless the implementation changes", async () => {
-    const source = await fs.readFile("src/lib/slowTrading/singleton.ts", "utf8");
+    const source = await fs.readFile(
+      "src/lib/slowTrading/singleton.ts",
+      "utf8",
+    );
     const devBranch = source.slice(
       source.indexOf('process.env.NODE_ENV !== "production"'),
-      source.indexOf("} else {", source.indexOf('process.env.NODE_ENV !== "production"')),
+      source.indexOf(
+        "} else {",
+        source.indexOf('process.env.NODE_ENV !== "production"'),
+      ),
     );
 
     // PROD:RUNNER_BOOTSTRAP_ON_SERVER_START
@@ -455,7 +485,8 @@ describe("slow specs runtime", () => {
 
   it("updates open-position PnL history once per hourly bucket", () => {
     const modeState = createModeState();
-    const position = modeState.tradeSettings[0].model_memory.positions![0] as any;
+    const position = modeState.tradeSettings[0].model_memory
+      .positions![0] as any;
 
     slowTrading.reporting.modeState.sync({
       modeState,
@@ -566,7 +597,8 @@ describe("slow specs runtime", () => {
 
   it("uses the configured PnL history bucket in whole minutes", () => {
     const modeState = createModeState();
-    const position = modeState.tradeSettings[0].model_memory.positions![0] as any;
+    const position = modeState.tradeSettings[0].model_memory
+      .positions![0] as any;
 
     slowTrading.reporting.modeState.sync({
       historyBucketMinutes: 15,
@@ -601,7 +633,8 @@ describe("slow specs runtime", () => {
 
   it("uses fee-aware floating PnL when exchange type is supplied", () => {
     const modeState = createModeState();
-    const position = modeState.tradeSettings[0].model_memory.positions![0] as any;
+    const position = modeState.tradeSettings[0].model_memory
+      .positions![0] as any;
 
     slowTrading.reporting.modeState.sync({
       exchangeType: "binance",
@@ -678,7 +711,8 @@ describe("slow specs runtime", () => {
 
   it("syncs live open-position size and margin from the exchange", () => {
     const modeState = createModeState();
-    const position = modeState.tradeSettings[0].model_memory.positions![0] as any;
+    const position = modeState.tradeSettings[0].model_memory
+      .positions![0] as any;
     position.exposure.averageEntryPrice = 10;
     position.exposure.quantity = 1;
     position.exposure.notionalUsdt = 10;
@@ -714,7 +748,8 @@ describe("slow specs runtime", () => {
 
   it("moves a missing exchange position into closed history", () => {
     const modeState = createModeState();
-    const position = modeState.tradeSettings[0].model_memory.positions![0] as any;
+    const position = modeState.tradeSettings[0].model_memory
+      .positions![0] as any;
     modeState.tradeSettings[0].model_memory.volatility = {
       symbol: "SUI",
       lastVolatility: [
@@ -777,8 +812,7 @@ describe("slow specs runtime", () => {
       { id: "B_NOT_AVERAGED", lvl: -3 },
     ]);
     expect(
-      memory.positionsSell![0].strategy.averaging
-        .reservedRemainingMarginUsdt,
+      memory.positionsSell![0].strategy.averaging.reservedRemainingMarginUsdt,
     ).toBe(0);
     expect(memory.positionsSell![0].strategy.averaging.steps[0].status).toBe(
       "RELEASED",

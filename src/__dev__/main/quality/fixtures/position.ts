@@ -1,17 +1,12 @@
 import { TradingMode } from "@/lib/exchange";
-import type {
-  Position,
-  PositionAveragingState,
-} from "@/lib/trading/models";
+import type { Position, PositionAveragingState } from "@/lib/trading/models";
 
-type TestClosedPosition = Omit<
-  NonNullable<Position["closed"]>,
-  "message"
-> & {
+type TestClosedPosition = Omit<NonNullable<Position["closed"]>, "message"> & {
   message?: string;
 };
 
 interface TestPositionOptions {
+  account?: string;
   averaging?: PositionAveragingState;
   closed?: TestClosedPosition;
   direction?: Position["direction"];
@@ -44,6 +39,7 @@ export function createTestPosition(
   const entryLevel = options.entryLevel ?? -2;
   const marginUsdt = options.marginUsdt ?? options.notionalUsdt ?? 10;
   return {
+    account: options.account ?? "binance-1",
     symbol: options.symbol ?? "SUI",
     role: options.role,
     executionMode: options.executionMode ?? "sandbox",
@@ -72,14 +68,13 @@ export function createTestPosition(
     fees: { entryUsdt: 0 },
     strategy: {
       entry: { feature: options.feature },
-      averaging:
-        options.averaging ?? {
-          entryLevel,
-          lastHandledLevel: entryLevel,
-          reserveBaseMarginUsdt: marginUsdt,
-          reservedRemainingMarginUsdt: 0,
-          steps: [],
-        },
+      averaging: options.averaging ?? {
+        entryLevel,
+        lastHandledLevel: entryLevel,
+        reserveBaseMarginUsdt: marginUsdt,
+        reservedRemainingMarginUsdt: 0,
+        steps: [],
+      },
     },
     pnl: options.pnl ?? {
       netPct: options.netPct,

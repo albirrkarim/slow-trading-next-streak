@@ -34,11 +34,7 @@ async function cancelSlowTradingQueueItem(
   } as const;
   const currentQueues = await loadSlowTradingQueues(queueLoadOptions);
   const safeHavenItem = currentQueues.safeHaven.find((item) => item.id === id);
-  const deleted = await deleteSlowTradingQueueItem(
-    kind,
-    id,
-    queueLoadOptions,
-  );
+  const deleted = await deleteSlowTradingQueueItem(kind, id, queueLoadOptions);
   if (!deleted || kind !== "safe_haven") {
     return deleted;
   }
@@ -47,11 +43,12 @@ async function cancelSlowTradingQueueItem(
   const queues = await loadSlowTradingQueues(queueLoadOptions);
   storage.modes[mode].dynamicTradeMemory.safeHavenRequest =
     queues.safeHaven.reduce(
-      (total, item) =>
-        total + (item.mode === mode ? item.remainingUSDT : 0),
+      (total, item) => total + (item.mode === mode ? item.remainingUSDT : 0),
       0,
     );
-  await slowTradingStorage.mode.saveState(mode, storage.modes[mode]);
+  await slowTradingStorage.mode.saveState(mode, storage.modes[mode], {
+    account: storage.account.slug,
+  });
   return true;
 }
 

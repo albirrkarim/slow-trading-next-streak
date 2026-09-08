@@ -60,14 +60,11 @@ describe("slow specs persistent queues", () => {
         remainingUSDT: 25,
       }),
     );
-    expect(
-      await fs.pathExists(path.join(tmpRoot!, "slow/queue.json")),
-    ).toBe(true);
-
-    await slowTrading.queue.items.cancel(
-      "safe_haven",
-      queues.safeHaven[0].id,
+    expect(await fs.pathExists(path.join(tmpRoot!, "slow/queue.json"))).toBe(
+      true,
     );
+
+    await slowTrading.queue.items.cancel("safe_haven", queues.safeHaven[0].id);
     await slowTrading.queue.scheduler.synchronize(Date.UTC(2026, 6, 20));
     queues = await slowTrading.queue.items.load();
     expect(queues.safeHaven).toEqual([]);
@@ -267,6 +264,7 @@ describe("slow specs persistent queues", () => {
       walletBook: [],
       schedules: [
         {
+          account: storage.account.slug,
           id: "monthly",
           name: "Monthly",
           enabled: true,
@@ -324,6 +322,7 @@ describe("slow specs persistent queues", () => {
       walletBook: [],
       schedules: [
         {
+          account: storage.account.slug,
           id: "month-end",
           name: "Month End",
           enabled: true,
@@ -366,6 +365,7 @@ describe("slow specs persistent queues", () => {
       walletBook: [],
       schedules: [
         {
+          account: storage.account.slug,
           id: "hosting",
           name: "Hosting",
           enabled: true,
@@ -433,9 +433,9 @@ describe("slow specs persistent queues", () => {
       }),
     );
     expect(persisted.modes.live.dynamicTradeMemory.safeHavenRequest).toBe(12.5);
-    expect(
-      persisted.modes.live.dynamicTradeMemory.lastSafeHavenRequest,
-    ).toBe(createdAt);
+    expect(persisted.modes.live.dynamicTradeMemory.lastSafeHavenRequest).toBe(
+      createdAt,
+    );
     await expect(
       slowTrading.queue.items.createManual(
         {
@@ -462,6 +462,7 @@ describe("slow specs persistent queues", () => {
       ],
       schedules: [
         {
+          account: storage.account.slug,
           id: "schedule-1",
           name: "Monthly",
           enabled: true,
@@ -494,8 +495,8 @@ describe("slow specs persistent queues", () => {
         targetWalletAddress: "0x12345678901234567890",
       }),
     );
-    expect(
-      persisted.runtime.withdrawal.schedules[0].lastQueuedAt,
-    ).toBe(createdAt);
+    expect(persisted.runtime.withdrawal.schedules[0].lastQueuedAt).toBe(
+      createdAt,
+    );
   });
 });

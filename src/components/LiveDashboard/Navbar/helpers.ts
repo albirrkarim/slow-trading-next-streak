@@ -11,9 +11,7 @@ import postAverageStopLoss from "@/lib/trading/post-average-stop-loss";
 import blackSwan from "@/lib/trading/black-swan";
 import type { Theme } from "@mui/material";
 
-import {
-  computeDailyPnlPercentStats,
-} from "../Reporting/utils";
+import { computeDailyPnlPercentStats } from "../Reporting/utils";
 import type {
   BalanceSummary,
   ConfigDraft,
@@ -22,7 +20,9 @@ import type {
   OpenPositionSummary,
 } from "./types";
 import slowTradingClient from "@/lib/slowTrading/client";
+import slowTradingAccountConfig from "@/lib/slowTrading/account-config";
 import slowTradingDailyPnlLimit from "@/lib/slowTrading/daily-pnl-limit";
+import type { SlowTradingAccount } from "@/lib/slowTrading";
 
 function computeLockedPositionValue(
   position: NonNullable<DashboardState>["openPositions"][number],
@@ -122,7 +122,7 @@ export function makeConfigDraft(state: DashboardState): ConfigDraft {
         }))
       : [
           {
-            id: state.runtime.exchangeAccountId ?? "1",
+            slug: state.runtime.exchangeAccountSlug ?? "binance-1",
             type: "binance" as const,
             name: "Binance 1",
             description: "",
@@ -130,26 +130,39 @@ export function makeConfigDraft(state: DashboardState): ConfigDraft {
               apiKey: "",
               apiSecret: "",
             },
+            futuresPositionMode: "ONE_WAY" as const,
+            enabled: true,
+            trading: slowTradingAccountConfig.trading.fromEffectiveConfig(
+              state.config,
+            ),
+            sandbox: {
+              enabled: state.runtime.sandboxEnabled,
+              initialBalanceUSDT:
+                state.runtime.sandboxInitialBalanceUSDT ?? 1000,
+            },
             createdAt: Date.now(),
             updatedAt: Date.now(),
           },
         ];
-  const exchangeAccountId = exchangeAccounts.some(
-    (account) => account.id === state.runtime.exchangeAccountId,
+  const exchangeAccountSlug = exchangeAccounts.some(
+    (account) => account.slug === state.runtime.exchangeAccountSlug,
   )
-    ? state.runtime.exchangeAccountId
-    : (exchangeAccounts[0]?.id ?? "1");
+    ? state.runtime.exchangeAccountSlug
+    : (exchangeAccounts[0]?.slug ?? "binance-1");
 
   return {
     name: state.config.name ?? "",
     description: state.config.description ?? "",
     decisionEngineVersion:
       state.config.decisionEngineVersion ?? PRODUCTION_DECISION_ENGINE,
-    exchangeAccountId,
+    exchangeAccountSlug,
     exchangeAccounts,
     exchangeType: state.config.exchangeType,
     tradingMode: state.config.tradingMode,
     openDirection: state.config.openDirection ?? "ONE_WAY",
+    entryLegs: state.config.entryLegs ?? "BOTH",
+    lateEntryVPointPriceDriftEnabled:
+      state.config.lateEntryVPointPriceDriftEnabled !== false,
     symbolsText: state.config.symbols.join(", "),
     modelConfig: cloneModelConfig(
       state.config.modelConfig ??
@@ -250,6 +263,110 @@ export function makeConfigDraft(state: DashboardState): ConfigDraft {
   };
 }
 
+/** Applies the Trading and Sandbox settings owned by one account to the editor. */
+export function applyAccountProfileToConfigDraft(
+  draft: ConfigDraft,
+  account: SlowTradingAccount,
+): ConfigDraft {
+  const trading = account.trading;
+  return {
+    ...draft,
+    exchangeAccountSlug: account.slug,
+    exchangeType: "binance",
+    adaptiveAveraging: trading.adaptiveAveraging,
+    averagingRescueProjectionGuardEnabled:
+      trading.averagingRescueProjectionGuardEnabled,
+    enableWatchLogic: trading.enableWatchLogic,
+    entryLegs: trading.entryLegs,
+    lateEntryVPointPriceDriftEnabled:
+      trading.lateEntryVPointPriceDriftEnabled !== false,
+    exactLeverage: trading.exactLeverage,
+    exitSidewaysToFreeWorkersForStrongCandidates:
+      trading.exitSidewaysToFreeWorkersForStrongCandidates,
+    maxEntryBased24HourVolPct: trading.maxEntryBased24HourVolPct,
+    maxEntryMargin: trading.maxEntryMargin,
+    maxEntryMarginPct: trading.maxEntryMarginPct,
+    maxLeverage: trading.maxLeverage,
+    maxOpenPositions: trading.maxOpenPositions,
+    minAbsLevelToEntry: trading.minAbsLevelToEntry,
+    maxAbsLevelToEntry: trading.maxAbsLevelToEntry,
+    watchMaxNextAveragingLevels: trading.watchMaxNextAveragingLevels,
+    watchReserveLevels: trading.watchReserveLevels,
+    watchReservePctAlloc: trading.watchReservePctAlloc,
+    modelConfig: cloneModelConfig({
+      ...draft.modelConfig,
+      ...trading.modelConfig,
+    }),
+    sandboxEnabled: account.sandbox.enabled,
+    sandboxInitialBalanceUSDT: String(account.sandbox.initialBalanceUSDT),
+  };
+}
+
+/** Writes one account-scoped Trading and Sandbox editor back to its profile. */
+export function applyConfigDraftToAccountProfile(
+  account: SlowTradingAccount,
+  draft: ConfigDraft,
+): SlowTradingAccount {
+  const effectiveConfig = {
+    ...DEFAULT_DYNAMIC_TRADE_CONFIG_PRODUCTION,
+    ...draft,
+    symbols: parseSymbols(draft.symbolsText),
+    modelConfig: cloneModelConfig(draft.modelConfig),
+  };
+  const tradingNotes =
+    draft.exchangeAccounts.find((candidate) => candidate.slug === account.slug)
+      ?.trading.notes ?? account.trading.notes;
+
+  return {
+    ...account,
+    trading: slowTradingAccountConfig.trading.fromEffectiveConfig(
+      effectiveConfig,
+      tradingNotes,
+    ),
+    sandbox: {
+      enabled: draft.sandboxEnabled,
+      initialBalanceUSDT: Math.max(
+        0,
+        Number(draft.sandboxInitialBalanceUSDT) || 0,
+      ),
+    },
+    updatedAt: Date.now(),
+  };
+}
+
+/** Applies an account-scoped editor update without changing shared settings. */
+export function updateAccountSettingsInConfigDraft(
+  draft: ConfigDraft,
+  accountSlug: string,
+  updater: (accountDraft: ConfigDraft) => ConfigDraft,
+): ConfigDraft {
+  const account = draft.exchangeAccounts.find(
+    (candidate) => candidate.slug === accountSlug,
+  );
+  if (!account) return draft;
+
+  const nextAccountDraft = updater(
+    applyAccountProfileToConfigDraft(draft, account),
+  );
+  const nextAccount = applyConfigDraftToAccountProfile(
+    account,
+    nextAccountDraft,
+  );
+  const exchangeAccounts = draft.exchangeAccounts.map((candidate) =>
+    candidate.slug === accountSlug ? nextAccount : candidate,
+  );
+
+  if (draft.exchangeAccountSlug !== accountSlug) {
+    return { ...draft, exchangeAccounts };
+  }
+
+  return {
+    ...nextAccountDraft,
+    exchangeAccountSlug: draft.exchangeAccountSlug,
+    exchangeAccounts,
+  };
+}
+
 export function applyBacktestConfigToDraft(
   currentDraft: ConfigDraft,
   backtestConfig: BacktestConfig,
@@ -263,6 +380,7 @@ export function applyBacktestConfigToDraft(
       currentDraft.decisionEngineVersion,
     tradingMode: mapBacktestTradingMode(backtestConfig),
     openDirection: backtestConfig.openDirection ?? "ONE_WAY",
+    entryLegs: backtestConfig.entryLegs ?? "BOTH",
     symbolsText: backtestConfig.symbols.join(", "),
     modelConfig: cloneModelConfig(
       backtestConfig.modelConfig ??
@@ -392,9 +510,7 @@ export function formatDailyPnlMetaTitle(
   dailyUsdtProfit: number,
 ): string {
   const normalizedAppName = appName.trim() || "SLOW";
-  const normalizedPnl = Number.isFinite(dailyUsdtProfit)
-    ? dailyUsdtProfit
-    : 0;
+  const normalizedPnl = Number.isFinite(dailyUsdtProfit) ? dailyUsdtProfit : 0;
   const sign = normalizedPnl >= 0 ? "+" : "-";
 
   return `${normalizedAppName} | ${sign}$${Math.abs(normalizedPnl).toFixed(2)}`;
@@ -404,16 +520,31 @@ export function computeBalanceSummary(
   dashboardState: DashboardState | null,
   openPositionSummary: OpenPositionSummary,
 ): BalanceSummary {
-  const available = dashboardState?.balances.availableQuoteAsset ?? 0;
-  const reserved = dashboardState?.balances.reservedQuoteAsset ?? 0;
-  const safeHaven = dashboardState?.balances.safeHaven ?? 0;
-  const startingBalance = dashboardState?.balances.startingBalanceUSDT ?? 0;
-  const locked =
-    dashboardState?.balances.lockedQuoteAsset ??
-    openPositionSummary.lockedCapitalUSDT;
-  const spendable =
-    dashboardState?.balances.spendableQuoteAsset ??
-    Math.max(0, available - reserved - safeHaven);
+  if (!dashboardState) {
+    return {
+      available: 0,
+      reserved: 0,
+      spendable: 0,
+      safeHaven: 0,
+      startingBalance: 0,
+      locked: openPositionSummary.lockedCapitalUSDT,
+      total: openPositionSummary.lockedCapitalUSDT,
+    };
+  }
+
+  return computeBalanceSummaryFromBalances(dashboardState.balances);
+}
+
+/** Converts a persisted dashboard balance block into navbar balance metrics. */
+export function computeBalanceSummaryFromBalances(
+  balances: DashboardState["balances"],
+): BalanceSummary {
+  const available = balances.availableQuoteAsset;
+  const reserved = balances.reservedQuoteAsset;
+  const safeHaven = balances.safeHaven;
+  const startingBalance = balances.startingBalanceUSDT;
+  const locked = balances.lockedQuoteAsset;
+  const spendable = balances.spendableQuoteAsset;
 
   return {
     available,

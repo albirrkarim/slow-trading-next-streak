@@ -494,9 +494,13 @@ function estimateSystemMaximalCapacity({
       })
     : 1;
   const takeProfitPct = config.modelConfig?.takeProfitPercent ?? 0;
-  const workerLegs = bothDirection.config.isEnabled(config.openDirection)
-    ? 2
-    : 1;
+  const workerLegs = bothDirection.entry.count(config);
+  const configuredEntryLegs = bothDirection.entry.normalizeSelection(
+    config.entryLegs,
+  );
+  const hasMainLeg =
+    !bothDirection.config.isEnabled(config.openDirection) ||
+    configuredEntryLegs !== "COUNTER";
   const maxNextLevels = watchEnabled
     ? config.watchMaxNextAveragingLevels ?? reserveLevels
     : 0;
@@ -541,7 +545,15 @@ function estimateSystemMaximalCapacity({
     const projectedWatchState = watchEnabled
       ? buildSlowWatchReserveState({
           baseMarginUsdt: entryMarginUsdt,
-          direction: interval.label === "T" ? "SHORT" : "LONG",
+          direction:
+            configuredEntryLegs === "COUNTER" &&
+            bothDirection.config.isEnabled(config.openDirection)
+              ? interval.label === "T"
+                ? "LONG"
+                : "SHORT"
+              : interval.label === "T"
+                ? "SHORT"
+                : "LONG",
           entryLevel: interval.entrySignal.lvl ?? 0,
           maxNextLevels,
           pctAlloc,
@@ -554,7 +566,7 @@ function estimateSystemMaximalCapacity({
       workerCostUsdt + bailoutBufferUsdt,
     );
     const mainTakeProfitMarginReturnPct =
-      Number.isFinite(takeProfitPct) && takeProfitPct > 0
+      hasMainLeg && Number.isFinite(takeProfitPct) && takeProfitPct > 0
         ? takeProfitPct * leverage
         : 0;
     const grossMainTakeProfitUsdt = roundUsdt(

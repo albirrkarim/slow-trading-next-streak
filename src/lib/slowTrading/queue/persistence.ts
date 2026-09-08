@@ -8,6 +8,7 @@ import type {
   SlowTradingSafeHavenQueueItem,
   SlowTradingWithdrawalQueueItem,
 } from "../types";
+import { DEFAULT_EXCHANGE_ACCOUNT_SLUG } from "../storage/constants";
 
 export type SlowTradingQueueKind = "safe_haven" | "withdrawal";
 
@@ -57,11 +58,12 @@ function normalizeSafeHavenQueueItem(
 
   return {
     id,
+    account: String(raw.account ?? "").trim() || DEFAULT_EXCHANGE_ACCOUNT_SLUG,
     kind: "safe_haven",
     mode:
       raw.mode === "sandbox" || raw.mode === "live"
         ? raw.mode
-        : options.legacySafeHavenMode ?? "live",
+        : (options.legacySafeHavenMode ?? "live"),
     period,
     ...(String(raw.scheduleId ?? "").trim()
       ? { scheduleId: String(raw.scheduleId).trim() }
@@ -102,6 +104,7 @@ function normalizeWithdrawalQueueItem(
 
   return {
     id,
+    account: String(raw.account ?? "").trim() || DEFAULT_EXCHANGE_ACCOUNT_SLUG,
     kind: "withdrawal",
     scheduleId,
     scheduleName:
@@ -139,15 +142,15 @@ function normalizeSlowTradingQueues(
     safeHaven: Array.isArray(raw.safeHaven)
       ? raw.safeHaven
           .map((item) => normalizeSafeHavenQueueItem(item, options))
-          .filter(
-            (item): item is SlowTradingSafeHavenQueueItem => Boolean(item),
+          .filter((item): item is SlowTradingSafeHavenQueueItem =>
+            Boolean(item),
           )
       : [],
     withdrawals: Array.isArray(raw.withdrawals)
       ? raw.withdrawals
           .map(normalizeWithdrawalQueueItem)
-          .filter(
-            (item): item is SlowTradingWithdrawalQueueItem => Boolean(item),
+          .filter((item): item is SlowTradingWithdrawalQueueItem =>
+            Boolean(item),
           )
       : [],
   };
@@ -209,19 +212,16 @@ export function deleteSlowTradingQueueItem(
   id: string,
   options: SlowTradingQueueLoadOptions = {},
 ): Promise<boolean> {
-  return mutateSlowTradingQueues(
-    (queues) => {
-      const collection =
-        kind === "safe_haven" ? queues.safeHaven : queues.withdrawals;
-      const index = collection.findIndex((item) => item.id === id);
+  return mutateSlowTradingQueues((queues) => {
+    const collection =
+      kind === "safe_haven" ? queues.safeHaven : queues.withdrawals;
+    const index = collection.findIndex((item) => item.id === id);
 
-      if (index < 0) {
-        return false;
-      }
+    if (index < 0) {
+      return false;
+    }
 
-      collection.splice(index, 1);
-      return true;
-    },
-    options,
-  );
+    collection.splice(index, 1);
+    return true;
+  }, options);
 }

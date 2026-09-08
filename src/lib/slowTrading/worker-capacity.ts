@@ -1,5 +1,5 @@
 import { MINIMAL_USDT_TO_TRADE } from "@/lib/trading/constants";
-import type { OpenDirection } from "@/lib/dynamic";
+import type { EntryLegs, OpenDirection } from "@/lib/dynamic";
 import bothDirection from "@/lib/trading/both-direction";
 import entryOpenPositionGuard from "@/lib/trading/execute/entry-open-position-guard";
 import type { Position } from "@/lib/trading/models";
@@ -23,6 +23,7 @@ export interface SlowWorkerCapacity {
 
 export interface SlowWorkerCapacityConfig {
   enableWatchLogic?: boolean;
+  entryLegs?: EntryLegs;
   maxEntryMargin?: number;
   maxEntryMarginPct?: number;
   maxOpenPositions?: number;
@@ -129,9 +130,7 @@ export function calculateSlowWorkerCapacity(params: {
     (position) => !position.closed,
   );
   const spendableUsdt = Math.max(0, params.spendableUsdt);
-  const workerLegs = bothDirection.config.isEnabled(config.openDirection)
-    ? 2
-    : 1;
+  const workerLegs = bothDirection.entry.count(config);
   const existingBailoutBufferUsdt =
     slowTradingWatchReserve.balance.getLargestUnreservedWatchStepMarginUsdt(
       activePositions,

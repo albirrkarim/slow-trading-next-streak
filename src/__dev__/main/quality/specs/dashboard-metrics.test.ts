@@ -60,14 +60,18 @@ describe("SLOW dashboard capacity metrics", () => {
         volume24h: 5_000_000,
       }),
     ).toBe(25_000);
-    expect(estimateMaxEntryFromVolume24h({ volume24h: undefined })).toBeUndefined();
+    expect(
+      estimateMaxEntryFromVolume24h({ volume24h: undefined }),
+    ).toBeUndefined();
     expect(estimateMaxEntryFromVolume24h({ volume24h: 0 })).toBeUndefined();
     expect(tooltip).toContain(
       "Formula: 24h volume × 0.2% = estimated sizing budget.",
     );
     expect(tooltip).toContain("$5M × 0.2% = $10K");
     expect(tooltip).toContain("$1M → $2K");
-    expect(tooltip).toContain("Order-book depth with slippage would be better.");
+    expect(tooltip).toContain(
+      "Order-book depth with slippage would be better.",
+    );
   });
 
   it("colors estimated max entry against one worker cost", () => {
@@ -112,9 +116,7 @@ describe("SLOW dashboard capacity metrics", () => {
     });
 
     // PROD:HISTORICAL_ENTRY_SEQUENCES
-    expect(result).toEqual([
-      { long: 1, short: 1, symbol: "SOL", total: 2 },
-    ]);
+    expect(result).toEqual([{ long: 1, short: 1, symbol: "SOL", total: 2 }]);
 
     const ranged = slowTrading.entrySequences.range.crop({
       endTimeMs: 7,
@@ -147,7 +149,10 @@ describe("SLOW dashboard capacity metrics", () => {
 
     // PROD:HISTORICAL_ENTRY_SEQUENCES
     expect(
-      slowTrading.entrySequences.count({ entrySignals, volatilityMap: { SOL: sol } }),
+      slowTrading.entrySequences.count({
+        entrySignals,
+        volatilityMap: { SOL: sol },
+      }),
     ).toEqual([{ long: 2, short: 0, symbol: "SOL", total: 2 }]);
     expect(
       slowTrading.entrySequences.intervals.collect({
@@ -305,10 +310,9 @@ describe("SLOW dashboard capacity metrics", () => {
       { t: 5, v: 180 },
       { t: 6, v: 0 },
     ]);
-    expect(result.sequences.map((sequence) => sequence.entryMarginUsdt)).toEqual([
-      20,
-      10,
-    ]);
+    expect(
+      result.sequences.map((sequence) => sequence.entryMarginUsdt),
+    ).toEqual([20, 10]);
   });
 
   it("funds both legs and preserves one shared bailout buffer", () => {
@@ -378,6 +382,51 @@ describe("SLOW dashboard capacity metrics", () => {
         }),
       ]),
     );
+  });
+
+  it("funds one selected COUNTER leg without reporting MAIN take profit", () => {
+    const sol = [point("SOL", 0, 1), point("SOL", 1, 2), point("SOL", 0, 5)];
+    const inj = [point("INJ", 0, 1), point("INJ", -1, 3), point("INJ", 0, 6)];
+
+    const result = slowTrading.entrySequences.systemCapacity.estimate({
+      config: {
+        name: "counter test",
+        description: "",
+        symbols: ["SOL", "INJ"],
+        exchangeType: "binance",
+        tradingMode: TradingMode.FUTURES,
+        openDirection: "BOTH",
+        entryLegs: "COUNTER",
+        modelConfig: {
+          takeProfitPercent: 1.1,
+          stopLossPercent: 15,
+        } as any,
+        enableWatchLogic: true,
+        exactLeverage: 5,
+        maxEntryBased24HourVolPct: 0.2,
+        maxEntryMargin: 5,
+        maxEntryMarginPct: 0,
+        watchMaxNextAveragingLevels: 3,
+        watchReserveLevels: 1,
+        watchReservePctAlloc: 3,
+      },
+      endTimeMs: 6,
+      entrySignals: [signal(sol[1]), signal(inj[1])],
+      startTimeMs: 1,
+      volatilityMap: { INJ: inj, SOL: sol },
+      volume24hBySymbol: {
+        INJ: 100_000,
+        SOL: 100_000,
+      },
+    });
+
+    // BOTH:ACCOUNT_ENTRY_LEGS
+    expect(result.metrics.grossMainTakeProfitUsdt).toBe(0);
+    expect(result.metrics.totalEntryMarginUsdt).toBe(10);
+    expect(result.metrics.totalWorkerCostUsdt).toBe(40);
+    expect(
+      result.sequences.every((sequence) => sequence.workerLegs === 1),
+    ).toBe(true);
   });
 
   it("uses reserve caps and preserves bailout capital for available workers", () => {

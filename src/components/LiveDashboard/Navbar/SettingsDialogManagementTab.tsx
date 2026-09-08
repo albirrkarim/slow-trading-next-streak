@@ -13,11 +13,9 @@ import {
 import CoinMultiSelect from "@/components/ui/CoinMultiSelect";
 import IconButtonTooltip from "@/components/ui/IconButtonTooltip";
 import { DESCISION_MODELS } from "@/lib/dynamic/constants-clients";
-import type { ExchangeType, TradingMode } from "@/lib/exchange/types";
+import type { TradingMode } from "@/lib/exchange/types";
 
-import ExchangeAccountManagerDialog, {
-  getExchangeAccountOptionLabel,
-} from "./ExchangeAccountManagerDialog";
+import ExchangeAccountManagerDialog from "./ExchangeAccountManagerDialog";
 import { parseSymbols } from "./helpers";
 import SettingsGroup from "./SettingsGroup";
 import SettingsInfoField from "./SettingsInfoField";
@@ -67,7 +65,9 @@ export default function SettingsDialogManagementTab({
   configDraft: ConfigDraft;
   setConfigDraft: ConfigDraftSetter;
 }) {
-  const updateModelConfig = (patch: Partial<typeof configDraft.modelConfig>) => {
+  const updateModelConfig = (
+    patch: Partial<typeof configDraft.modelConfig>,
+  ) => {
     setConfigDraft((prev) =>
       prev
         ? {
@@ -119,37 +119,19 @@ export default function SettingsDialogManagementTab({
 
           <Grid size={{ xs: 12, md: 6 }}>
             <Stack gap={1}>
-              <Stack alignItems="center" direction="row" spacing={1}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <SettingsInfoField
-                    fullWidth
-                    info="Select which configured exchange account slow trading should use for private balance checks and live orders."
-                    label="Exchange Account"
-                    onChange={(event) => {
-                      const accountId = event.target.value;
-                      const account = configDraft.exchangeAccounts.find(
-                        (item) => item.id === accountId,
-                      );
-                      setConfigDraft((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              exchangeAccountId: accountId,
-                              exchangeType: account?.type ?? prev.exchangeType,
-                            }
-                          : prev,
-                      );
-                    }}
-                    select
-                    size="small"
-                    value={String(configDraft.exchangeAccountId)}
-                  >
-                    {configDraft.exchangeAccounts.map((account) => (
-                      <MenuItem key={account.id} value={account.id}>
-                        {getExchangeAccountOptionLabel(account)}
-                      </MenuItem>
-                    ))}
-                  </SettingsInfoField>
+              <Stack
+                alignItems="center"
+                direction="row"
+                justifyContent="space-between"
+                spacing={1}
+              >
+                <Box>
+                  <Typography fontWeight={700} variant="body2">
+                    Exchange Accounts
+                  </Typography>
+                  <Typography color="text.secondary" variant="caption">
+                    {configDraft.exchangeAccounts.length} configured
+                  </Typography>
                 </Box>
                 <ExchangeAccountManagerDialog
                   configDraft={configDraft}
@@ -161,37 +143,14 @@ export default function SettingsDialogManagementTab({
                 fullWidth
                 info="Defines which adapter and market data source slow trading will use."
                 label="Exchange Type"
-                onChange={(event) => {
-                  const exchangeType = event.target.value as ExchangeType;
-                  setConfigDraft((prev) => {
-                    if (!prev) {
-                      return prev;
-                    }
-
-                    const matchingAccount = prev.exchangeAccounts.find(
-                      (account) => account.type === exchangeType,
-                    );
-
-                    return {
-                      ...prev,
-                      exchangeAccountId:
-                        matchingAccount?.id ?? prev.exchangeAccountId,
-                      exchangeType,
-                    };
-                  });
-                }}
-                select
                 size="small"
-                value={configDraft.exchangeType}
-              >
-                <MenuItem value="tokocrypto">Tokocrypto</MenuItem>
-                <MenuItem value="okx">OKX</MenuItem>
-                <MenuItem value="binance">Binance</MenuItem>
-              </SettingsInfoField>
+                value="Binance"
+                slotProps={{ input: { readOnly: true } }}
+              />
 
               <SettingsInfoField
                 fullWidth
-                info="ONE WAY opens only the MAIN strategy leg. BOTH opens simultaneous MAIN and COUNTER legs and requires Binance Futures Hedge Mode."
+                info="ONE WAY opens only the MAIN strategy leg and ignores per-account Entry Legs. BOTH enables the Hedge strategy; each account then selects MAIN, COUNTER, or BOTH under Trading → Entry and requires Binance Futures Hedge Mode."
                 label="Open Direction"
                 onChange={(event) =>
                   setConfigDraft((prev) =>
@@ -199,8 +158,7 @@ export default function SettingsDialogManagementTab({
                       ? {
                           ...prev,
                           openDirection: event.target.value as
-                            | "ONE_WAY"
-                            | "BOTH",
+                            "ONE_WAY" | "BOTH",
                         }
                       : prev,
                   )
@@ -210,7 +168,7 @@ export default function SettingsDialogManagementTab({
                 value={configDraft.openDirection ?? "ONE_WAY"}
               >
                 <MenuItem value="ONE_WAY">One way — MAIN only</MenuItem>
-                <MenuItem value="BOTH">Both — MAIN + COUNTER</MenuItem>
+                <MenuItem value="BOTH">Both-direction Hedge strategy</MenuItem>
               </SettingsInfoField>
 
               <SettingsInfoField
@@ -285,7 +243,12 @@ export default function SettingsDialogManagementTab({
           value={parseSymbols(configDraft.symbolsText)}
         />
 
-        <Stack alignItems="center" direction="row" spacing={0.5} sx={{ pt: 0.5 }}>
+        <Stack
+          alignItems="center"
+          direction="row"
+          spacing={0.5}
+          sx={{ pt: 0.5 }}
+        >
           <Typography fontWeight={700} variant="body2">
             Auto Remove
           </Typography>

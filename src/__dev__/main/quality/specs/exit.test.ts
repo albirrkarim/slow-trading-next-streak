@@ -179,7 +179,16 @@ describe("slow specs exit", () => {
       volatility: {
         symbol: "SUI",
         lastVolatility: [
-          { id: "BOTTOM[0]", l: "B", lvl: 0, p: 100, pct: 2, t: 2, vb: 1, vq: 1 },
+          {
+            id: "BOTTOM[0]",
+            l: "B",
+            lvl: 0,
+            p: 100,
+            pct: 2,
+            t: 2,
+            vb: 1,
+            vq: 1,
+          },
         ],
       },
     } as TradingModelMemory;
@@ -248,8 +257,26 @@ describe("slow specs exit", () => {
         symbol: "APT",
         lastVolatility: [
           { id: "TOP[1]", l: "T", lvl: 1, p: 105, pct: 5, t: 2, vb: 1, vq: 1 },
-          { id: "BOTTOM[0]", l: "B", lvl: 0, p: 100, pct: 5, t: 3, vb: 1, vq: 1 },
-          { id: "TOP[1]-LATER", l: "T", lvl: 1, p: 101, pct: 1, t: 4, vb: 1, vq: 1 },
+          {
+            id: "BOTTOM[0]",
+            l: "B",
+            lvl: 0,
+            p: 100,
+            pct: 5,
+            t: 3,
+            vb: 1,
+            vq: 1,
+          },
+          {
+            id: "TOP[1]-LATER",
+            l: "T",
+            lvl: 1,
+            p: 101,
+            pct: 1,
+            t: 4,
+            vb: 1,
+            vq: 1,
+          },
         ],
       },
     } as TradingModelMemory;
@@ -283,10 +310,9 @@ describe("slow specs exit", () => {
     expect(first.reason).toContain("BOTH:VOLATILITY_TARGET_EXIT");
     expect(second.action).toBe("SELL");
     expect(memory.positions).toHaveLength(0);
-    expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
-      "VOLATILITY_TARGET_EXIT",
-      "VOLATILITY_TARGET_EXIT",
-    ]);
+    expect(
+      memory.positionsSell?.map((position) => position.closed?.reason),
+    ).toEqual(["VOLATILITY_TARGET_EXIT", "VOLATILITY_TARGET_EXIT"]);
   });
 
   it.each([
@@ -335,15 +361,16 @@ describe("slow specs exit", () => {
       volatilityPoints: points as any,
     });
 
-    // BOTH:VOLATILITY_TARGET_EXIT
-    // BOTH:VOLATILITY_TARGET_SL_VALUE
-    // BOTH:VOLATILITY_TARGET_TP
-    expect(state).toMatchObject({
-      hasReached: true,
-      isCurrent: true,
-      targetPoint: { id: targetId },
-    });
-  });
+      // BOTH:VOLATILITY_TARGET_EXIT
+      // BOTH:VOLATILITY_TARGET_SL_VALUE
+      // BOTH:VOLATILITY_TARGET_TP
+      expect(state).toMatchObject({
+        hasReached: true,
+        isCurrent: true,
+        targetPoint: { id: targetId },
+      });
+    },
+  );
 
   it("treats the next BOTTOM as the SHORT target regardless of numeric level", async () => {
     const main = createTestPosition({
@@ -368,8 +395,26 @@ describe("slow specs exit", () => {
       volatility: {
         symbol: "APT",
         lastVolatility: [
-          { id: "TOP[0]", l: "T", lvl: 0, p: 0.5462, pct: 0, t: 1, vb: 1, vq: 1 },
-          { id: "BOTTOM[-1]", l: "B", lvl: -1, p: 0.5283, pct: 3, t: 2, vb: 1, vq: 1 },
+          {
+            id: "TOP[0]",
+            l: "T",
+            lvl: 0,
+            p: 0.5462,
+            pct: 0,
+            t: 1,
+            vb: 1,
+            vq: 1,
+          },
+          {
+            id: "BOTTOM[-3]",
+            l: "B",
+            lvl: -3,
+            p: 0.5283,
+            pct: 3,
+            t: 2,
+            vb: 1,
+            vq: 1,
+          },
         ],
       },
     } as TradingModelMemory;
@@ -497,7 +542,10 @@ describe("slow specs exit", () => {
     });
 
     // PROD:MANUAL_EXIT_POSITION_ROLE
-    expect(exit).toMatchObject({ action: "SELL", position: { role: "COUNTER" } });
+    expect(exit).toMatchObject({
+      action: "SELL",
+      position: { role: "COUNTER" },
+    });
     expect(main.closed).toBeUndefined();
     expect(main.control?.forceExit).toBeUndefined();
     expect(counter.closed?.reason).toBe("FINAL");
@@ -612,6 +660,41 @@ describe("slow specs exit", () => {
       ]);
     },
   );
+
+  it("reenables COUNTER-only profit protection after one favorable level", () => {
+    const counter = createTestPosition({
+      direction: "SHORT",
+      role: "COUNTER",
+    });
+    counter.entryLegs = "COUNTER";
+
+    // BOTH:ACCOUNT_ENTRY_LEGS
+    expect(
+      bothDirection.profitProtection.counterAllowed({
+        position: counter,
+        positions: [counter],
+        volatilityPoints: [],
+      }),
+    ).toBe(false);
+    expect(
+      bothDirection.profitProtection.counterAllowed({
+        position: counter,
+        positions: [counter],
+        volatilityPoints: [
+          {
+            id: "BOTTOM[-3]",
+            l: "B",
+            lvl: -3,
+            p: 9,
+            pct: 10,
+            t: 2,
+            vb: 1,
+            vq: 1,
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
 
   it("exits at the configured absolute latest vPoint level", async () => {
     const memory = createMemory();
@@ -1304,9 +1387,7 @@ describe("slow specs exit", () => {
       const result = postAverageStopLoss.evaluate({
         config: {
           enabled: true,
-          thresholds: [
-            { minAveragingCount: 1, maxNetPnlPct, maxNetPnlUsdt },
-          ],
+          thresholds: [{ minAveragingCount: 1, maxNetPnlPct, maxNetPnlUsdt }],
         },
         netPnlPercent,
         netPnlUsdt,

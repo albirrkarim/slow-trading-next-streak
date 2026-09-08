@@ -39,6 +39,9 @@ export interface TradingModelConfigDynamic extends SafeHavenConfig {}
 
 export type OpenDirection = "ONE_WAY" | "BOTH";
 
+/** Selects which Hedge-strategy legs a single account opens for new entries. */
+export type EntryLegs = "MAIN" | "COUNTER" | "BOTH";
+
 export interface AdaptiveAveragingConfig {
   /** Enables searching above the normal watch reserve multiplier. */
   enabled: boolean;
@@ -88,6 +91,12 @@ export interface DynamicTradeConfig {
 
   /** Opens only the strategy leg, or a MAIN/COUNTER Hedge Mode pair. */
   openDirection?: OpenDirection;
+
+  /** Per-account leg selection used when openDirection is BOTH. */
+  entryLegs?: EntryLegs;
+
+  /** Enables the production guard that rejects entries after price drifts too far from the source vPoint. */
+  lateEntryVPointPriceDriftEnabled?: boolean;
 
   /**
    * When ON, the strategy can run the decision watch logic such as v17 averaging add-position actions.

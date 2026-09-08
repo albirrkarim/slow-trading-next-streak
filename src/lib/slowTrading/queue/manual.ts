@@ -5,10 +5,7 @@ import type {
   SlowTradingSafeHavenQueueItem,
   SlowTradingWithdrawalQueueItem,
 } from "../types";
-import {
-  loadSlowTradingQueues,
-  mutateSlowTradingQueues,
-} from "./persistence";
+import { loadSlowTradingQueues, mutateSlowTradingQueues } from "./persistence";
 
 /** Formats a timestamp as the UTC month key used by Safe Haven queues. */
 function getUtcMonthKey(timestamp: number): string {
@@ -39,35 +36,35 @@ export async function createManualSlowTradingQueueItem(
     }
 
     const period = getUtcMonthKey(currentTimeMs);
-    const item = await mutateSlowTradingQueues(
-      (queues) => {
-        if (
-          queues.safeHaven.some(
-            (candidate) =>
-              candidate.mode === activeMode && !candidate.scheduleId,
-          )
-        ) {
-          throw new Error(
-            `A ${activeMode} Safe Haven queue item is already pending.`,
-          );
-        }
+    const item = await mutateSlowTradingQueues((queues) => {
+      if (
+        queues.safeHaven.some(
+          (candidate) =>
+            candidate.account === storage.account.slug &&
+            candidate.mode === activeMode &&
+            !candidate.scheduleId,
+        )
+      ) {
+        throw new Error(
+          `A ${activeMode} Safe Haven queue item is already pending.`,
+        );
+      }
 
-        const created: SlowTradingSafeHavenQueueItem = {
-          id: `safe-haven-manual-${activeMode}-${currentTimeMs}`,
-          kind: "safe_haven",
-          mode: activeMode,
-          period,
-          requestedUSDT: amountUSDT,
-          remainingUSDT: amountUSDT,
-          createdAt: currentTimeMs,
-          nextAttemptAt: currentTimeMs,
-          lastMessage: `Manually queued ${amountUSDT} USDT for ${activeMode} Safe Haven.`,
-        };
-        queues.safeHaven.push(created);
-        return created;
-      },
-      queueLoadOptions,
-    );
+      const created: SlowTradingSafeHavenQueueItem = {
+        account: storage.account.slug,
+        id: `safe-haven-manual-${activeMode}-${currentTimeMs}`,
+        kind: "safe_haven",
+        mode: activeMode,
+        period,
+        requestedUSDT: amountUSDT,
+        remainingUSDT: amountUSDT,
+        createdAt: currentTimeMs,
+        nextAttemptAt: currentTimeMs,
+        lastMessage: `Manually queued ${amountUSDT} USDT for ${activeMode} Safe Haven.`,
+      };
+      queues.safeHaven.push(created);
+      return created;
+    }, queueLoadOptions);
 
     storage.modes[activeMode].dynamicTradeMemory.lastSafeHavenRequest =
       currentTimeMs;
@@ -76,12 +73,16 @@ export async function createManualSlowTradingQueueItem(
       queues.safeHaven.reduce(
         (total, candidate) =>
           total +
-          (candidate.mode === activeMode ? candidate.remainingUSDT : 0),
+          (candidate.account === storage.account.slug &&
+          candidate.mode === activeMode
+            ? candidate.remainingUSDT
+            : 0),
         0,
       );
     await slowTradingStorage.mode.saveState(
       activeMode,
       storage.modes[activeMode],
+      { account: storage.account.slug },
     );
     return item;
   }
@@ -110,38 +111,37 @@ export async function createManualSlowTradingQueueItem(
   const targetWalletAddress = String(
     wallet?.address ?? schedule.targetWalletAddress,
   ).trim();
-  const item = await mutateSlowTradingQueues(
-    (queues) => {
-      if (
-        queues.withdrawals.some(
-          (candidate) => candidate.scheduleId === schedule.id,
-        )
-      ) {
-        throw new Error(
-          `A withdrawal queue item for schedule "${schedule.name}" is already pending.`,
-        );
-      }
+  const item = await mutateSlowTradingQueues((queues) => {
+    if (
+      queues.withdrawals.some(
+        (candidate) => candidate.scheduleId === schedule.id,
+      )
+    ) {
+      throw new Error(
+        `A withdrawal queue item for schedule "${schedule.name}" is already pending.`,
+      );
+    }
 
-      const created: SlowTradingWithdrawalQueueItem = {
-        id: `withdrawal-manual-${schedule.id}-${currentTimeMs}`,
-        kind: "withdrawal",
-        scheduleId: schedule.id,
-        scheduleName: schedule.name,
-        amountUSDT,
-        targetNetwork,
-        targetWalletAddress,
-        clientWithdrawId: `slow-${schedule.id}-${currentTimeMs}`.slice(0, 64),
-        createdAt: currentTimeMs,
-        nextAttemptAt: currentTimeMs,
-        lastMessage: `Manually queued automatic withdrawal schedule "${schedule.name}" for ${amountUSDT} USDT.`,
-      };
-      queues.withdrawals.push(created);
-      return created;
-    },
-    queueLoadOptions,
-  );
+    const created: SlowTradingWithdrawalQueueItem = {
+      account: schedule.account,
+      id: `withdrawal-manual-${schedule.id}-${currentTimeMs}`,
+      kind: "withdrawal",
+      scheduleId: schedule.id,
+      scheduleName: schedule.name,
+      amountUSDT,
+      targetNetwork,
+      targetWalletAddress,
+      clientWithdrawId: `slow-${schedule.id}-${currentTimeMs}`.slice(0, 64),
+      createdAt: currentTimeMs,
+      nextAttemptAt: currentTimeMs,
+      lastMessage: `Manually queued automatic withdrawal schedule "${schedule.name}" for ${amountUSDT} USDT.`,
+    };
+    queues.withdrawals.push(created);
+    return created;
+  }, queueLoadOptions);
 
   await slowTradingStorage.data.update({
+    exchangeAccountSlug: schedule.account,
     withdrawal: {
       schedules: storage.runtime.withdrawal.schedules.map((candidate) =>
         candidate.id === schedule.id

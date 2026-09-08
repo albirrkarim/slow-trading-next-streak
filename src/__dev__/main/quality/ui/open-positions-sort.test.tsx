@@ -27,9 +27,7 @@ vi.mock("@/components/LiveDashboard/Feature/OpenPositionItem", () => ({
 }));
 
 function renderedSymbols() {
-  return screen
-    .getAllByTestId("open-position")
-    .map((item) => item.textContent);
+  return screen.getAllByTestId("open-position").map((item) => item.textContent);
 }
 
 describe("OpenPositions PnL sorting", () => {
@@ -171,7 +169,13 @@ describe("OpenPositions PnL sorting", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close Both" }));
 
     // PROD:MANUAL_EXIT_POSITION_ROLE
-    expect(onExitBoth).toHaveBeenCalledWith("SUI");
+    expect(onExitBoth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: "binance-1",
+        symbol: "SUI",
+        role: "MAIN",
+      }),
+    );
   });
 
   it("starts worst-first and toggles to best-first", () => {
@@ -185,25 +189,32 @@ describe("OpenPositions PnL sorting", () => {
         mode="sandbox"
         onCoinDescriptionChange={vi.fn()}
         onCoinTagsChange={vi.fn()}
-        positions={
-          [
-            { ...createTestPosition({
+        positions={[
+          {
+            ...createTestPosition({
               netPct: -1,
               netUsdt: -2,
               symbol: "MID",
-            }), mode: "sandbox" as const },
-            { ...createTestPosition({
+            }),
+            mode: "sandbox" as const,
+          },
+          {
+            ...createTestPosition({
               netPct: 2,
               netUsdt: 3,
               symbol: "BEST",
-            }), mode: "sandbox" as const },
-            { ...createTestPosition({
+            }),
+            mode: "sandbox" as const,
+          },
+          {
+            ...createTestPosition({
               netPct: -4.2,
               netUsdt: -5,
               symbol: "WORST",
-            }), mode: "sandbox" as const },
-          ]
-        }
+            }),
+            mode: "sandbox" as const,
+          },
+        ]}
         spendableQuoteAsset={0}
         tagColors={{}}
         tagDescriptions={{}}

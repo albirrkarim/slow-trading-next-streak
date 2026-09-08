@@ -1,11 +1,17 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import type { AdaptiveAveragingConfig, OpenDirection } from "@/lib/dynamic";
-import type { ExchangeAccount } from "@/lib/exchange/account-context";
+import type {
+  AdaptiveAveragingConfig,
+  EntryLegs,
+  OpenDirection,
+} from "@/lib/dynamic";
 import type { ExchangeType, TradingMode } from "@/lib/exchange/types";
 import type { DashboardNotificationConfig } from "@/lib/notification/config";
-import type { SlowTradingDashboardState } from "@/lib/slowTrading";
+import type {
+  SlowTradingAccount,
+  SlowTradingDashboardState,
+} from "@/lib/slowTrading";
 import type { TradingModelConfig } from "@/lib/trading/models";
 import type { BlackSwanConfig } from "@/lib/trading/black-swan";
 
@@ -20,6 +26,7 @@ export interface WithdrawalWalletDraft {
 
 export interface WithdrawalScheduleDraft {
   id: string;
+  account: string;
   name: string;
   enabled: boolean;
   amountUSDT: string;
@@ -47,11 +54,13 @@ export interface ConfigDraft {
   name: string;
   description: string;
   decisionEngineVersion: string;
-  exchangeAccountId: string;
-  exchangeAccounts: ExchangeAccount[];
+  exchangeAccountSlug: string;
+  exchangeAccounts: SlowTradingAccount[];
   exchangeType: ExchangeType;
   tradingMode: TradingMode;
   openDirection?: OpenDirection;
+  entryLegs?: EntryLegs;
+  lateEntryVPointPriceDriftEnabled?: boolean;
   symbolsText: string;
   modelConfig: TradingModelConfig;
   runnerEnabled: boolean;
@@ -123,11 +132,8 @@ export interface BalanceSummary {
 }
 
 export interface LiveDashboardNavbarProps {
-  coinTags?: Record<string, string[]>;
   dashboardState: SlowTradingDashboardState | null;
   onRefresh: () => Promise<void>;
   onReinitialize: () => Promise<void>;
   reinitializing: boolean;
-  tagColors?: Record<string, string>;
-  tagDescriptions?: Record<string, string>;
 }

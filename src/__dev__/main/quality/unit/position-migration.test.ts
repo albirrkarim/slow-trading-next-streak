@@ -57,6 +57,8 @@ function createLegacyPosition() {
     netProfitPercent: 3,
     netProfitUSDT: 0.72,
     netCurrentUSDT: 24.72,
+    maxRunUpUSDT: 1.25,
+    maxDrawdownUSDT: -0.5,
   };
 }
 
@@ -111,6 +113,10 @@ describe("position storage migration", () => {
             },
           ],
         },
+      },
+      pnl: {
+        maxUpUsdt: 1.25,
+        maxDownUsdt: -0.5,
       },
     });
     expect(migrated.opened.source).toBeUndefined();
@@ -207,11 +213,13 @@ describe("position storage migration", () => {
     const context = {
       defaultExecutionMode: "sandbox" as const,
       vPointSourcesBySymbol: {
-        SUI: [[
-          { id: "B_ENTRY", lvl: -2, t: 100 },
-          { id: "B_SKIPPED", lvl: -3, t: 200 },
-          { id: "T_EXIT", lvl: 0, t: 300 },
-        ]],
+        SUI: [
+          [
+            { id: "B_ENTRY", lvl: -2, t: 100 },
+            { id: "B_SKIPPED", lvl: -3, t: 200 },
+            { id: "T_EXIT", lvl: 0, t: 300 },
+          ],
+        ],
       },
     };
 
@@ -359,18 +367,18 @@ describe("position storage migration", () => {
       backtest: "/storage/backtest",
     };
 
-    expect(
-      isPositionMigrationFile("/storage/slow/config.json", roots),
-    ).toBe(false);
-    expect(
-      isPositionMigrationFile("/storage/slow/accounts.json", roots),
-    ).toBe(false);
+    expect(isPositionMigrationFile("/storage/slow/config.json", roots)).toBe(
+      false,
+    );
+    expect(isPositionMigrationFile("/storage/slow/accounts.json", roots)).toBe(
+      false,
+    );
     expect(
       isPositionMigrationFile("/storage/backtest/run/config.json", roots),
     ).toBe(false);
-    expect(
-      isPositionMigrationFile("/storage/slow/memory.json", roots),
-    ).toBe(true);
+    expect(isPositionMigrationFile("/storage/slow/memory.json", roots)).toBe(
+      true,
+    );
     expect(
       isPositionMigrationFile("/storage/slow/live/history/BTC.json", roots),
     ).toBe(true);

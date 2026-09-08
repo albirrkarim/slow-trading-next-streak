@@ -24,6 +24,8 @@ function getExecutionAmountUSDT(
 
 /** Result returned after trying one withdrawal schedule. */
 export interface SlowTradingWithdrawalExecutionResult {
+  /** Immutable account slug whose funds were inspected. */
+  account: string;
   /** SLOW mode active when the withdrawal flow ran. */
   activeMode: "live" | "sandbox";
   /** Withdrawal amount after trigger-specific safety limits. */
@@ -86,17 +88,27 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
   // A. Load active SLOW state and resolve the selected schedule.
   const trigger = params.trigger ?? "manual";
   const logAttempts = params.logAttempts !== false;
-  const storage = await slowTradingStorage.data.load({
+  const catalogStorage = await slowTradingStorage.data.load({
     modeScope: "active",
   });
+  const configuredSchedule =
+    catalogStorage.runtime.withdrawal.schedules.find(
+      (item) => item.id === params.scheduleId,
+    ) ?? null;
+  const storage = configuredSchedule
+    ? await slowTradingStorage.data.load({
+        account: configuredSchedule.account,
+        modeScope: "active",
+      })
+    : catalogStorage;
   const activeMode = slowTradingStorage.mode.getActive(storage);
   const modeState = storage.modes[activeMode];
   const withdrawal = storage.runtime.withdrawal;
-  const schedule =
-    withdrawal.schedules.find((item) => item.id === params.scheduleId) ?? null;
+  const schedule = configuredSchedule;
 
   if (!schedule) {
     await slowTradingStorage.logs.appendWithdrawal({
+      account: storage.account.slug,
       trigger,
       status: "failed",
       mode: activeMode,
@@ -112,7 +124,9 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
   const wallet = schedule.walletId
     ? withdrawal.walletBook.find((item) => item.id === schedule.walletId)
     : undefined;
-  const targetNetwork = normalizeString(wallet?.network ?? schedule.targetNetwork);
+  const targetNetwork = normalizeString(
+    wallet?.network ?? schedule.targetNetwork,
+  );
   const targetWalletAddress = normalizeString(
     wallet?.address ?? schedule.targetWalletAddress,
   );
@@ -121,6 +135,7 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
     Number(modeState.dynamicTradeMemory.safeHaven) || 0,
   );
   const baseResponse = {
+    account: storage.account.slug,
     activeMode,
     amountUSDT,
     availableSafeHavenUSDT,
@@ -146,6 +161,7 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
     }
 
     return slowTradingStorage.logs.appendWithdrawal({
+      account: storage.account.slug,
       trigger,
       status: logInput.status,
       mode: activeMode,
@@ -198,11 +214,15 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
   }
 
   if (activeMode !== "live") {
-    await failWithdrawal("Real withdrawal is blocked while SLOW is in sandbox mode.");
+    await failWithdrawal(
+      "Real withdrawal is blocked while SLOW is in sandbox mode.",
+    );
   }
 
   if (storage.config.exchangeType !== "binance") {
-    await failWithdrawal("Real withdrawal is currently implemented only for Binance.");
+    await failWithdrawal(
+      "Real withdrawal is currently implemented only for Binance.",
+    );
   }
 
   if (!(configuredAmountUSDT > 0)) {
@@ -210,15 +230,21 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
   }
 
   if (!targetNetwork) {
-    await failWithdrawal("Target network is required before trying the withdraw flow.");
+    await failWithdrawal(
+      "Target network is required before trying the withdraw flow.",
+    );
   }
 
   if (!targetWalletAddress) {
-    await failWithdrawal("Target wallet address is required before trying the withdraw flow.");
+    await failWithdrawal(
+      "Target wallet address is required before trying the withdraw flow.",
+    );
   }
 
   if (availableSafeHavenUSDT < amountUSDT) {
-    await failWithdrawal("Safe Haven balance is lower than the configured withdrawal amount.");
+    await failWithdrawal(
+      "Safe Haven balance is lower than the configured withdrawal amount.",
+    );
   }
 
   // E. Submit the real exchange withdrawal and persist the successful state.
@@ -241,13 +267,12 @@ export async function executeSlowTradingWithdrawalSchedule(params: {
         });
       },
     );
-    const nextSafeHavenUSDT = Math.max(
-      0,
-      availableSafeHavenUSDT - amountUSDT,
-    );
+    const nextSafeHavenUSDT = Math.max(0, availableSafeHavenUSDT - amountUSDT);
     const timestamp = Date.now();
 
     await slowTradingStorage.data.update({
+      // PROD:MULTI_ACCOUNT_WITHDRAWAL_OWNER
+      exchangeAccountSlug: storage.account.slug,
       safeHavenUSDT: nextSafeHavenUSDT,
       safeHavenLogReason: `Withdrawal schedule "${schedule.name}" executed`,
       safeHavenLogSource: "withdrawal",

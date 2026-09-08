@@ -553,6 +553,12 @@ so distance PCT the entry.price to the next vpoint.price is just a little.
 
 so i need guard before entry.
 
+Each account owns `trading.lateEntryVPointPriceDriftEnabled`. It defaults to
+`true`. When `false`, both the entry-decision check and the final execution
+check skip this guard for that account only. Other enabled accounts retain
+their own setting. This remains production/runtime behavior and applies to
+both live and sandbox entries; backtest is unchanged.
+
 For `ONE_WAY`, only drift in the recommended position's profit direction is
 blocked. Adverse drift remains allowed.
 
@@ -933,17 +939,34 @@ TC: `BOTH:EXIT_SIDEWAYS_TO_ENTRY_STRONG_CANDIDATES`
 
 ## B.5 Both-Direction Trading
 
-`config.openDirection` selects the entry shape:
+The shared `config.openDirection` is the master strategy switch:
 
 - `ONE_WAY` opens only the strategy-directed `MAIN` position and is the default
   for missing or invalid persisted values.
-- `BOTH` opens one logical worker containing equal-entry-margin `MAIN` and
-  `COUNTER` legs in opposite directions.
+- `BOTH` enables the Binance Futures Hedge strategy. Each account then uses its
+  Trading-tab `entryLegs` setting to select `MAIN`, `COUNTER`, or `BOTH` for new
+  entries. `entryLegs` defaults to `BOTH`.
+
+`entryLegs` is ignored while `openDirection` is `ONE_WAY`. Under `BOTH`, all
+three selections require a saved `futuresPositionMode: "HEDGE"` and successful
+authoritative Binance Hedge Mode validation for live entries. `MAIN` opens only
+the strategy direction, `COUNTER` opens only its opposite, and `BOTH` opens the
+equal-entry-margin pair. A single selected leg funds and reserves one leg; the
+pair funds and reserves two.
+
+The effective selection is captured on every Hedge-strategy position when it is
+opened. Changing an account's `entryLegs` affects future entries only. A
+COUNTER-only position keeps counter structural exits. Because MAIN was
+intentionally omitted, ordinary take-profit and Stop-Loss Plus become eligible
+after the COUNTER passes one whole volatility level in its profit direction.
+Until then, its normal counter protection remains disabled.
 
 An existing position without `role` is treated as `MAIN` for backward
 compatibility. The shared position role values are `MAIN` and `COUNTER`.
 
 TC: `BOTH:ENTRY_BOTH_DIRECTION`
+
+TC: `BOTH:ACCOUNT_ENTRY_LEGS`
 
 ### B.5.1 Pair identity and direction
 
@@ -956,9 +979,9 @@ re-entry retains this `pairId` even though its own entry vPoint and entry time
 change. Within that identity, `role` distinguishes the two legs. Legacy pairs
 without `pairId` continue to resolve from their shared original entry identity.
 
-Backtest and production use the same pair construction and position roles.
-The volatility-point backtest simulates both legs when `openDirection` is
-`BOTH`.
+Backtest and production use the same construction, per-account leg selection,
+and position roles. The volatility-point backtest simulates exactly the
+selected legs when `openDirection` is `BOTH`.
 
 ### B.5.2 Runtime account and market requirements
 
@@ -979,15 +1002,16 @@ TC: `PROD:VALIDATE_HEDGE_POSITION_MODE_SANDBOX`
 
 ### B.5.3 Pair funding and atomic entry
 
-The entry funding guard evaluates the complete worker pair before opening
-either leg:
+The entry funding guard evaluates the complete selected worker before opening
+any leg:
 
-- Both legs use the same adjusted entry margin.
-- Entry and reserve requirements are calculated for two legs.
+- When both legs are selected, they use the same adjusted entry margin.
+- Entry and reserve requirements are calculated for one or two selected legs.
 - Spendable balance, minimum entry margin, configured entry caps, worker
   capacity, and the largest unreserved bailout buffer must pass for the
   complete pair.
-- If the account can fund only one direction, neither direction may open.
+- If BOTH is selected and the account can fund only one direction, neither
+  direction may open.
 - `maxOpenPositions` counts the pair as one logical worker.
 
 Live Binance entry places the two Hedge Mode orders sequentially because the
@@ -1007,12 +1031,12 @@ TC: `BOTH:ENTRY_BOTH_DIRECTION`
 Every live futures entry, averaging order, close, and residual-close retry for
 a paired leg must include its explicit Binance `positionSide`:
 
-| Operation | Unified side | Binance `positionSide` |
-| --- | --- | --- |
-| Open or average LONG | `BUY` | `LONG` |
-| Close LONG | `SELL` | `LONG` |
-| Open or average SHORT | `SELL` | `SHORT` |
-| Close SHORT | `BUY` | `SHORT` |
+| Operation             | Unified side | Binance `positionSide` |
+| --------------------- | ------------ | ---------------------- |
+| Open or average LONG  | `BUY`        | `LONG`                 |
+| Close LONG            | `SELL`       | `LONG`                 |
+| Open or average SHORT | `SELL`       | `SHORT`                |
+| Close SHORT           | `BUY`        | `SHORT`                |
 
 The Binance adapter omits `reduceOnly` in Hedge Mode because Binance rejects
 that combination. A close is direction-safe because it uses the opposite

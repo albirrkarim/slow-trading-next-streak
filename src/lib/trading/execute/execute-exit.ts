@@ -274,6 +274,7 @@ export async function executeExit({
     if (!isTest) {
       const isHedgeLeg =
         futuresPositionMode === "HEDGE" ||
+        bothDirection.position.isHedgeStrategy(targetPosition) ||
         bothDirection.pair.hasCounterpart(
           targetPosition,
           modelMemory.positions ?? [],

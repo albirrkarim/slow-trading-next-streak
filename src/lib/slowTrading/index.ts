@@ -6,7 +6,6 @@ import slowTradingFinanceSummary from "./finance-summary";
 import slowTradingMarketVolume from "./market-volume";
 import slowTradingManagement from "./management";
 import slowTradingMcp from "./mcp";
-import slowQuickBacktest from "./quick-backtest";
 import slowTradingReporting from "./reporting";
 import { SlowTradingRunner } from "./runner";
 import slowTradingCycle from "./cycle";
@@ -37,7 +36,6 @@ const slowTrading = {
   marketVolume: slowTradingMarketVolume,
   management: slowTradingManagement,
   mcp: slowTradingMcp,
-  quickBacktest: slowQuickBacktest,
   reporting: slowTradingReporting,
   runner: {
     Instance: SlowTradingRunner,
@@ -62,7 +60,11 @@ const slowTrading = {
 
 export default slowTrading;
 export { slowTrading };
-export type { SlowTradingBalanceSummary } from "./balance-summary";
+export type {
+  SlowTradingAccountBalanceSummary,
+  SlowTradingBalance,
+  SlowTradingBalanceSummary,
+} from "./balance-summary";
 export type {
   SlowEntrySequenceCount,
   SlowEntrySequenceInterval,

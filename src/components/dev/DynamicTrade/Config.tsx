@@ -5,7 +5,11 @@ import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { DESCISION_MODELS } from "@/lib/dynamic/constants";
 import { TradingMode } from "@/lib/exchange/types";
 import type { TradingModelConfig } from "@/lib/trading/models";
-import type { AdaptiveAveragingConfig, OpenDirection } from "@/lib/dynamic";
+import type {
+    AdaptiveAveragingConfig,
+    EntryLegs,
+    OpenDirection,
+} from "@/lib/dynamic";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
 import postAverageRescue from "@/lib/trading/post-average-rescue";
 import postAverageStopLoss from "@/lib/trading/post-average-stop-loss";
@@ -64,6 +68,8 @@ export type BacktestConfig = {
     tradingMode: TradingMode;
 
     openDirection?: OpenDirection;
+
+    entryLegs?: EntryLegs;
 
     marginMode?: "ISOLATED" | "CROSS";
 
@@ -133,6 +139,8 @@ export const DEFAULT_BACKTEST_CONFIG: BacktestConfig = {
     tradingMode: TradingMode.SPOT,
 
     openDirection: "ONE_WAY",
+
+    entryLegs: "BOTH",
 
     marginMode: "ISOLATED",
 

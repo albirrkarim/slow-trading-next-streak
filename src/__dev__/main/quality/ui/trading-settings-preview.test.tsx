@@ -40,7 +40,7 @@ const configDraft = {
   enableWatchLogic: true,
   entrySignalBypass: false,
   exactLeverage: 2,
-  exchangeAccountId: "1",
+  exchangeAccountSlug: "1",
   exchangeAccounts: [],
   exchangeType: "binance",
   exitSidewaysToFreeWorkersForStrongCandidates: false,
@@ -264,9 +264,10 @@ describe("TradingSettingsPreview", () => {
     );
 
     expect(screen.getByText("Post-average stop after 1 average")).toBeDefined();
-    expect(screen.getByText("-5% = -$2.10 OR -$10.00 = -23.81%"))
-      .toBeDefined();
-    expect(screen.getByText("Post-average stop after 2 averages")).toBeDefined();
+    expect(screen.getByText("-5% = -$2.10 OR -$10.00 = -23.81%")).toBeDefined();
+    expect(
+      screen.getByText("Post-average stop after 2 averages"),
+    ).toBeDefined();
     expect(screen.getByText("-$4.00 = -3.17%")).toBeDefined();
   });
 
@@ -324,6 +325,22 @@ describe("TradingSettingsPreview", () => {
     });
   });
 
+  it("previews COUNTER-only as one funded worker leg", () => {
+    const preview = buildTradingLivePreview({
+      config: {
+        ...configDraft,
+        entryLegs: "COUNTER",
+        openDirection: "BOTH",
+      },
+      dashboardState,
+    });
+
+    // BOTH:ACCOUNT_ENTRY_LEGS
+    expect(preview.entryLegs).toBe("COUNTER");
+    expect(preview.workerLegs).toBe(1);
+    expect(preview.workerCostUsdt).toBe(63);
+  });
+
   it("renders entry capacity and per-worker profit and loss", async () => {
     render(
       <TradingSettingsPreview
@@ -343,12 +360,9 @@ describe("TradingSettingsPreview", () => {
     expect(within(bailoutCandidates).getByText("Candidates")).toBeDefined();
     expect(within(bailoutCandidates).getByText("Open positions")).toBeDefined();
     expect(within(bailoutCandidates).getByText("SUI level -4")).toBeDefined();
-    const unreservedAmount =
-      within(bailoutCandidates).getByText("$100.00");
+    const unreservedAmount = within(bailoutCandidates).getByText("$100.00");
     fireEvent.mouseOver(unreservedAmount);
-    expect((await screen.findByRole("tooltip")).textContent).toBe(
-      "UNRESERVED",
-    );
+    expect((await screen.findByRole("tooltip")).textContent).toBe("UNRESERVED");
     fireEvent.mouseOut(unreservedAmount);
     await waitFor(() => expect(screen.queryByText("UNRESERVED")).toBeNull());
     expect(
@@ -363,9 +377,7 @@ describe("TradingSettingsPreview", () => {
     expect(screen.getByText("BOTTOM L1")).toBeDefined();
     expect(screen.getByText("BOTTOM L2")).toBeDefined();
     expect(screen.getByText("TOP L0")).toBeDefined();
-    expect(
-      screen.getByText("floor($530.00 / $63.00) = 8"),
-    ).toBeDefined();
+    expect(screen.getByText("floor($530.00 / $63.00) = 8")).toBeDefined();
     expect(screen.getByText("Stage 1 - Entry only")).toBeDefined();
     expect(screen.getByText("$7.00 x 2x = $14.00")).toBeDefined();
     expect(screen.getByText("Stage 2 - After averaging 1")).toBeDefined();
@@ -386,9 +398,7 @@ describe("TradingSettingsPreview", () => {
     expect(screen.getByText("$14.00 x 2% = -$0.28")).toBeDefined();
     expect(screen.getByText("$126.00 x 2% = -$2.52")).toBeDefined();
     expect(
-      within(screen.getByTestId("threshold-target-zone-stop")).getByText(
-        "-2%",
-      ),
+      within(screen.getByTestId("threshold-target-zone-stop")).getByText("-2%"),
     ).toBeDefined();
 
     fireEvent.mouseOver(screen.getByText("$21.00 x 2x = $42.00"));
@@ -427,21 +437,15 @@ describe("TradingSettingsPreview", () => {
     expect(
       screen.getByText("Profit if closed at this stage (0%)"),
     ).toBeDefined();
-    expect(
-      screen.getByText("$14.00 x 0% = +$0.00"),
-    ).toBeDefined();
+    expect(screen.getByText("$14.00 x 0% = +$0.00")).toBeDefined();
     expect(
       screen.getByText("Profit if closed at this stage (2%)"),
     ).toBeDefined();
-    expect(
-      screen.getByText("$14.00 x 2% = +$0.28"),
-    ).toBeDefined();
+    expect(screen.getByText("$14.00 x 2% = +$0.28")).toBeDefined();
     expect(
       screen.getByText("Profit if closed at this stage (4%)"),
     ).toBeDefined();
-    expect(
-      screen.getByText("$14.00 x 4% = +$0.56"),
-    ).toBeDefined();
+    expect(screen.getByText("$14.00 x 4% = +$0.56")).toBeDefined();
     expect(
       screen.getAllByText("MAIN exits at hard SL"),
     ).toHaveLength(3);
@@ -500,9 +504,7 @@ describe("TradingSettingsPreview", () => {
     expect(
       screen.getAllByText("Maximum loss at net USDT stop ($5.00)"),
     ).toHaveLength(2);
-    expect(
-      screen.getByText("-$5.00 / $42.00 x 100 = -11.9%"),
-    ).toBeDefined();
+    expect(screen.getByText("-$5.00 / $42.00 x 100 = -11.9%")).toBeDefined();
   });
 
   it("previews unreserved stages through max next averaging levels", () => {
@@ -572,9 +574,7 @@ describe("TradingSettingsPreview", () => {
       within(bailoutCandidates).getByText("Projected new worker level -2"),
     ).toBeDefined();
     expect(
-      within(bailoutCandidates).getByText(
-        "($20.00 + $40.00) x 2 = $120.00",
-      ),
+      within(bailoutCandidates).getByText("($20.00 + $40.00) x 2 = $120.00"),
     ).toBeDefined();
     expect(
       within(bailoutCandidates).getByText("Preserved maximum"),

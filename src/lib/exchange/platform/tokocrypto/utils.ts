@@ -3,8 +3,9 @@ import crypto from "crypto";
 import moment from "moment";
 import { BASE_URL } from "./config";
 import { tradeLog } from "@lib/trading";
-import { getCurrentExchangeAccountId } from "@/lib/exchange/account-context";
+import { getCurrentExchangeAccountSlug } from "@/lib/exchange/account-context";
 import { getTokocryptoCredentials } from "@/lib/exchange/credentials";
+import { requestPublic as requestBinancePublic } from "@/lib/exchange/platform/binance/utils";
 // import path from "path";
 // import fs from "fs-extra";
 
@@ -19,8 +20,8 @@ export async function delay(ms: number = 1100): Promise<void> {
  * @returns The HMAC signature.
  */
 function getSignature(query: string): string {
-  const accountId = getCurrentExchangeAccountId();
-  const creds = getTokocryptoCredentials(accountId);
+  const accountSlug = getCurrentExchangeAccountSlug();
+  const creds = getTokocryptoCredentials(accountSlug);
   return crypto
     .createHmac("sha256", creds.apiSecret)
     .update(query)
@@ -61,8 +62,8 @@ export async function requestPrivate<T>(
   domain = BASE_URL,
 ): Promise<T> {
   try {
-    const accountId = getCurrentExchangeAccountId();
-    const creds = getTokocryptoCredentials(accountId);
+    const accountSlug = getCurrentExchangeAccountSlug();
+    const creds = getTokocryptoCredentials(accountSlug);
 
     param.recvWindow = 5000;
     param.timestamp = moment().valueOf();
@@ -117,6 +118,10 @@ export async function requestPublic<T>(
   params: Record<string, any> = {},
   domain = BASE_URL,
 ): Promise<T> {
+  if (new URL(domain).hostname.endsWith("binance.com")) {
+    return requestBinancePublic<T>(endpoint, params, domain);
+  }
+
   try {
     const response = await axios.get(`${domain}${endpoint}`, { params });
     const data = response.data;

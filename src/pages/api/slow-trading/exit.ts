@@ -14,7 +14,9 @@ export default async function handler(
       return;
     }
 
-    const symbol = String(req.body?.symbol || "").trim().toUpperCase();
+    const symbol = String(req.body?.symbol || "")
+      .trim()
+      .toUpperCase();
     if (!symbol) {
       res.status(400).json({ error: "Symbol is required" });
       return;
@@ -31,12 +33,17 @@ export default async function handler(
     const role = requestedRole as PositionRole | undefined;
 
     const currentStorage = await slowTrading.storage.data.load({
+      account: String(req.body?.account || "").trim() || undefined,
       modeScope: "active",
     });
-    const activeMode = currentStorage.runtime.sandboxEnabled ? "sandbox" : "live";
+    const activeMode = currentStorage.runtime.sandboxEnabled
+      ? "sandbox"
+      : "live";
     const hasOpenPosition = currentStorage.modes[activeMode].tradeSettings.some(
       (item) =>
-        String(item.symbol || "").trim().toUpperCase() === symbol &&
+        String(item.symbol || "")
+          .trim()
+          .toUpperCase() === symbol &&
         (item.model_memory.positions ?? []).some(
           (position) =>
             !position.closed &&
@@ -55,6 +62,7 @@ export default async function handler(
     }
 
     const result = await slowTrading.service.runSlowTradingCycle({
+      account: currentStorage.account.slug,
       ignoreRunnerEnabled: true,
       forceExitSymbols: role ? undefined : [symbol],
       forceExitTargets: role ? [{ role, symbol }] : undefined,
@@ -68,7 +76,8 @@ export default async function handler(
     res.status(200).json({
       success: true,
       result,
-      state: await slowTrading.storage.dashboard.buildStateRealtime(nextStorage),
+      state:
+        await slowTrading.storage.dashboard.buildStateRealtime(nextStorage),
     });
   } catch (error: any) {
     await slowTrading.notifications.notifySlowTradingOperationalError({

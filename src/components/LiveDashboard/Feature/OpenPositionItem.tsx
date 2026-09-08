@@ -52,10 +52,14 @@ interface OpenPositionItemProps {
   pnlContributionShare: number;
   position: SlowTradingHistoryPosition;
   spendableQuoteAsset: number;
-  exitingPosition?: { role?: PositionRole; symbol: string } | null;
+  exitingPosition?: {
+    account: string;
+    role?: PositionRole;
+    symbol: string;
+  } | null;
   onCoinDescriptionChange: (symbol: string, description: string) => void;
   onCoinTagsChange: (symbol: string, tags: string[]) => void;
-  onExit?: (symbol: string, role: PositionRole) => Promise<void>;
+  onExit?: (position: SlowTradingHistoryPosition) => Promise<void>;
   tagColors: Record<string, string>;
   tagDescriptions: Record<string, string>;
   title?: React.ReactNode;
@@ -193,7 +197,8 @@ export default function OpenPositionItem({
   const positionRole: PositionRole =
     position.role === "COUNTER" ? "COUNTER" : "MAIN";
   const hasExitPendingForSymbol =
-    exitingPosition?.symbol === position.symbol;
+    exitingPosition?.account === position.account &&
+    exitingPosition.symbol === position.symbol;
   const isExitingPosition =
     hasExitPendingForSymbol &&
     (!exitingPosition.role || exitingPosition.role === positionRole);
@@ -207,12 +212,12 @@ export default function OpenPositionItem({
   const contributionGradient =
     contributionOpacity > 0
       ? `radial-gradient(circle at 100% 100%, ${alpha(
-        contributionColor,
-        contributionOpacity,
-      )} 0%, ${alpha(
-        contributionColor,
-        contributionOpacity * 0.55,
-      )} 30%, transparent 70%)`
+          contributionColor,
+          contributionOpacity,
+        )} 0%, ${alpha(
+          contributionColor,
+          contributionOpacity * 0.55,
+        )} 30%, transparent 70%)`
       : "none";
   const runUp = position.pnl.maxUpPct ?? 0;
   const drawdown = position.pnl.maxDownPct ?? 0;
@@ -272,6 +277,7 @@ export default function OpenPositionItem({
             {position.closed && (
               <Chip color="default" label="Closed" size="small" />
             )}
+            <Chip label={position.account} size="small" variant="outlined" />
 
             {isSpeedupStage && (
               // PROD:SPEEDUP_STAGE
@@ -354,25 +360,29 @@ export default function OpenPositionItem({
               marginLeft: "auto",
             }}
           >
-            {withOpenedAge && <MetricTooltip
-              title={
-                position.opened.t
-                  ? `Open for ${openPositionDuration.format(position.opened.t)}`
-                  : "Open duration unavailable"
-              }
-            >
-              <Typography
-                color={
-                  position.opened.t &&
-                    openPositionDuration.isOlderThanDays(position.opened.t, 1)
-                    ? "warning.main"
-                    : undefined
+            {withOpenedAge && (
+              <MetricTooltip
+                title={
+                  position.opened.t
+                    ? `Open for ${openPositionDuration.format(position.opened.t)}`
+                    : "Open duration unavailable"
                 }
-                variant="body2"
               >
-                {position.opened.t ? moment(position.opened.t).fromNow() : "-"}
-              </Typography>
-            </MetricTooltip>}
+                <Typography
+                  color={
+                    position.opened.t &&
+                    openPositionDuration.isOlderThanDays(position.opened.t, 1)
+                      ? "warning.main"
+                      : undefined
+                  }
+                  variant="body2"
+                >
+                  {position.opened.t
+                    ? moment(position.opened.t).fromNow()
+                    : "-"}
+                </Typography>
+              </MetricTooltip>
+            )}
 
             <MetricTooltip
               title={`position.pnl.netUsdt. Floating gross price PnL minus estimated round-trip fees. On futures it is calculated on leveraged size, not only margin. Portfolio contribution: ${(
@@ -679,7 +689,6 @@ export default function OpenPositionItem({
                 </Typography>
               </Box>
 
-
               <Box>
                 <Typography
                   variant="caption"
@@ -695,8 +704,6 @@ export default function OpenPositionItem({
                   {simplifyId(position.opened.vPoint.id ?? "")}
                 </Typography>
               </Box>
-
-
             </Box>
 
             {withCoinInfo && (
@@ -764,11 +771,9 @@ export default function OpenPositionItem({
                 size="small"
                 color="error"
                 sx={{ fontSize: "0.7rem", textTransform: "none" }}
-                onClick={() => void onExit?.(position.symbol, positionRole)}
+                onClick={() => void onExit?.(position)}
                 disabled={
-                  Boolean(position.closed) ||
-                  !onExit ||
-                  hasExitPendingForSymbol
+                  Boolean(position.closed) || !onExit || hasExitPendingForSymbol
                 }
                 title={`Click to close ${position.symbol} ${positionRole} leg`}
               >
@@ -830,8 +835,7 @@ export default function OpenPositionItem({
                               fontWeight: "bold",
                             }}
                           >
-                            PnL:{" "}
-                            {(position.pnl.netPct ?? 0) >= 0 ? "+" : ""}
+                            PnL: {(position.pnl.netPct ?? 0) >= 0 ? "+" : ""}
                             {(position.pnl.netPct ?? 0).toFixed(2)}% ($
                             {(position.pnl.netUsdt ?? 0).toFixed(2)})
                           </Typography>
@@ -890,7 +894,6 @@ export default function OpenPositionItem({
                 )}
               </ButtonDialog>
             </Box>
-
           </Box>
         ) : null
       }

@@ -373,11 +373,12 @@ export function isActionableAveragingVolatilityLevel(
   // BOTH:LOW_LEVEL_NEXT_ADVERSE_AVERAGING
   return Boolean(
     pairContext &&
-      volatilityPoint.lvl === pairContext.nextStepLevel &&
+    volatilityPoint.lvl === pairContext.nextStepLevel &&
+    (bothDirection.position.isHedgeStrategy(pairContext.position) ||
       bothDirection.pair.hasCounterpart(
         pairContext.position,
         pairContext.pairPositions,
-      ),
+      )),
   );
 }
 

@@ -5,12 +5,15 @@ import path from "path";
 import { clone, normalizeSymbol } from "./common";
 import type { HistoryPosition } from "./internal-types";
 import type {
+  SlowTradingHistoryPosition,
   SlowTradingMode,
   SlowTradingModeState,
   SlowTradingStorageData,
 } from "../types";
 
 interface HydrateSlowTradingHistoryOptions {
+  /** Restrict shared history hydration to one immutable account slug. */
+  account?: string;
   /** Restrict hydration to one mode. Omit to hydrate both live and sandbox. */
   mode?: SlowTradingMode;
   /** Restrict hydration to these normalized symbols. Omit for all symbols. */
@@ -40,6 +43,7 @@ function getModeHistoryFile(mode: SlowTradingMode, symbol: string): string {
  */
 function historyPositionKey(symbol: string, position: HistoryPosition): string {
   return [
+    position.account,
     normalizeSymbol(symbol),
     position.opened.vPoint.id,
     position.opened.t,
@@ -67,8 +71,51 @@ export async function readHistoryFile(
   return Array.isArray(raw) ? raw : [];
 }
 
+/** Reads shared closed history once and keeps only the requested account owners. */
+export async function readHistoryForAccounts(params: {
+  accountSlugs: readonly string[];
+  mode: SlowTradingMode;
+  symbol?: string;
+}): Promise<SlowTradingHistoryPosition[]> {
+  const accountSlugs = new Set(params.accountSlugs);
+  if (accountSlugs.size === 0) return [];
+
+  const requestedSymbol = normalizeSymbol(params.symbol ?? "");
+  const symbols = requestedSymbol
+    ? [requestedSymbol]
+    : (
+        await fs
+          .readdir(getModeHistoryRoot(params.mode), { withFileTypes: true })
+          .catch(() => [])
+      )
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map((entry) => normalizeSymbol(path.basename(entry.name, ".json")));
+  const history: SlowTradingHistoryPosition[] = [];
+
+  for (const symbol of symbols) {
+    const positions = await readHistoryFile(params.mode, symbol);
+
+    history.push(
+      ...positions
+        .filter(
+          (position) =>
+            Boolean(position.closed) && accountSlugs.has(position.account),
+        )
+        .map((position) => ({
+          ...clone(position),
+          mode: params.mode,
+          symbol,
+        })),
+    );
+  }
+
+  return history.sort((left, right) => left.opened.t - right.opened.t);
+}
+
 /** Reads closed positions whose closing time falls within a half-open range. */
 export async function readHistoryRange(params: {
+  /** Restricts the range to one immutable account slug when provided. */
+  account?: string;
   endTime: number;
   mode: SlowTradingMode;
   startTime: number;
@@ -89,6 +136,7 @@ export async function readHistoryRange(params: {
       ...positions.filter((position) => {
         const closedAt = position.closed?.t;
         return (
+          (!params.account || position.account === params.account) &&
           typeof closedAt === "number" &&
           Number.isFinite(closedAt) &&
           closedAt >= params.startTime &&
@@ -115,13 +163,11 @@ function filterHistoryPositions(
       ? options.fromTime
       : null;
 
-  if (fromTime == null) {
-    return positions;
-  }
-
-  return positions.filter(
-    (position) => (position.closed?.t ?? 0) >= fromTime,
-  );
+  return positions.filter((position) => {
+    // BOTH:MULTI_ACCOUNT_HISTORY_OWNER
+    if (options.account && position.account !== options.account) return false;
+    return fromTime == null || (position.closed?.t ?? 0) >= fromTime;
+  });
 }
 
 /**
@@ -265,15 +311,23 @@ export async function hydrateSlowTradingHistoryFromFiles(
   storage: SlowTradingStorageData,
   options: HydrateSlowTradingHistoryOptions = {},
 ) {
+  const scopedOptions = {
+    ...options,
+    account: options.account ?? storage.account.slug,
+  };
   if (!options.mode || options.mode === "live") {
-    await hydrateModeHistoryFromFiles("live", storage.modes.live, options);
+    await hydrateModeHistoryFromFiles(
+      "live",
+      storage.modes.live,
+      scopedOptions,
+    );
   }
 
   if (!options.mode || options.mode === "sandbox") {
     await hydrateModeHistoryFromFiles(
       "sandbox",
       storage.modes.sandbox,
-      options,
+      scopedOptions,
     );
   }
 }
@@ -351,10 +405,7 @@ export async function migrateLegacyHistoryRoot(): Promise<void> {
     };
 
     for (const position of positions) {
-      const mode =
-        position.executionMode === "sandbox"
-          ? "sandbox"
-          : "live";
+      const mode = position.executionMode === "sandbox" ? "sandbox" : "live";
       grouped[mode].push(position);
     }
 

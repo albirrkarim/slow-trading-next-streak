@@ -5,12 +5,10 @@ import {
   UnifiedOrderType,
   type UnifiedOrderParams,
 } from "@/lib/exchange";
+import { getCurrentExchangeAccountSlug } from "@/lib/exchange/account-context";
 
 import { fetchKlinesFunction } from "@lib/datasets"; // Fetch historical/live klines
-import {
-  type Position,
-  type TradeDecision,
-} from "@/lib/trading/models"; // Strategy decision logic
+import { type Position, type TradeDecision } from "@/lib/trading/models"; // Strategy decision logic
 import { notif } from "./helper/notification"; // Email/notification system
 import moment from "moment-timezone";
 import { TRADE_MESSAGE } from "./message";
@@ -37,6 +35,7 @@ function buildV3Position(params: {
     lvl: 0,
   };
   return {
+    account: getCurrentExchangeAccountSlug(),
     symbol: params.symbol.split("_")[0],
     executionMode: params.executionMode,
     tradingMode: params.tradingMode,
@@ -107,11 +106,7 @@ export async function executeTradingV3({
   exchangeType = "tokocrypto",
   tradingMode = TradingMode.SPOT,
 }: TradingConfig): Promise<TradingReturn> {
-  const {
-    orderType = "taker",
-    onlyTPFromDate,
-    maxBuyUSDT,
-  } = modelConfig; // Default to taker orders (market)
+  const { orderType = "taker", onlyTPFromDate, maxBuyUSDT } = modelConfig; // Default to taker orders (market)
 
   if (!modelMemory.positions) {
     // Save buy record, to track the price
@@ -262,9 +257,7 @@ export async function executeTradingV3({
 
   // Determine order type: taker = MARKET, maker = LIMIT
   const orderTypeCode =
-    orderType === "taker"
-      ? UnifiedOrderType.MARKET
-      : UnifiedOrderType.LIMIT;
+    orderType === "taker" ? UnifiedOrderType.MARKET : UnifiedOrderType.LIMIT;
 
   // Current price from OHLCV (close price)
   const price = parseFloat(current[4]);
@@ -344,18 +337,20 @@ export async function executeTradingV3({
 
     // Update position with new entry
     if (isTest) {
-      modelMemory.positions.push(buildV3Position({
-        decision,
-        executionMode: "sandbox",
-        feeUsdt: totalFeeAmount,
-        leverage: 1,
-        notionalUsdt: amountToBuy,
-        price,
-        quantity,
-        symbol,
-        t: current[0],
-        tradingMode,
-      }));
+      modelMemory.positions.push(
+        buildV3Position({
+          decision,
+          executionMode: "sandbox",
+          feeUsdt: totalFeeAmount,
+          leverage: 1,
+          notionalUsdt: amountToBuy,
+          price,
+          quantity,
+          symbol,
+          t: current[0],
+          tradingMode,
+        }),
+      );
     }
 
     // Update balances
@@ -392,18 +387,20 @@ export async function executeTradingV3({
         const executedQty = buyResult.executedQty || quantity;
         const executedQuoteQty = executedPrice * executedQty;
 
-        modelMemory.positions.push(buildV3Position({
-          decision,
-          executionMode: "live",
-          feeUsdt: executedQuoteQty * (totalFeePercent / 100),
-          leverage: 1,
-          notionalUsdt: executedQuoteQty,
-          price: executedPrice,
-          quantity: executedQty,
-          symbol,
-          t: current[0],
-          tradingMode,
-        }));
+        modelMemory.positions.push(
+          buildV3Position({
+            decision,
+            executionMode: "live",
+            feeUsdt: executedQuoteQty * (totalFeePercent / 100),
+            leverage: 1,
+            notionalUsdt: executedQuoteQty,
+            price: executedPrice,
+            quantity: executedQty,
+            symbol,
+            t: current[0],
+            tradingMode,
+          }),
+        );
 
         tradingResult = buyResult;
 
@@ -492,7 +489,9 @@ export async function executeTradingV3({
       : currentPosition;
 
     const profit =
-      decision.profit * (targetPosition.exposure.quantity * targetPosition.exposure.averageEntryPrice);
+      decision.profit *
+      (targetPosition.exposure.quantity *
+        targetPosition.exposure.averageEntryPrice);
 
     // Update bookkeeping
     totalFee = totalFeeAmount;

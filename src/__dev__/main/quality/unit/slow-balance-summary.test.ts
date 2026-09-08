@@ -7,6 +7,22 @@ import type { SlowTradingDashboardState } from "@/lib/slowTrading";
 
 function dashboardState(): SlowTradingDashboardState {
   return {
+    accountSummaries: [
+      {
+        activeMode: "live",
+        balances: {
+          availableQuoteAsset: 100,
+          lockedQuoteAsset: 40,
+          reservedQuoteAsset: 25,
+          safeHaven: 20,
+          spendableQuoteAsset: 55,
+          startingBalanceUSDT: 90,
+        },
+        enabled: true,
+        name: "Main Account",
+        slug: "main-account",
+      },
+    ],
     activeMode: "live",
     balances: {
       availableQuoteAsset: 100,
@@ -38,10 +54,17 @@ describe("SLOW MCP balance summary", () => {
       spendable: 55,
       totalAsset: 140,
     });
+    expect(result.accounts).toEqual([
+      {
+        balance: result.balance,
+        mode: "live",
+        name: "Main Account",
+        slug: "main-account",
+      },
+    ]);
     expect(result.equations).toEqual({
       available: "available = spendable + reserved + safeHaven",
-      spendable:
-        "spendable = max(0, available - reserved - safeHaven)",
+      spendable: "spendable = max(0, available - reserved - safeHaven)",
       totalAsset: "totalAsset = available + locked",
     });
     expect(result.meanings.totalAsset).toContain("not floating equity");
@@ -71,13 +94,14 @@ describe("SLOW MCP balance summary", () => {
     const balanceTool = tools.find((tool) => tool.name === "slow_balance_read");
 
     expect(balanceTool).toBeDefined();
+    expect(balanceTool?.description).toContain("all enabled exchange accounts");
     expect(balanceTool?.description).toContain("plain-language meaning");
     expect(balanceTool?.description).toContain("not floating equity");
     expect(balanceTool?.annotations.readOnlyHint).toBe(true);
     expect(
-      slowTrading.mcp.tools.catalog().find(
-        (tool) => tool.name === "slow_balance_read",
-      ),
+      slowTrading.mcp.tools
+        .catalog()
+        .find((tool) => tool.name === "slow_balance_read"),
     ).toMatchObject({ permission: "balance.read", readOnly: true });
   });
 });

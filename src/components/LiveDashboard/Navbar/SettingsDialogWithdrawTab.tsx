@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  Alert,
-  Box,
-  Grid,
-  Stack,
-  Switch,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Grid, Stack, Switch, Typography } from "@mui/material";
 
 import SettingsDialogSection from "./SettingsDialogSection";
 import SettingsInfoField from "./SettingsInfoField";
@@ -106,9 +99,7 @@ export default function SettingsDialogWithdrawTab({
         ? {
             ...prev,
             withdrawalSchedules: prev.withdrawalSchedules.map((schedule) =>
-              schedule.id === updatedSchedule.id
-                ? updatedSchedule
-                : schedule,
+              schedule.id === updatedSchedule.id ? updatedSchedule : schedule,
             ),
           }
         : prev,
@@ -236,6 +227,7 @@ export default function SettingsDialogWithdrawTab({
               </Box>
 
               <WithdrawalScheduleCreateDialog
+                accounts={configDraft.exchangeAccounts}
                 onCreate={addSchedule}
                 scheduleCount={configDraft.withdrawalSchedules.length}
                 walletBook={configDraft.withdrawalWalletBook}
@@ -243,6 +235,7 @@ export default function SettingsDialogWithdrawTab({
             </Stack>
 
             <WithdrawalScheduleTable
+              accounts={configDraft.exchangeAccounts}
               onDelete={deleteSchedule}
               onTest={tryWithdrawNow}
               onUpdate={updateSchedule}

@@ -47,7 +47,11 @@ async function evaluateCoinManagement(
   const symbols = Array.from(
     new Set(
       storage.config.symbols
-        .map((symbol) => String(symbol || "").trim().toUpperCase())
+        .map((symbol) =>
+          String(symbol || "")
+            .trim()
+            .toUpperCase(),
+        )
         .filter(Boolean),
     ),
   );
@@ -166,21 +170,18 @@ async function run(params?: RunSlowTradingManagementParams) {
       latestPriceBySymbol: evaluation.latestPriceBySymbol,
       minimumPrice: latestStorage.runtime.autoRemoveSymbolMinPrice,
     });
-    const removedByMarketCap =
-      slowTradingAutoRemoveSymbols.find.byMarketCap({
-        configuredSymbols: latestStorage.config.symbols,
-        marketCapUSDBySymbol: evaluation.latestMarketCapBySymbol,
-        minimumMarketCapUSD:
-          latestStorage.runtime.autoRemoveSymbolMinMarketCapUSD,
-      });
+    const removedByMarketCap = slowTradingAutoRemoveSymbols.find.byMarketCap({
+      configuredSymbols: latestStorage.config.symbols,
+      marketCapUSDBySymbol: evaluation.latestMarketCapBySymbol,
+      minimumMarketCapUSD:
+        latestStorage.runtime.autoRemoveSymbolMinMarketCapUSD,
+    });
     // PROD:AUTO_REMOVE_COIN_BY_VPOINT_PCT
-    const removedByVPointPct =
-      slowTradingAutoRemoveSymbols.find.byVPointPct({
-        configuredSymbols: latestStorage.config.symbols,
-        minimumVPointPct:
-          latestStorage.runtime.autoRemoveSymbolMinVPointPct,
-        volatilityPointsBySymbol: evaluation.volatilityPointsBySymbol,
-      });
+    const removedByVPointPct = slowTradingAutoRemoveSymbols.find.byVPointPct({
+      configuredSymbols: latestStorage.config.symbols,
+      minimumVPointPct: latestStorage.runtime.autoRemoveSymbolMinVPointPct,
+      volatilityPointsBySymbol: evaluation.volatilityPointsBySymbol,
+    });
     const removedSymbols = Array.from(
       new Set([
         ...removedByAbsLevel,
@@ -200,8 +201,7 @@ async function run(params?: RunSlowTradingManagementParams) {
           })
         : latestStorage;
     const modeState = updatedStorage.modes[activeMode];
-    const summary =
-      `${activeMode} management cycle removed ${removedSymbols.length} symbol(s)`;
+    const summary = `${activeMode} management cycle removed ${removedSymbols.length} symbol(s)`;
     const commitFinishedAt = now();
     const commitPerformance = {
       durationMs: Math.max(0, commitFinishedAt - commitStartedAt),
@@ -220,7 +220,9 @@ async function run(params?: RunSlowTradingManagementParams) {
       summary,
       symbols: prepared.symbols.length,
     });
-    await slowTradingStorage.mode.saveState(activeMode, modeState);
+    await slowTradingStorage.mode.saveState(activeMode, modeState, {
+      account: updatedStorage.account.slug,
+    });
 
     const removedByAbsLevelSet = new Set(removedByAbsLevel);
     const removedByMarketCapSet = new Set(removedByMarketCap);
@@ -231,9 +233,8 @@ async function run(params?: RunSlowTradingManagementParams) {
       const sources: string[] = [];
 
       if (removedByAbsLevelSet.has(symbol)) {
-        const latestPoint = evaluation.modelMemoryMap[
-          symbol
-        ]?.volatility?.lastVolatility?.at(-1);
+        const latestPoint =
+          evaluation.modelMemoryMap[symbol]?.volatility?.lastVolatility?.at(-1);
         reasons.push(
           `Latest vPoint absolute level ${Math.abs(latestPoint?.lvl ?? 0)} ` +
             `reached threshold ${updatedStorage.runtime.autoRemoveSymbolAbsLevel}.`,
@@ -255,10 +256,9 @@ async function run(params?: RunSlowTradingManagementParams) {
         sources.push("auto-remove-market-cap");
       }
       if (removedByVPointPctSet.has(symbol)) {
-        const highestPoint =
-          slowTradingAutoRemoveSymbols.vPoint.findHighestPct(
-            evaluation.volatilityPointsBySymbol[symbol] ?? [],
-          );
+        const highestPoint = slowTradingAutoRemoveSymbols.vPoint.findHighestPct(
+          evaluation.volatilityPointsBySymbol[symbol] ?? [],
+        );
         reasons.push(
           `Stored vPoint ${highestPoint?.id ?? "unknown"} movement ` +
             `${highestPoint?.pct ?? "unknown"}% reached threshold ` +

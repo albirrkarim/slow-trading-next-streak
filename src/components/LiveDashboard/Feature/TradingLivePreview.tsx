@@ -264,6 +264,7 @@ function StageStopOutcome({
 }
 
 function ExitStagePreview({
+  entryLegs,
   leverage,
   stage,
   stopLossPct,
@@ -271,6 +272,7 @@ function ExitStagePreview({
   takeProfitPct,
   targetZoneStopLossPct,
 }: {
+  entryLegs: "MAIN" | "COUNTER" | "BOTH";
   leverage: number;
   stage: TradingLivePreviewExitStage;
   stopLossPct: number | null;
@@ -328,6 +330,9 @@ function ExitStagePreview({
       ? postAverageStopParts.join(" OR ")
       : "Both boundaries disabled for this tier";
   const hasCounterLeg = stage.counterMarginUsdt > 0;
+  const isCounterOnly = entryLegs === "COUNTER";
+  const activeLegLabel = isCounterOnly ? "COUNTER LEG" : "MAIN LEG";
+  const activeLegName = isCounterOnly ? "counter" : "main";
   const netUsdtStopLossIsFirst = stage.firstStopLoss?.type === "NET_USDT";
   const hardStopLossIsFirst =
     stage.firstStopLoss?.type === "HARD_STOP_PERCENT";
@@ -365,26 +370,30 @@ function ExitStagePreview({
         }}
       >
         <StageLegGroup
-          label="MAIN LEG"
-          role="main"
-          testId="main-leg-stage"
+          label={activeLegLabel}
+          role={isCounterOnly ? "counter" : "main"}
+          testId={isCounterOnly ? "counter-leg-stage" : "main-leg-stage"}
           wide={!hasCounterLeg}
         >
           <PreviewCalculation
-            detail="entry margin + averaging margins used by the main leg"
+            detail={`entry margin + averaging margins used by the ${activeLegName} leg`}
             formula={marginFormula}
             label="Cumulative margin"
           />
           <PreviewCalculation
-            detail="cumulative main margin x leverage"
+            detail={`cumulative ${activeLegName} margin x leverage`}
             formula={notionalFormula}
             label="Notional"
           />
           <PreviewCalculation
             color="success.main"
-            detail="main notional x take-profit percent"
+            detail={
+              isCounterOnly
+                ? "counter notional x take-profit percent; COUNTER-only enables normal TP after one favorable volatility level"
+                : "main notional x take-profit percent"
+            }
             formula={profitFormula}
-            label={`Profit at TP (${takeProfitPct}%)`}
+            label={`${isCounterOnly ? "Profit at TP after one favorable level" : "Profit at TP"} (${takeProfitPct}%)`}
           />
           <PreviewCalculation
             color={
@@ -395,7 +404,7 @@ function ExitStagePreview({
             detail={
               stage.estimatedLossUsdt === null
                 ? "No stop-loss estimate"
-                : "main notional x stop-loss percent"
+                : `${activeLegName} notional x stop-loss percent`
             }
             formula={lossFormula}
             label={
@@ -821,7 +830,7 @@ export default function TradingLivePreview({
               detail={
                 preview.workerLegs === 2
                   ? "main and counter initial entry plus each leg's rolling averaging reserve"
-                  : "entry + each rolling averaging reserve"
+                  : `${preview.entryLegs.toLowerCase()} entry + its rolling averaging reserve`
               }
               formula={workerBudgetFormula}
               label={
@@ -868,6 +877,7 @@ export default function TradingLivePreview({
             />
             {preview.exitStages.map((stage) => (
               <ExitStagePreview
+                entryLegs={preview.entryLegs}
                 key={stage.stage}
                 leverage={preview.leverage}
                 stage={stage}

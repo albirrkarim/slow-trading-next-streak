@@ -13,6 +13,7 @@ import type {
   VolatilityPoint,
 } from "@/lib/dynamic";
 import { TradingMode } from "@/lib/exchange";
+import { getCurrentExchangeAccountSlug } from "@/lib/exchange/account-context";
 import {
   adjustEntryMarginForSlowConfig,
   buildSlowWatchReserveState,
@@ -182,6 +183,7 @@ export function tryOpenBacktestEntry({
 }: BacktestTradeRuntimeProps & {
   pairLeg?: {
     direction: Position["direction"];
+    entryLegs?: Position["entryLegs"];
     pairId: string;
     role: PositionRole;
   };
@@ -227,9 +229,7 @@ export function tryOpenBacktestEntry({
       modelMemory,
       roles: pairLeg
         ? [pairLeg.role]
-        : bothDirection.config.isEnabled(config.openDirection)
-          ? ["MAIN", "COUNTER"]
-          : undefined,
+        : bothDirection.entry.resolveRoles(config),
     })
   ) {
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
@@ -245,6 +245,7 @@ export function tryOpenBacktestEntry({
   const legs = pairLeg
     ? [pairLeg]
     : bothDirection.entry.resolveLegs({
+        entryLegs: config.entryLegs,
         mainDirection: direction,
         openDirection: config.openDirection,
       });
@@ -320,9 +321,15 @@ export function tryOpenBacktestEntry({
   const positions = legs.map<Position>((leg, index) => {
     const entryFeeUsdt = notionalUsdt * entryFeeRates[index];
     return {
+      // BOTH:MULTI_ACCOUNT_POSITION_OWNER
+      account: getCurrentExchangeAccountSlug(),
       symbol,
       pairId,
       role: leg.role,
+      entryLegs: bothDirection.config.isEnabled(config.openDirection)
+        ? (pairLeg?.entryLegs ??
+          bothDirection.entry.normalizeSelection(config.entryLegs))
+        : undefined,
       executionMode: "sandbox",
       tradingMode: config.tradingMode,
       direction: leg.direction,
@@ -398,9 +405,7 @@ export function tryOpenBacktestEntry({
     modelMemory,
     roles: pairLeg
       ? [pairLeg.role]
-      : bothDirection.config.isEnabled(config.openDirection)
-        ? ["MAIN", "COUNTER"]
-        : undefined,
+      : bothDirection.entry.resolveRoles(config),
   });
 
   tradeLog.log("\n\n");
@@ -437,6 +442,7 @@ export function tryOpenBacktestStreakReentry(
     ...params,
     pairLeg: {
       direction: decision.direction,
+      entryLegs: decision.survivor.entryLegs,
       pairId: decision.pairId,
       role: decision.role,
     },
@@ -552,13 +558,15 @@ export function tryExecuteBacktestAveraging({
       ? ` | ADAPTIVE AVG ${usedPctAlloc}x (reserved $${nextStep.marginUsdt.toFixed(2)} -> used $${marginUsdt.toFixed(2)}, projected +${rescueProjection.projectedProfitPct.toFixed(2)}%)`
       : "";
 
-  if (!canSpendWatchStepMargin({
-    // BOTH:HAVE_ENOUGH_TO_RESERVED
-    step: spendStep,
-    quoteAsset: dynamicTradeMemory.quoteAsset,
-    reservedQuoteAsset: dynamicTradeMemory.reservedQuoteAsset,
-    minimalUsdt: MINIMAL_USDT_TO_TRADE,
-  })) {
+  if (
+    !canSpendWatchStepMargin({
+      // BOTH:HAVE_ENOUGH_TO_RESERVED
+      step: spendStep,
+      quoteAsset: dynamicTradeMemory.quoteAsset,
+      reservedQuoteAsset: dynamicTradeMemory.reservedQuoteAsset,
+      minimalUsdt: MINIMAL_USDT_TO_TRADE,
+    })
+  ) {
     return false;
   }
 
@@ -576,21 +584,20 @@ export function tryExecuteBacktestAveraging({
   const addedQuantity = addedNotionalUsdt / price;
   const newQuantity = position.exposure.quantity + addedQuantity;
   const positionsBefore = deepCopy(modelMemory.positions);
-  const reservedBefore = getReservedRemainingUsdt(
-    position.strategy.averaging,
-  );
+  const reservedBefore = getReservedRemainingUsdt(position.strategy.averaging);
 
   position.exposure.averageEntryPrice =
-    (position.exposure.averageEntryPrice * position.exposure.quantity + price * addedQuantity) /
+    (position.exposure.averageEntryPrice * position.exposure.quantity +
+      price * addedQuantity) /
     newQuantity;
   position.exposure.quantity = newQuantity;
   position.exposure.notionalUsdt = roundUsdt(
     (position.exposure.notionalUsdt ?? 0) + marginUsdt * leverage,
   );
-  position.exposure.marginUsdt = roundUsdt((position.exposure.marginUsdt ?? 0) + marginUsdt);
-  position.fees.entryUsdt = roundUsdt(
-    position.fees.entryUsdt + feeUsdt,
+  position.exposure.marginUsdt = roundUsdt(
+    (position.exposure.marginUsdt ?? 0) + marginUsdt,
   );
+  position.fees.entryUsdt = roundUsdt(position.fees.entryUsdt + feeUsdt);
   position.fees.estimatedExitUsdt = roundUsdt(
     position.exposure.notionalUsdt * feeRate,
   );
@@ -626,9 +633,7 @@ export function tryExecuteBacktestAveraging({
     usedPctAlloc,
   });
 
-  const reservedAfter = getReservedRemainingUsdt(
-    position.strategy.averaging,
-  );
+  const reservedAfter = getReservedRemainingUsdt(position.strategy.averaging);
   subtractBacktestReservedQuoteAsset(
     dynamicTradeMemory,
     Math.max(0, reservedBefore - reservedAfter),

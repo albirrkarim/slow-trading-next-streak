@@ -19,7 +19,10 @@ type TradeHistoryView = "all" | "losses" | "profits";
 function isLosingTrade(
   trade: SlowTradingDashboardState["history"][number],
 ): boolean {
-  if (typeof trade.pnl.netUsdt === "number" && Number.isFinite(trade.pnl.netUsdt)) {
+  if (
+    typeof trade.pnl.netUsdt === "number" &&
+    Number.isFinite(trade.pnl.netUsdt)
+  ) {
     return trade.pnl.netUsdt < 0;
   }
 
@@ -34,7 +37,10 @@ function isLosingTrade(
 function isProfitableTrade(
   trade: SlowTradingDashboardState["history"][number],
 ): boolean {
-  if (typeof trade.pnl.netUsdt === "number" && Number.isFinite(trade.pnl.netUsdt)) {
+  if (
+    typeof trade.pnl.netUsdt === "number" &&
+    Number.isFinite(trade.pnl.netUsdt)
+  ) {
     return trade.pnl.netUsdt > 0;
   }
 
@@ -46,17 +52,11 @@ function isProfitableTrade(
 }
 
 export default function SlowTradingReporting({
-  coinTags,
   dashboardState,
   onRefresh,
-  tagColors,
-  tagDescriptions,
 }: {
-  coinTags?: Record<string, string[]>;
   dashboardState: SlowTradingDashboardState;
   onRefresh?: () => Promise<void>;
-  tagColors?: Record<string, string>;
-  tagDescriptions?: Record<string, string>;
 }) {
   const { enqueueSnackbar } = useSnackbar();
   const [history, setHistory] = useState(dashboardState.history ?? []);
@@ -201,7 +201,6 @@ export default function SlowTradingReporting({
       )}
 
       <TradesTableSection
-        coinTags={coinTags}
         exchangeType={dashboardState.config.exchangeType}
         history={visibleHistory}
         mode={activeMode}
@@ -212,8 +211,6 @@ export default function SlowTradingReporting({
           }
         }}
         reserveMultiplier={dashboardState.config.watchReservePctAlloc ?? 2}
-        tagColors={tagColors}
-        tagDescriptions={tagDescriptions}
       />
     </Box>
   );

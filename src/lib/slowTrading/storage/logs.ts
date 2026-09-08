@@ -90,7 +90,13 @@ export async function deleteSlowTradingLogEntry(
   await slowTradingJsonFile.update.atomic<unknown[]>(filePath, (raw) => {
     const current = Array.isArray(raw) ? raw : [];
     const next = current.filter(
-      (entry) => !(entry && typeof entry === "object" && "id" in entry && entry.id === id),
+      (entry) =>
+        !(
+          entry &&
+          typeof entry === "object" &&
+          "id" in entry &&
+          entry.id === id
+        ),
     );
     deleted = next.length !== current.length;
     return next;
@@ -204,7 +210,9 @@ export async function appendSlowTradingManagementLog(params: {
     id: createLogId("management"),
     createdAt: params.timestamp ?? Date.now(),
     action: params.action,
-    symbol: String(params.symbol || "").trim().toUpperCase(),
+    symbol: String(params.symbol || "")
+      .trim()
+      .toUpperCase(),
     source: params.source,
     reason: params.reason,
   };
@@ -218,6 +226,7 @@ export async function appendSlowTradingManagementLog(params: {
  * Appends slow trading safe haven log to SLOW persistent storage.
  */
 export async function appendSlowTradingSafeHavenLog(params: {
+  account: string;
   mode: SlowTradingMode;
   previousUSDT: number;
   nextUSDT: number;
@@ -229,6 +238,7 @@ export async function appendSlowTradingSafeHavenLog(params: {
   const nextUSDT = Number(params.nextUSDT) || 0;
   const entry: SlowTradingSafeHavenLogEntry = {
     id: createLogId("safe-haven"),
+    account: params.account,
     createdAt: params.timestamp ?? Date.now(),
     mode: params.mode,
     previousUSDT,

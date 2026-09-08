@@ -52,9 +52,7 @@ export function tryToExit({
 }: TryToExitProps) {
   let totalUSDTRecovered = 0;
   const exitModelConfig =
-    modelConfig ??
-    config.modelConfig ??
-    DEFAULT_BACKTEST_EXIT_MODEL_CONFIG;
+    modelConfig ?? config.modelConfig ?? DEFAULT_BACKTEST_EXIT_MODEL_CONFIG;
 
   // 1. Calculate Global PnL for Cross Margin
   const globalUnrealizedPnL = calculateGlobalUnrealizedPnL({
@@ -125,7 +123,13 @@ export function tryToExit({
         // BOTH:POST_AVERAGE_RESCUE_EXIT
         lastVolatilityPrice: lastVolatility?.p,
         modelConfig: exitModelConfig,
-        allowProfitProtection: !isPairPosition,
+        allowProfitProtection:
+          // BOTH:ACCOUNT_ENTRY_LEGS
+          bothDirection.profitProtection.counterAllowed({
+            position: open,
+            positions: pairPositions,
+            volatilityPoints: volatilityMap[symbol],
+          }),
         // BOTH:VOLATILITY_TARGET_EXIT
         isCurrentVolatilityTarget:
           isPairPosition && volatilityTarget.hasReached,
@@ -164,9 +168,11 @@ export function tryToExit({
         const exitNotionalUsdt =
           open.exposure.quantity * exitDecision.exitPrice;
         const fee = exitNotionalUsdt * exitFeeRatio;
-        const recoveredMarginAfterFeeUsdt = recoveredMarginUsdt - fee;
-        open.pnl.netUsdt =
-          grossProfitUsdt - open.fees.entryUsdt - fee;
+        const recoveredMarginAfterFeeUsdt = Math.max(
+          0,
+          recoveredMarginUsdt - fee,
+        );
+        open.pnl.netUsdt = grossProfitUsdt - open.fees.entryUsdt - fee;
         // BOTH:POSITION_PNL_USDT_EXTREMA
         applyPositionNetUsdtExtrema(open, open.pnl.netUsdt);
         open.pnl.netPct =
@@ -177,8 +183,8 @@ export function tryToExit({
         const message =
           `${TRADE_MESSAGE.sell.EXIT} ${open.symbol} (Entry ${open.opened.vPoint.lvl} Exit ${currentVolatility.lvl} Lev ${open.exposure.leverage}) ${open.direction} ` +
           `${exitDecision.category ?? ""} ${
-          shouldForceSellPosition ? TRADE_MESSAGE.sell.FINAL : ""
-        } `;
+            shouldForceSellPosition ? TRADE_MESSAGE.sell.FINAL : ""
+          } `;
         const exitMessage = `${message} ${exitDecision.message} entry: ${open.exposure.averageEntryPrice} | exit: ${
           exitDecision.exitPrice
         } | triggerPrice: ${
@@ -331,9 +337,13 @@ export function calculateGlobalUnrealizedPnL({
 
           let pnlUSDT = 0;
           if (isShort) {
-            pnlUSDT = pos.exposure.quantity * pos.exposure.averageEntryPrice - pos.exposure.quantity * lastPrice;
+            pnlUSDT =
+              pos.exposure.quantity * pos.exposure.averageEntryPrice -
+              pos.exposure.quantity * lastPrice;
           } else {
-            pnlUSDT = pos.exposure.quantity * lastPrice - pos.exposure.quantity * pos.exposure.averageEntryPrice;
+            pnlUSDT =
+              pos.exposure.quantity * lastPrice -
+              pos.exposure.quantity * pos.exposure.averageEntryPrice;
           }
           globalUnrealizedPnL += pnlUSDT;
         }

@@ -24,7 +24,7 @@ const configDraft = {
   enableWatchLogic: true,
   entrySignalBypass: false,
   exactLeverage: 3,
-  exchangeAccountId: "account-1",
+  exchangeAccountSlug: "account-1",
   exchangeAccounts: [
     {
       id: "account-1",
@@ -102,10 +102,8 @@ describe("settings config backup", () => {
   });
 
   it("defaults the daily PnL stop when importing an older backup", () => {
-    const {
-      autoEntryDailyPnlLimitUSDT: _legacyMissingField,
-      ...legacyBackup
-    } = configDraft;
+    const { autoEntryDailyPnlLimitUSDT: _legacyMissingField, ...legacyBackup } =
+      configDraft;
 
     expect(
       parseConfigBackup(JSON.stringify(legacyBackup))

@@ -7,10 +7,13 @@ import type { Position } from "@/lib/trading/models";
 import tradingPosition from "@/lib/trading/position";
 import type { SlowTradingHistoryPosition } from "./types";
 
-import { runBacktestVolatilityDynamic } from "../dynamic/backtest-volatility";
 import type { GrowthOvertimeDetail } from "../dynamic/backtest-volatility/type";
 import type { DynamicTradeConfig } from "../dynamic/type-dynamic";
 import { windowsMs } from "../dynamic/constants-time";
+import {
+  DEFAULT_EXCHANGE_ACCOUNT_SLUG,
+  runWithExchangeAccount,
+} from "@/lib/exchange/account-context";
 
 const QUICK_BACKTEST_ENTRY_CUTOFF_BUFFER_MS = windowsMs["1d"] * 4;
 
@@ -24,6 +27,14 @@ export interface SlowQuickBacktestInput {
   signal?: AbortSignal;
   volume24hBySymbol?: Record<string, number>;
   verbose?: boolean;
+  /** Enabled account strategies and their independent starting balances. */
+  accounts?: Array<{
+    slug: string;
+    name?: string;
+    enabled: boolean;
+    config: DynamicTradeConfig;
+    startAmount: number;
+  }>;
 }
 
 export interface SlowQuickBacktestMetrics {
@@ -762,7 +773,7 @@ export function positionsToQuickTradeHistory(
  * Runs a demand-only SLOW dashboard backtest from visible/ranged volatility
  * points without writing live SLOW memory or loading background datasets.
  */
-async function run({
+async function runSingle({
   volatilityMap,
   config,
   startAmount = 100,
@@ -772,7 +783,10 @@ async function run({
   signal,
   volume24hBySymbol,
   verbose = false,
-}: SlowQuickBacktestInput): Promise<SlowQuickBacktestResult> {
+  accountSlug = DEFAULT_EXCHANGE_ACCOUNT_SLUG,
+}: SlowQuickBacktestInput & {
+  accountSlug?: string;
+}): Promise<SlowQuickBacktestResult> {
   const symbols = Array.from(
     new Set([...config.symbols, "BTC"].map((symbol) => symbol.toUpperCase())),
   );
@@ -784,23 +798,38 @@ async function run({
     DECISION_ENGINE_MAP[
       config.decisionEngineVersion ?? PRODUCTION_DECISION_ENGINE
     ] ?? DECISION_ENGINE_MAP[PRODUCTION_DECISION_ENGINE];
+  // PROD:QUICK_BACKTEST_DEMAND_ONLY
+  const { runBacktestVolatilityDynamic } =
+    await import("../dynamic/backtest-volatility");
 
-  const backtest = await runBacktestVolatilityDynamic({
-    symbols,
-    interval: "5m",
-    range,
-    signal,
-    startTime,
-    endTime,
-    useVolatilityCache: false,
-    entryCutoffBufferMs: QUICK_BACKTEST_ENTRY_CUTOFF_BUFFER_MS,
-    volatilityMap,
-    warmupVolatilityMap: volatilityMap,
-    volume24hBySymbol,
-    config: configForBacktest,
-    decisionEngine,
-    verbose,
-  });
+  const backtest = await runWithExchangeAccount(
+    {
+      slug: accountSlug,
+      type: "binance",
+      name: accountSlug,
+      description: "",
+      credentials: { apiKey: "", apiSecret: "" },
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    () =>
+      runBacktestVolatilityDynamic({
+        symbols,
+        interval: "5m",
+        range,
+        signal,
+        startTime,
+        endTime,
+        useVolatilityCache: false,
+        entryCutoffBufferMs: QUICK_BACKTEST_ENTRY_CUTOFF_BUFFER_MS,
+        volatilityMap,
+        warmupVolatilityMap: volatilityMap,
+        volume24hBySymbol,
+        config: configForBacktest,
+        decisionEngine,
+        verbose,
+      }),
+  );
 
   const growth = backtest.backtestPack.growthOvertime;
   const finalPortfolioValue =
@@ -850,9 +879,244 @@ async function run({
   };
 }
 
+function minPositive(values: number[]) {
+  const positive = values.filter((value) => value > 0);
+  return positive.length > 0 ? Math.min(...positive) : 0;
+}
+
+/**
+ * Combines sparse account growth series using the latest value per timestamp.
+ * Each account's last known value is carried forward until its next snapshot.
+ */
+export function combineQuickGrowthSeries(
+  accountResults: Array<{
+    result: Pick<SlowQuickBacktestResult, "growthOvertimeSeries">;
+  }>,
+): SlowQuickBacktestResult["growthOvertimeSeries"] {
+  const names = accountResults[0]?.result.growthOvertimeSeries.names ?? [];
+  return {
+    names,
+    series: names.map((_, seriesIndex) => {
+      const pointsByAccount = accountResults.map((account) => {
+        const latestByTime = new Map<number, LeveledMarkers>();
+        for (const point of account.result.growthOvertimeSeries.series[
+          seriesIndex
+        ] ?? []) {
+          if (Number.isFinite(point.time) && Number.isFinite(point.level)) {
+            latestByTime.set(point.time, point);
+          }
+        }
+
+        return [...latestByTime.values()].sort(
+          (left, right) => left.time - right.time,
+        );
+      });
+      const times = [
+        ...new Set(
+          pointsByAccount.flatMap((points) =>
+            points.map((point) => point.time),
+          ),
+        ),
+      ].sort((left, right) => left - right);
+      const cursors = pointsByAccount.map(() => 0);
+      const latestLevels = pointsByAccount.map(() => 0);
+
+      // BTEST:MULTI_ACCOUNT_COMBINED_BACKTEST
+      return times.map((time) => {
+        pointsByAccount.forEach((points, accountIndex) => {
+          while (
+            cursors[accountIndex] < points.length &&
+            points[cursors[accountIndex]].time <= time
+          ) {
+            latestLevels[accountIndex] = points[cursors[accountIndex]].level;
+            cursors[accountIndex] += 1;
+          }
+        });
+
+        return {
+          time,
+          level: latestLevels.reduce((total, level) => total + level, 0),
+        };
+      });
+    }),
+  };
+}
+
+/** Combines account markers under the chart's single TRADE SIMULATION group. */
+export function combineQuickSimulationSeries(
+  accountResults: Array<{
+    name: string;
+    result: Pick<SlowQuickBacktestResult, "simulationSeries">;
+  }>,
+): SlowQuickBacktestResult["simulationSeries"] {
+  // BTEST:MULTI_ACCOUNT_COMBINED_BACKTEST
+  return {
+    names: accountResults.flatMap(
+      (account) => account.result.simulationSeries.names,
+    ),
+    series: accountResults.flatMap((account) =>
+      account.result.simulationSeries.series.map((markers) =>
+        markers.map((marker) => ({
+          ...marker,
+          text: marker.text ? `${account.name}: ${marker.text}` : marker.text,
+        })),
+      ),
+    ),
+  };
+}
+
+/** Runs every enabled account and combines their trades into one report. */
+async function run(
+  input: SlowQuickBacktestInput,
+): Promise<SlowQuickBacktestResult> {
+  const enabledAccounts = (input.accounts ?? []).filter(
+    (account) => account.enabled,
+  );
+  if (input.accounts && enabledAccounts.length === 0) {
+    throw new Error(
+      "Enable at least one account before running Quick Backtest.",
+    );
+  }
+  if (enabledAccounts.length === 0) return runSingle(input);
+
+  const accountResults: Array<{
+    name: string;
+    startAmount: number;
+    result: SlowQuickBacktestResult;
+  }> = [];
+  // BTEST:MULTI_ACCOUNT_COMBINED_BACKTEST
+  for (const account of enabledAccounts) {
+    accountResults.push({
+      name: account.name || account.slug,
+      startAmount: account.startAmount,
+      result: await runSingle({
+        ...input,
+        accounts: undefined,
+        accountSlug: account.slug,
+        config: account.config,
+        startAmount: account.startAmount,
+      }),
+    });
+  }
+
+  const metrics = accountResults.map((account) => account.result.metrics);
+  const startingUsdt = accountResults.reduce(
+    (total, account) => total + account.startAmount,
+    0,
+  );
+  const finalUsdt = metrics.reduce((total, item) => total + item.finalUsdt, 0);
+  const gainUsdt = finalUsdt - startingUsdt;
+  const entryCount = metrics.reduce(
+    (total, item) => total + item.entryCount,
+    0,
+  );
+  const totalHoldDurationMs = metrics.reduce(
+    (total, item) => total + item.totalHoldDurationMs,
+    0,
+  );
+  const totalActiveCapitalDurationMs = metrics.reduce(
+    (total, item) => total + item.totalActiveCapitalDurationMs,
+    0,
+  );
+  const totalUnusedCapitalDurationMs = metrics.reduce(
+    (total, item) => total + item.totalUnusedCapitalDurationMs,
+    0,
+  );
+
+  return {
+    metrics: {
+      entryCount,
+      sharpeRatio:
+        entryCount > 0
+          ? metrics.reduce(
+              (total, item) => total + item.sharpeRatio * item.entryCount,
+              0,
+            ) / entryCount
+          : 0,
+      gainPct: startingUsdt > 0 ? (gainUsdt / startingUsdt) * 100 : 0,
+      gainUsdt,
+      finalUsdt,
+      avgProfitUsdtPerWeek: metrics.reduce(
+        (total, item) => total + item.avgProfitUsdtPerWeek,
+        0,
+      ),
+      maxPositionDrawdownPct: Math.max(
+        0,
+        ...metrics.map((item) => item.maxPositionDrawdownPct),
+      ),
+      minHoldDurationMs: minPositive(
+        metrics.map((item) => item.minHoldDurationMs),
+      ),
+      totalHoldDurationMs,
+      avgHoldDurationMs: entryCount > 0 ? totalHoldDurationMs / entryCount : 0,
+      maxHoldDurationMs: Math.max(
+        0,
+        ...metrics.map((item) => item.maxHoldDurationMs),
+      ),
+      minHoldDuration: formatDuration(
+        minPositive(metrics.map((item) => item.minHoldDurationMs)),
+      ),
+      totalHoldDuration: formatDuration(totalHoldDurationMs),
+      avgHoldDuration: formatDuration(
+        entryCount > 0 ? totalHoldDurationMs / entryCount : 0,
+      ),
+      maxHoldDuration: formatDuration(
+        Math.max(0, ...metrics.map((item) => item.maxHoldDurationMs)),
+      ),
+      minActiveCapitalDurationMs: minPositive(
+        metrics.map((item) => item.minActiveCapitalDurationMs),
+      ),
+      totalActiveCapitalDurationMs,
+      avgActiveCapitalDurationMs:
+        totalActiveCapitalDurationMs / accountResults.length,
+      maxActiveCapitalDurationMs: Math.max(
+        0,
+        ...metrics.map((item) => item.maxActiveCapitalDurationMs),
+      ),
+      minActiveCapitalDuration: formatDuration(
+        minPositive(metrics.map((item) => item.minActiveCapitalDurationMs)),
+      ),
+      totalActiveCapitalDuration: formatDuration(totalActiveCapitalDurationMs),
+      avgActiveCapitalDuration: formatDuration(
+        totalActiveCapitalDurationMs / accountResults.length,
+      ),
+      maxActiveCapitalDuration: formatDuration(
+        Math.max(0, ...metrics.map((item) => item.maxActiveCapitalDurationMs)),
+      ),
+      minUnusedCapitalDurationMs: minPositive(
+        metrics.map((item) => item.minUnusedCapitalDurationMs),
+      ),
+      totalUnusedCapitalDurationMs,
+      avgUnusedCapitalDurationMs:
+        totalUnusedCapitalDurationMs / accountResults.length,
+      maxUnusedCapitalDurationMs: Math.max(
+        0,
+        ...metrics.map((item) => item.maxUnusedCapitalDurationMs),
+      ),
+      minUnusedCapitalDuration: formatDuration(
+        minPositive(metrics.map((item) => item.minUnusedCapitalDurationMs)),
+      ),
+      totalUnusedCapitalDuration: formatDuration(totalUnusedCapitalDurationMs),
+      avgUnusedCapitalDuration: formatDuration(
+        totalUnusedCapitalDurationMs / accountResults.length,
+      ),
+      maxUnusedCapitalDuration: formatDuration(
+        Math.max(0, ...metrics.map((item) => item.maxUnusedCapitalDurationMs)),
+      ),
+    },
+    tradeHistory: accountResults
+      .flatMap((account) => account.result.tradeHistory)
+      .sort((left, right) => (right.closed?.t ?? 0) - (left.closed?.t ?? 0)),
+    growthOvertimeSeries: combineQuickGrowthSeries(accountResults),
+    simulationSeries: combineQuickSimulationSeries(accountResults),
+  };
+}
+
 const slowQuickBacktest = {
   run,
   report: {
+    combineQuickGrowthSeries,
+    combineQuickSimulationSeries,
     growthOvertimeToQuickSeries,
     calculatePositionDrawdownPct,
     calculateQuickEntryCount,

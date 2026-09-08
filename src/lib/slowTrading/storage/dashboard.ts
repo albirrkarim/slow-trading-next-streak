@@ -2,10 +2,7 @@ import { VOLATILITY_THRESHOLD } from "@/lib/brain/constants";
 import { getExchange } from "@/lib/exchange";
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
 import { clone } from "./common";
-import {
-  getSlowTradingHistory,
-  getSlowTradingOpenPositions,
-} from "./history";
+import { getSlowTradingHistory, getSlowTradingOpenPositions } from "./history";
 import { appendSlowTradingErrorLog } from "./logs";
 import { getActiveSlowTradingMode } from "./mode";
 import { runWithSlowTradingExchangeAccount } from "./account";
@@ -15,9 +12,11 @@ import type {
   SlowTradingDashboardState,
   SlowTradingDashboardRuntimeConfig,
   SlowTradingHistoryPosition,
+  SlowTradingStageRunStatsMap,
   SlowTradingStorageData,
 } from "../types";
 import { tradeLog } from "@/lib/trading/helper/log";
+import binanceRequestCoordinator from "@/lib/exchange/platform/binance/request-coordinator";
 import blackSwan from "@/lib/trading/black-swan";
 import bothDirection from "@/lib/trading/both-direction";
 
@@ -71,6 +70,9 @@ async function getSlowTradingLatestPriceMap(
 
           return [symbol, latestPrice] as const;
         } catch (error) {
+          if (binanceRequestCoordinator.error.isRateLimit(error)) {
+            return null;
+          }
           tradeLog.warn(
             `[slow-trading] failed to refresh floating pnl for ${symbol}`,
             error,
@@ -190,6 +192,122 @@ function toDashboardRuntime(
   };
 }
 
+/** Selects the latest successful run for each stage across account snapshots. */
+function combineLatestStageRuns(
+  states: SlowTradingDashboardState[],
+): SlowTradingStageRunStatsMap {
+  const stageRuns: SlowTradingStageRunStatsMap = {};
+
+  for (const state of states) {
+    for (const [stage, run] of Object.entries(state.stats.stageRuns)) {
+      const slowStage = stage as keyof SlowTradingStageRunStatsMap;
+      if (!run) continue;
+      if ((stageRuns[slowStage]?.t ?? 0) < run.t) {
+        stageRuns[slowStage] = run;
+      }
+    }
+  }
+
+  return stageRuns;
+}
+
+/** Combines account-scoped dashboard snapshots without mixing persisted state. */
+export async function buildCombinedSlowTradingDashboardStateRealtime(
+  storages: SlowTradingStorageData[],
+): Promise<SlowTradingDashboardState> {
+  if (storages.length === 0) {
+    throw new Error("Cannot build a combined dashboard without accounts.");
+  }
+
+  const enabledStorages = storages.filter((storage) => storage.account.enabled);
+  if (enabledStorages.length === 0) {
+    const empty = buildSlowTradingDashboardState(storages[0]);
+    return {
+      ...empty,
+      accountFilter: null,
+      accountSummaries: [],
+      balances: {
+        availableQuoteAsset: 0,
+        reservedQuoteAsset: 0,
+        spendableQuoteAsset: 0,
+        safeHaven: 0,
+        lockedQuoteAsset: 0,
+        startingBalanceUSDT: 0,
+      },
+      history: [],
+      openPositions: [],
+      stats: {
+        closedTrades: 0,
+        openPositions: 0,
+        stageRuns: {},
+      },
+    };
+  }
+
+  const states: SlowTradingDashboardState[] = [];
+  for (const storage of enabledStorages) {
+    states.push(await buildSlowTradingDashboardStateRealtime(storage));
+  }
+  const primary = states[0];
+  // PROD:MULTI_ACCOUNT_COMBINED_DASHBOARD
+  const history = states
+    .flatMap((state) => state.history)
+    .sort((left, right) => (right.closed?.t ?? 0) - (left.closed?.t ?? 0));
+  const openPositions = states
+    .flatMap((state) => state.openPositions)
+    .sort((left, right) => left.opened.t - right.opened.t);
+  const latestState = states.reduce((latest, state) =>
+    (state.stats.lastRunAt ?? 0) > (latest.stats.lastRunAt ?? 0)
+      ? state
+      : latest,
+  );
+  const stageRuns = combineLatestStageRuns(states);
+
+  return {
+    ...primary,
+    accountFilter: null,
+    accountSummaries: states.flatMap((state) => state.accountSummaries),
+    balances: {
+      availableQuoteAsset: states.reduce(
+        (total, state) => total + state.balances.availableQuoteAsset,
+        0,
+      ),
+      reservedQuoteAsset: states.reduce(
+        (total, state) => total + state.balances.reservedQuoteAsset,
+        0,
+      ),
+      spendableQuoteAsset: states.reduce(
+        (total, state) => total + state.balances.spendableQuoteAsset,
+        0,
+      ),
+      safeHaven: states.reduce(
+        (total, state) => total + state.balances.safeHaven,
+        0,
+      ),
+      lockedQuoteAsset: states.reduce(
+        (total, state) => total + state.balances.lockedQuoteAsset,
+        0,
+      ),
+      startingBalanceUSDT: states.reduce(
+        (total, state) => total + state.balances.startingBalanceUSDT,
+        0,
+      ),
+    },
+    history,
+    openPositions,
+    stats: {
+      ...latestState.stats,
+      closedTrades: history.length,
+      openPositions: openPositions.length,
+      stageRuns,
+      safeHavenLastScheduledAt: Math.max(
+        0,
+        ...states.map((state) => state.stats.safeHavenLastScheduledAt ?? 0),
+      ),
+    },
+  };
+}
+
 /**
  * Convert persisted storage into the dashboard response model.
  *
@@ -213,29 +331,53 @@ export function buildSlowTradingDashboardState(
   const safeHaven = modeState.dynamicTradeMemory.safeHaven ?? 0;
   const availableQuoteAsset =
     (modeState.dynamicTradeMemory.quoteAsset ?? 0) + safeHaven;
-  const reservedQuoteAsset = modeState.dynamicTradeMemory.reservedQuoteAsset ?? 0;
-  const lockedQuoteAsset = slowTradingWatchReserve.balance.getLockedQuoteAssetValue({
-    activePositions: openPositions.filter((position) => !position.closed),
-  });
+  const reservedQuoteAsset =
+    modeState.dynamicTradeMemory.reservedQuoteAsset ?? 0;
+  const lockedQuoteAsset =
+    slowTradingWatchReserve.balance.getLockedQuoteAssetValue({
+      activePositions: openPositions.filter((position) => !position.closed),
+    });
 
   return {
+    accountFilter: storage.account.slug,
+    accountSummaries: [
+      {
+        slug: storage.account.slug,
+        name: storage.account.name,
+        enabled: storage.account.enabled,
+        activeMode,
+        balances: {
+          availableQuoteAsset,
+          reservedQuoteAsset,
+          spendableQuoteAsset:
+            slowTradingWatchReserve.balance.getSpendableQuoteAssetValue({
+              quoteAsset: availableQuoteAsset,
+              reservedQuoteAsset,
+              safeHaven,
+            }),
+          safeHaven,
+          lockedQuoteAsset,
+          startingBalanceUSDT:
+            modeState.dynamicTradeMemory.startingBalanceUSDT ?? 0,
+        },
+      },
+    ],
     activeMode,
     globalConfig: {
       volatilityThresholdPct: VOLATILITY_THRESHOLD,
     },
     config: clone(storage.config),
     runtime: toDashboardRuntime(storage.runtime),
-    blackSwan: clone(
-      modeState.blackSwan ?? blackSwan.state.create(),
-    ),
+    blackSwan: clone(modeState.blackSwan ?? blackSwan.state.create()),
     balances: {
       availableQuoteAsset,
       reservedQuoteAsset,
-      spendableQuoteAsset: slowTradingWatchReserve.balance.getSpendableQuoteAssetValue({
-        quoteAsset: availableQuoteAsset,
-        reservedQuoteAsset,
-        safeHaven,
-      }),
+      spendableQuoteAsset:
+        slowTradingWatchReserve.balance.getSpendableQuoteAssetValue({
+          quoteAsset: availableQuoteAsset,
+          reservedQuoteAsset,
+          safeHaven,
+        }),
       safeHaven,
       lockedQuoteAsset,
       startingBalanceUSDT:
@@ -276,14 +418,34 @@ export async function buildSlowTradingDashboardStateRealtime(
       const reservedQuoteAsset = snapshot.balances.reservedQuoteAsset;
       snapshot = {
         ...snapshot,
+        accountSummaries: snapshot.accountSummaries.map((summary) =>
+          summary.slug === storage.account.slug
+            ? {
+                ...summary,
+                balances: {
+                  ...summary.balances,
+                  availableQuoteAsset: liveQuoteBalance,
+                  spendableQuoteAsset:
+                    slowTradingWatchReserve.balance.getSpendableQuoteAssetValue(
+                      {
+                        quoteAsset: liveQuoteBalance,
+                        reservedQuoteAsset,
+                        safeHaven,
+                      },
+                    ),
+                },
+              }
+            : summary,
+        ),
         balances: {
           ...snapshot.balances,
           availableQuoteAsset: liveQuoteBalance,
-          spendableQuoteAsset: slowTradingWatchReserve.balance.getSpendableQuoteAssetValue({
-            quoteAsset: liveQuoteBalance,
-            reservedQuoteAsset,
-            safeHaven,
-          }),
+          spendableQuoteAsset:
+            slowTradingWatchReserve.balance.getSpendableQuoteAssetValue({
+              quoteAsset: liveQuoteBalance,
+              reservedQuoteAsset,
+              safeHaven,
+            }),
         },
       };
     }

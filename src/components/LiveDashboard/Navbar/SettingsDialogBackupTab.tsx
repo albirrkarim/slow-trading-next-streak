@@ -19,7 +19,7 @@ const REQUIRED_CONFIG_KEYS = [
   "name",
   "description",
   "decisionEngineVersion",
-  "exchangeAccountId",
+  "exchangeAccountSlug",
   "exchangeAccounts",
   "exchangeType",
   "tradingMode",
@@ -72,7 +72,9 @@ export function parseConfigBackup(raw: string): ConfigDraft {
   );
 
   if (missingKey) {
-    throw new Error(`The backup is missing the required "${missingKey}" field.`);
+    throw new Error(
+      `The backup is missing the required "${missingKey}" field.`,
+    );
   }
 
   if (

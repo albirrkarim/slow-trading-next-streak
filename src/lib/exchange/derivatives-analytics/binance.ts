@@ -2,6 +2,7 @@ import type {
   DerivativesPositioningHistoryParams,
   DerivativesPositioningPoint,
 } from "./types";
+import { requestPublic } from "@/lib/exchange/platform/binance/utils";
 
 const BINANCE_FUTURES_REST_URL = "https://fapi.binance.com";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -18,17 +19,12 @@ function makeBinanceSymbol(symbol: string): string {
 }
 
 async function getJson(url: URL): Promise<unknown> {
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Binance market-data request failed (${response.status})`);
-  }
-
-  return response.json();
+  return requestPublic<unknown>(
+    url.pathname,
+    Object.fromEntries(url.searchParams.entries()),
+    url.origin,
+    { timeoutMs: REQUEST_TIMEOUT_MS },
+  );
 }
 
 /**
@@ -39,7 +35,9 @@ export async function getBinancePositioningHistory({
   interval,
   limit,
   symbol,
-}: DerivativesPositioningHistoryParams): Promise<DerivativesPositioningPoint[]> {
+}: DerivativesPositioningHistoryParams): Promise<
+  DerivativesPositioningPoint[]
+> {
   const binanceSymbol = makeBinanceSymbol(symbol);
   const safeLimit = Math.min(500, Math.max(2, Math.floor(limit)));
   const klinesUrl = new URL("/fapi/v1/klines", BINANCE_FUTURES_REST_URL);
@@ -61,7 +59,9 @@ export async function getBinancePositioningHistory({
   ]);
 
   if (!Array.isArray(rawKlines) || !Array.isArray(rawOpenInterest)) {
-    throw new Error(`Binance does not have positioning history for ${binanceSymbol}`);
+    throw new Error(
+      `Binance does not have positioning history for ${binanceSymbol}`,
+    );
   }
 
   const openInterestByTime = new Map<

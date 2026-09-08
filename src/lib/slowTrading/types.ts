@@ -2,7 +2,7 @@ import type { TradeSettings } from "@/components/api/dynamic";
 import type { DynamicTradeConfig, DynamicTradeMemory } from "@/lib/dynamic";
 import type {
   ExchangeAccount,
-  ExchangeAccountId,
+  ExchangeAccountSlug,
 } from "@/lib/exchange/account-context";
 import type {
   DashboardNotificationConfig,
@@ -12,6 +12,7 @@ import type {
   Position,
   PositionExecutionMode,
   PositionRole,
+  TradingModelConfig,
 } from "@/lib/trading/models";
 import type { BlackSwanState } from "@/lib/trading/black-swan";
 import type { SlowTradingCyclePerformanceSummary } from "./performance";
@@ -67,10 +68,7 @@ export type SlowTradingStageRunStatsMap = Partial<
 /** High-volatility side used for notification dedupe. */
 export type SlowTradingHighVolatilityZone = "POSITIVE" | "NEGATIVE";
 export type SlowTradingHighVolatilityNotificationState = Partial<
-  Record<
-    NotificationChannel,
-    Record<string, SlowTradingHighVolatilityZone>
-  >
+  Record<NotificationChannel, Record<string, SlowTradingHighVolatilityZone>>
 >;
 
 /** Per-channel transition state for the daily PnL automatic-entry stop. */
@@ -99,10 +97,7 @@ export interface SlowTradingEntryDiagnostic {
 
 /** Persistent SLOW log collection exposed by the dashboard API. */
 export type SlowTradingLogKind =
-  | "errors"
-  | "management"
-  | "safe_haven"
-  | "withdrawals";
+  "errors" | "management" | "safe_haven" | "withdrawals";
 
 /** Saved withdrawal destination wallet. */
 export interface SlowTradingWithdrawalWallet {
@@ -120,6 +115,8 @@ export interface SlowTradingWithdrawalWallet {
 export interface SlowTradingWithdrawalSchedule {
   /** Stable schedule id used by manual and recurring withdrawal actions. */
   id: string;
+  /** Immutable account slug whose funds this schedule withdraws. */
+  account: ExchangeAccountSlug;
   /** Human-readable schedule name shown in the withdrawal UI. */
   name: string;
   /** Whether this schedule is allowed to run. */
@@ -282,6 +279,8 @@ export interface SlowTradingManagementLogEntry {
 export interface SlowTradingSafeHavenLogEntry {
   /** Stable Safe Haven log id. */
   id: string;
+  /** Immutable account slug whose Safe Haven balance changed. */
+  account: ExchangeAccountSlug;
   /** Creation timestamp in milliseconds. */
   createdAt: number;
   /** SLOW mode whose Safe Haven balance changed. */
@@ -302,6 +301,8 @@ export interface SlowTradingSafeHavenLogEntry {
 export interface SlowTradingWithdrawalLogEntry {
   /** Stable withdrawal log id. */
   id: string;
+  /** Immutable account slug used for this withdrawal attempt. */
+  account: ExchangeAccountSlug;
   /** Creation timestamp in milliseconds. */
   createdAt: number;
   /** Whether the withdrawal was user-triggered or automatic. */
@@ -355,10 +356,11 @@ export interface SlowTradingQueueItemBase {
 }
 
 /** Pending monthly movement from trading capital into Safe Haven. */
-export interface SlowTradingSafeHavenQueueItem
-  extends SlowTradingQueueItemBase {
+export interface SlowTradingSafeHavenQueueItem extends SlowTradingQueueItemBase {
   /** Queue discriminator. */
   kind: "safe_haven";
+  /** Immutable account slug whose mode state owns this queue item. */
+  account: ExchangeAccountSlug;
   /** SLOW mode whose virtual balance this queue item updates. */
   mode: SlowTradingMode;
   /** UTC month handled by this queue item, formatted as YYYY-MM. */
@@ -374,10 +376,11 @@ export interface SlowTradingSafeHavenQueueItem
 }
 
 /** Pending scheduled external USDT withdrawal. */
-export interface SlowTradingWithdrawalQueueItem
-  extends SlowTradingQueueItemBase {
+export interface SlowTradingWithdrawalQueueItem extends SlowTradingQueueItemBase {
   /** Queue discriminator. */
   kind: "withdrawal";
+  /** Immutable account slug used for execution and retries. */
+  account: ExchangeAccountSlug;
   /** Recurring withdrawal schedule that created this item. */
   scheduleId: string;
   /** Schedule name captured for dashboard debugging. */
@@ -394,8 +397,7 @@ export interface SlowTradingWithdrawalQueueItem
 
 /** Any pending SLOW queue item returned by manual queue creation. */
 export type SlowTradingQueueItem =
-  | SlowTradingSafeHavenQueueItem
-  | SlowTradingWithdrawalQueueItem;
+  SlowTradingSafeHavenQueueItem | SlowTradingWithdrawalQueueItem;
 
 /** Dashboard request for manually creating one production queue item. */
 export type SlowTradingManualQueueCreateInput =
@@ -420,12 +422,87 @@ export interface SlowTradingQueues {
   withdrawals: SlowTradingWithdrawalQueueItem[];
 }
 
+/** Model settings edited in the Trading tab and isolated per account. */
+export type SlowTradingAccountModelConfig = Omit<
+  DynamicTradeConfig["modelConfig"],
+  "minimalAssetOnTrade" | "safePercentPerMonth" | "safeUSDTPerMonth"
+>;
+
+/** Strategy settings edited in the Trading tab and isolated per account. */
+export interface SlowTradingAccountTradingConfig extends Pick<
+  DynamicTradeConfig,
+  | "adaptiveAveraging"
+  | "averagingRescueProjectionGuardEnabled"
+  | "entryLegs"
+  | "enableWatchLogic"
+  | "exactLeverage"
+  | "exitSidewaysToFreeWorkersForStrongCandidates"
+  | "lateEntryVPointPriceDriftEnabled"
+  | "maxEntryBased24HourVolPct"
+  | "maxEntryMargin"
+  | "maxEntryMarginPct"
+  | "maxLeverage"
+  | "maxOpenPositions"
+  | "minAbsLevelToEntry"
+  | "maxAbsLevelToEntry"
+  | "watchMaxNextAveragingLevels"
+  | "watchReserveLevels"
+  | "watchReservePctAlloc"
+> {
+  /** Hedge-strategy legs opened by this account; defaults to BOTH. */
+  entryLegs: NonNullable<DynamicTradeConfig["entryLegs"]>;
+  /** Whether production entries enforce the vPoint price-drift guard. */
+  lateEntryVPointPriceDriftEnabled?: boolean;
+  /** User-authored reminder describing this account's trading strategy. */
+  notes: string;
+  modelConfig: SlowTradingAccountModelConfig;
+}
+
+/** Sandbox controls edited in the Runtime tab and isolated per account. */
+export interface SlowTradingAccountSandboxConfig {
+  enabled: boolean;
+  initialBalanceUSDT: number;
+}
+
+/** Model settings shared by every account and persisted only in config.json. */
+export type SlowTradingSharedModelConfig = Pick<
+  TradingModelConfig,
+  "minimalAssetOnTrade" | "safePercentPerMonth" | "safeUSDTPerMonth"
+>;
+
+/** Shared strategy fields persisted once in config.json. */
+export type SlowTradingPersistedSharedConfig = Pick<
+  DynamicTradeConfig,
+  | "blackSwan"
+  | "decisionEngineVersion"
+  | "description"
+  | "exchangeType"
+  | "name"
+  | "openDirection"
+  | "symbols"
+  | "tradingMode"
+> & {
+  modelConfig: SlowTradingSharedModelConfig;
+};
+
+/** Complete persisted SLOW account profile excluding its mode memory. */
+export interface SlowTradingAccount extends ExchangeAccount {
+  /** Binance futures position mode required for BOTH-direction entry. */
+  futuresPositionMode: "ONE_WAY" | "HEDGE";
+  /** Disabling an account blocks new entries while preserving position monitoring. */
+  enabled: boolean;
+  /** Per-account Trading-tab strategy settings. */
+  trading: SlowTradingAccountTradingConfig;
+  /** Per-account Sandbox-tab settings. */
+  sandbox: SlowTradingAccountSandboxConfig;
+}
+
 /** Runtime controls shared by live and sandbox modes. */
 export interface SlowTradingRuntimeConfig {
-  /** Selected exchange account id used for live exchange calls. */
-  exchangeAccountId: ExchangeAccountId;
-  /** Saved exchange account credentials available to live exchange calls. */
-  exchangeAccounts: ExchangeAccount[];
+  /** Account selected for settings editing and account-scoped API actions. */
+  exchangeAccountSlug: ExchangeAccountSlug;
+  /** Saved account profiles available to SLOW runtime and backtests. */
+  exchangeAccounts: SlowTradingAccount[];
   /** Enables the background SLOW runner loop. */
   runnerEnabled: boolean;
   /** Enables automatic entry execution. */
@@ -513,6 +590,10 @@ export interface SlowTradingModeState {
 
 /** Full SLOW storage shape after config/memory files are merged. */
 export interface SlowTradingStorageData {
+  /** Account whose effective config and mode state are projected below. */
+  account: SlowTradingAccount;
+  /** Shared Management and Black-Swan configuration before account overlay. */
+  sharedConfig: DynamicTradeConfig;
   /** Strategy configuration shared by live and sandbox modes. */
   config: DynamicTradeConfig;
   /** Runtime controls shared by live and sandbox modes. */
@@ -538,8 +619,28 @@ export interface SlowTradingHistoryPosition extends Position {
   mode: SlowTradingMode;
 }
 
+/** Account identity, execution mode, and balances shown in combined UI chrome. */
+export interface SlowTradingDashboardAccountSummary {
+  slug: ExchangeAccountSlug;
+  name: string;
+  enabled: boolean;
+  activeMode: SlowTradingMode;
+  balances: {
+    availableQuoteAsset: number;
+    reservedQuoteAsset: number;
+    spendableQuoteAsset: number;
+    safeHaven: number;
+    lockedQuoteAsset: number;
+    startingBalanceUSDT: number;
+  };
+}
+
 /** Dashboard response shape for the active SLOW mode. */
 export interface SlowTradingDashboardState {
+  /** Null for the default combined dashboard, otherwise the filtered account. */
+  accountFilter: ExchangeAccountSlug | null;
+  /** Per-account balances retained even when the default view is combined. */
+  accountSummaries: SlowTradingDashboardAccountSummary[];
   /** Currently selected SLOW mode. */
   activeMode: SlowTradingMode;
   /** Global process-level strategy values resolved by the server. */
@@ -635,8 +736,8 @@ export interface SlowTradingStorageUpdateInput {
   captureEntryStageIntervalMinutes?: number;
   /** Runtime update for dashboard notification config. */
   notification?: DashboardNotificationConfig;
-  /** Runtime update for selected exchange account id. */
-  exchangeAccountId?: ExchangeAccountId;
+  /** Runtime update for the account selected in settings and dashboard actions. */
+  exchangeAccountSlug?: ExchangeAccountSlug;
   /** Legacy shortcut update for exchange type. */
   exchangeType?: DynamicTradeConfig["exchangeType"];
   /** Runtime update for sandbox availability. */

@@ -9,14 +9,15 @@ import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
 import blackSwan from "@/lib/trading/black-swan";
 import fs from "fs-extra";
 import {
-  createDefaultExchangeAccounts,
+  createDefaultSlowTradingAccounts,
   loadSlowTradingExchangeAccounts,
-  normalizeExchangeAccountId,
+  normalizeExchangeAccountSlug,
   saveSlowTradingExchangeAccounts,
 } from "./account";
+import slowTradingAccountConfig from "../account-config";
 import { clone, uniqueSymbols } from "./common";
 import {
-  DEFAULT_EXCHANGE_ACCOUNT_ID,
+  DEFAULT_EXCHANGE_ACCOUNT_SLUG,
   DEFAULT_SAFE_HAVEN_CONFIG,
   DEFAULT_SANDBOX_INITIAL_BALANCE,
   DEFAULT_WITHDRAWAL_CONFIG,
@@ -82,11 +83,21 @@ function normalizeRuntimeNotification(
 }
 
 interface LoadSlowTradingStorageOptions {
+  /** Project config and mode memory for this account instead of UI selection. */
+  account?: string;
   /** Hydrate closed trade history from split files into positionsSell. */
   includeHistory?: boolean;
   /** Load every mode or only the active mode needed by runner/runtime paths. */
   modeScope?: "all" | "active";
 }
+
+/** Legacy config files may still contain a complete effective trading config. */
+type SlowTradingReadableConfigFileData = Omit<
+  SlowTradingConfigFileData,
+  "config"
+> & {
+  config: SlowTradingStorageData["config"];
+};
 
 /**
  * Create the default SLOW strategy config without allocating mode memory.
@@ -126,9 +137,13 @@ function normalizeExitModelConfigDefaults(
  * Create the default SLOW runtime config without allocating mode memory.
  */
 function createDefaultSlowTradingRuntime(): SlowTradingStorageData["runtime"] {
+  const exchangeAccounts = createDefaultSlowTradingAccounts(
+    createDefaultSlowTradingConfig(),
+  );
+  const account = exchangeAccounts[0];
   return {
-    exchangeAccountId: DEFAULT_EXCHANGE_ACCOUNT_ID,
-    exchangeAccounts: createDefaultExchangeAccounts(),
+    exchangeAccountSlug: account?.slug ?? DEFAULT_EXCHANGE_ACCOUNT_SLUG,
+    exchangeAccounts,
     runnerEnabled: false,
     autoEntryEnabled: false,
     autoEntryDailyPnlLimitUSDT:
@@ -138,14 +153,11 @@ function createDefaultSlowTradingRuntime(): SlowTradingStorageData["runtime"] {
     autoRemoveSymbolAbsLevel: 0,
     autoRemoveSymbolMinMarketCapUSD: 0,
     autoRemoveSymbolMinPrice: 0,
-    autoRemoveSymbolMinVPointPct:
-      DEFAULT_AUTO_REMOVE_SYMBOL_MIN_VPOINT_PCT,
-    pnlHistoryBucketMinutes:
-      slowTradingPnlHistory.bucket.defaultMinutes,
+    autoRemoveSymbolMinVPointPct: DEFAULT_AUTO_REMOVE_SYMBOL_MIN_VPOINT_PCT,
+    pnlHistoryBucketMinutes: slowTradingPnlHistory.bucket.defaultMinutes,
     blackSwanStageIntervalMinutes:
       slowTradingStages.interval.defaults["risk-sentinel"],
-    speedupStageIntervalMinutes:
-      slowTradingStages.interval.defaults.speedup,
+    speedupStageIntervalMinutes: slowTradingStages.interval.defaults.speedup,
     speedupStagePositivePnlThresholdPct:
       slowTradingStages.position.speedupThreshold.defaults.positivePct,
     speedupStageNegativePnlThresholdPct:
@@ -159,8 +171,9 @@ function createDefaultSlowTradingRuntime(): SlowTradingStorageData["runtime"] {
     captureEntryStageIntervalMinutes:
       slowTradingStages.interval.defaults["capture-entry"],
     notification: createDefaultDashboardNotificationConfig("SLOW"),
-    sandboxEnabled: false,
-    sandboxInitialBalanceUSDT: DEFAULT_SANDBOX_INITIAL_BALANCE,
+    sandboxEnabled: account?.sandbox.enabled ?? false,
+    sandboxInitialBalanceUSDT:
+      account?.sandbox.initialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE,
     withdrawal: clone(DEFAULT_WITHDRAWAL_CONFIG),
     safeHaven: clone(DEFAULT_SAFE_HAVEN_CONFIG),
     mcp: clone(DEFAULT_MCP_CONFIG),
@@ -168,13 +181,13 @@ function createDefaultSlowTradingRuntime(): SlowTradingStorageData["runtime"] {
 }
 
 /**
- * Ensures the selected exchange account id exists in the saved account list.
+ * Ensures the selected exchange account slug exists in the saved account list.
  */
 function ensureExchangeAccountSelection(
   runtime: SlowTradingStorageData["runtime"],
 ): SlowTradingStorageData["runtime"] {
   const accountExists = runtime.exchangeAccounts.some(
-    (account) => account.id === runtime.exchangeAccountId,
+    (account) => account.slug === runtime.exchangeAccountSlug,
   );
   if (accountExists) {
     return runtime;
@@ -182,8 +195,8 @@ function ensureExchangeAccountSelection(
 
   return {
     ...runtime,
-    exchangeAccountId:
-      runtime.exchangeAccounts[0]?.id ?? DEFAULT_EXCHANGE_ACCOUNT_ID,
+    exchangeAccountSlug:
+      runtime.exchangeAccounts[0]?.slug ?? DEFAULT_EXCHANGE_ACCOUNT_SLUG,
   };
 }
 
@@ -295,11 +308,22 @@ function normalizeStageRuntimeConfig(
  * @returns Fresh storage object with live and sandbox mode state.
  */
 export function createDefaultSlowTradingStorage(): SlowTradingStorageData {
-  const config = createDefaultSlowTradingConfig();
+  const sharedConfig = createDefaultSlowTradingConfig();
+  const runtime = createDefaultSlowTradingRuntime();
+  const account = runtime.exchangeAccounts[0];
+  if (!account) {
+    throw new Error("SLOW requires at least one exchange account");
+  }
+  const config = slowTradingAccountConfig.trading.toEffectiveConfig(
+    sharedConfig,
+    account,
+  );
 
   return {
+    account,
+    sharedConfig,
     config,
-    runtime: createDefaultSlowTradingRuntime(),
+    runtime,
     modes: createDefaultModeStates(config.symbols),
     updatedAt: Date.now(),
   };
@@ -309,6 +333,7 @@ export function createDefaultSlowTradingStorage(): SlowTradingStorageData {
  * Normalizes a persisted mode only when the caller needs it in memory.
  */
 function loadModeStateForScope(params: {
+  accountSlug: string;
   mode: SlowTradingMode;
   activeMode: SlowTradingMode;
   memoryRaw: Partial<SlowTradingMemoryFileData>;
@@ -326,7 +351,7 @@ function loadModeStateForScope(params: {
   return ensureTradeSettings(
     {
       ...createModeState(initialBalanceUSDT),
-      ...(params.memoryRaw.modes?.[params.mode] ?? {}),
+      ...(params.memoryRaw.accounts?.[params.accountSlug]?.[params.mode] ?? {}),
     },
     params.symbols,
   );
@@ -338,22 +363,51 @@ function loadModeStateForScope(params: {
  * @param storage - Full slow-trading storage state.
  * @returns Persistable config and memory payloads.
  */
-function splitSlowTradingStorage(storage: SlowTradingStorageData): {
+function splitSlowTradingStorage(
+  storage: SlowTradingStorageData,
+  memoryRaw: Partial<SlowTradingMemoryFileData> = {},
+): {
+  accounts: SlowTradingStorageData["runtime"]["exchangeAccounts"];
   configFile: SlowTradingConfigFileData;
   memoryFile: SlowTradingMemoryFileData;
 } {
-  const { exchangeAccounts: _exchangeAccounts, ...runtime } = clone(
-    storage.runtime,
+  const sharedConfig = slowTradingAccountConfig.shared.fromEffectiveConfig(
+    storage.sharedConfig,
+    storage.config,
   );
+  const account = {
+    ...slowTradingAccountConfig.trading.withEffectiveConfig(
+      storage.account,
+      storage.config,
+    ),
+    sandbox: {
+      enabled: storage.runtime.sandboxEnabled,
+      initialBalanceUSDT: storage.runtime.sandboxInitialBalanceUSDT,
+    },
+  };
+  const accounts = storage.runtime.exchangeAccounts.map((candidate) =>
+    candidate.slug === account.slug ? account : candidate,
+  );
+  const {
+    exchangeAccounts: _exchangeAccounts,
+    sandboxEnabled: _sandboxEnabled,
+    sandboxInitialBalanceUSDT: _sandboxInitialBalanceUSDT,
+    ...runtime
+  } = clone(storage.runtime);
 
   return {
+    accounts,
     configFile: {
-      config: clone(storage.config),
+      // PROD:MULTI_ACCOUNT_CONFIG_OWNERSHIP
+      config: slowTradingAccountConfig.shared.toPersistedConfig(sharedConfig),
       runtime,
       updatedAt: storage.updatedAt,
     },
     memoryFile: {
-      modes: stripClosedPositionsFromMemory(storage.modes),
+      accounts: {
+        ...(memoryRaw.accounts ?? {}),
+        [account.slug]: stripClosedPositionsFromMemory(storage.modes),
+      },
       updatedAt: storage.updatedAt,
     },
   };
@@ -372,20 +426,28 @@ async function saveSplitSlowTradingStorage(
     ...storage,
     updatedAt: Date.now(),
   };
-  const { configFile, memoryFile } = splitSlowTradingStorage(normalized);
+  const memoryRaw = (await fs.pathExists(FILES.slow.memory))
+    ? ((await fs.readJSON(
+        FILES.slow.memory,
+      )) as Partial<SlowTradingMemoryFileData>)
+    : {};
+  const { accounts, configFile, memoryFile } = splitSlowTradingStorage(
+    normalized,
+    memoryRaw,
+  );
 
   await slowTradingJsonFile.write.atomic(FILES.slow.config, configFile);
   await slowTradingJsonFile.write.atomic(FILES.slow.memory, memoryFile);
-  if (!(await fs.pathExists(FILES.slow.accounts))) {
-    await saveSlowTradingExchangeAccounts(normalized.runtime.exchangeAccounts);
-  }
+  await saveSlowTradingExchangeAccounts(accounts, normalized.sharedConfig);
 }
 
 /**
  * Reads the split config file with current defaults applied.
  */
-async function loadSlowTradingConfigFile(): Promise<{
+async function loadSlowTradingConfigFile(accountSlug?: string): Promise<{
+  account: SlowTradingStorageData["account"];
   config: SlowTradingStorageData["config"];
+  sharedConfig: SlowTradingStorageData["sharedConfig"];
   runtime: SlowTradingStorageData["runtime"];
   updatedAt: number;
 }> {
@@ -393,11 +455,11 @@ async function loadSlowTradingConfigFile(): Promise<{
   const configRaw = hasConfigFile
     ? ((await fs.readJSON(
         FILES.slow.config,
-      )) as Partial<SlowTradingConfigFileData>)
+      )) as Partial<SlowTradingReadableConfigFileData>)
     : {};
   const baseConfig = createDefaultSlowTradingConfig();
   const baseRuntime = createDefaultSlowTradingRuntime();
-  const config: SlowTradingConfigFileData["config"] = {
+  const sharedConfig: SlowTradingStorageData["sharedConfig"] = {
     ...baseConfig,
     ...(configRaw.config ?? {}),
     modelConfig: normalizeExitModelConfigDefaults(
@@ -413,20 +475,19 @@ async function loadSlowTradingConfigFile(): Promise<{
     maxOpenPositions: normalizeMaxOpenPositions(
       configRaw.config?.maxOpenPositions ?? baseConfig.maxOpenPositions,
     ),
-    openDirection: configRaw.config?.openDirection === "BOTH"
-      ? "BOTH"
-      : "ONE_WAY",
+    openDirection:
+      configRaw.config?.openDirection === "BOTH" ? "BOTH" : "ONE_WAY",
     symbols: uniqueSymbols(configRaw.config?.symbols ?? baseConfig.symbols),
   };
-  const exchangeAccounts = await loadSlowTradingExchangeAccounts(
-    baseRuntime.exchangeAccounts,
-  );
+  const exchangeAccounts = await loadSlowTradingExchangeAccounts(sharedConfig);
   const runtime = ensureExchangeAccountSelection({
     ...baseRuntime,
     ...(configRaw.runtime ?? {}),
     exchangeAccounts,
-    exchangeAccountId: normalizeExchangeAccountId(
-      configRaw.runtime?.exchangeAccountId ?? baseRuntime.exchangeAccountId,
+    exchangeAccountSlug: normalizeExchangeAccountSlug(
+      accountSlug ??
+        configRaw.runtime?.exchangeAccountSlug ??
+        baseRuntime.exchangeAccountSlug,
     ),
     notification: normalizeRuntimeNotification(
       configRaw.runtime?.notification ?? baseRuntime.notification,
@@ -435,14 +496,28 @@ async function loadSlowTradingConfigFile(): Promise<{
     withdrawal: normalizeWithdrawalConfig(configRaw.runtime?.withdrawal),
     safeHaven: normalizeSafeHavenConfig(
       configRaw.runtime?.safeHaven,
-      config.modelConfig,
+      sharedConfig.modelConfig,
     ),
     mcp: normalizeMcpConfig(configRaw.runtime?.mcp),
   });
+  const account =
+    exchangeAccounts.find(
+      (candidate) => candidate.slug === runtime.exchangeAccountSlug,
+    ) ?? exchangeAccounts[0];
+  if (!account) throw new Error("SLOW requires at least one exchange account");
+  runtime.exchangeAccountSlug = account.slug;
+  runtime.sandboxEnabled = account.sandbox.enabled;
+  runtime.sandboxInitialBalanceUSDT = account.sandbox.initialBalanceUSDT;
+  const config = slowTradingAccountConfig.trading.toEffectiveConfig(
+    sharedConfig,
+    account,
+  );
 
   runtime.sandboxInitialBalanceUSDT = Math.max(
     0,
-    Number(runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE),
+    Number(
+      runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE,
+    ),
   );
   runtime.autoEntryDailyPnlLimitUSDT =
     slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
@@ -458,10 +533,9 @@ async function loadSlowTradingConfigFile(): Promise<{
     normalizeAutoRemoveSymbolMinMarketCapUSD(
       runtime.autoRemoveSymbolMinMarketCapUSD,
     );
-  runtime.autoRemoveSymbolMinVPointPct =
-    normalizeAutoRemoveSymbolMinVPointPct(
-      runtime.autoRemoveSymbolMinVPointPct,
-    );
+  runtime.autoRemoveSymbolMinVPointPct = normalizeAutoRemoveSymbolMinVPointPct(
+    runtime.autoRemoveSymbolMinVPointPct,
+  );
   runtime.pnlHistoryBucketMinutes =
     slowTradingPnlHistory.bucket.normalizeMinutes(
       runtime.pnlHistoryBucketMinutes,
@@ -469,101 +543,12 @@ async function loadSlowTradingConfigFile(): Promise<{
   normalizeStageRuntimeConfig(runtime);
 
   return {
+    account,
     config,
+    sharedConfig,
     runtime,
     updatedAt: configRaw.updatedAt ?? Date.now(),
   };
-}
-
-/**
- * Migrate the legacy single-file slow-trading state into the split-file format.
- *
- * @returns Migrated storage state when legacy data exists, otherwise null.
- */
-async function migrateLegacySlowTradingState(): Promise<SlowTradingStorageData | null> {
-  if (!(await fs.pathExists(FILES.slow.legacyState))) {
-    return null;
-  }
-
-  const raw = (await fs.readJSON(
-    FILES.slow.legacyState,
-  )) as Partial<SlowTradingStorageData>;
-  const base = createDefaultSlowTradingStorage();
-
-  const storage: SlowTradingStorageData = {
-    ...base,
-    ...clone(raw),
-    config: {
-      ...base.config,
-      ...(raw.config ?? {}),
-      modelConfig: normalizeExitModelConfigDefaults(
-        raw.config?.modelConfig,
-        base.config.modelConfig,
-      ),
-      blackSwan: blackSwan.config.normalize(
-        raw.config?.blackSwan ?? base.config.blackSwan,
-      ),
-      maxOpenPositions: normalizeMaxOpenPositions(
-        raw.config?.maxOpenPositions ?? base.config.maxOpenPositions,
-      ),
-      symbols: uniqueSymbols(raw.config?.symbols ?? base.config.symbols),
-    },
-    runtime: ensureExchangeAccountSelection({
-      ...base.runtime,
-      ...(raw.runtime ?? {}),
-      exchangeAccounts: await loadSlowTradingExchangeAccounts(
-        base.runtime.exchangeAccounts,
-      ),
-      exchangeAccountId: normalizeExchangeAccountId(
-        raw.runtime?.exchangeAccountId ?? base.runtime.exchangeAccountId,
-      ),
-      notification: normalizeRuntimeNotification(
-        raw.runtime?.notification ?? base.runtime.notification,
-        raw.runtime?.autoEntryDailyPnlLimitUSDT === undefined,
-      ),
-      withdrawal: normalizeWithdrawalConfig(raw.runtime?.withdrawal),
-      safeHaven: normalizeSafeHavenConfig(
-        raw.runtime?.safeHaven,
-        {
-          ...base.config.modelConfig,
-          ...raw.config?.modelConfig,
-        },
-      ),
-      mcp: normalizeMcpConfig(raw.runtime?.mcp),
-    }),
-    modes: {
-      live: ensureTradeSettings(
-        {
-          ...base.modes.live,
-          ...(raw.modes?.live ?? {}),
-        },
-        raw.config?.symbols ?? base.config.symbols,
-      ),
-      sandbox: ensureTradeSettings(
-        {
-          ...base.modes.sandbox,
-          ...(raw.modes?.sandbox ?? {}),
-        },
-        raw.config?.symbols ?? base.config.symbols,
-      ),
-    },
-    updatedAt: raw.updatedAt ?? base.updatedAt,
-  };
-  storage.runtime.pnlHistoryBucketMinutes =
-    slowTradingPnlHistory.bucket.normalizeMinutes(
-      storage.runtime.pnlHistoryBucketMinutes,
-    );
-  storage.runtime.autoEntryDailyPnlLimitUSDT =
-    slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
-      storage.runtime.autoEntryDailyPnlLimitUSDT,
-    );
-  normalizeStageRuntimeConfig(storage.runtime);
-
-  await saveSplitSlowTradingStorage(storage);
-  await fs.remove(FILES.slow.legacyState);
-  await migrateInlineClosedPositionsToHistoryFiles(storage);
-
-  return storage;
 }
 
 /**
@@ -576,12 +561,6 @@ export async function loadSlowTradingStorage(
   options: LoadSlowTradingStorageOptions = {},
 ): Promise<SlowTradingStorageData> {
   await migrateLegacyHistoryRoot();
-
-  // A. Migrate the legacy single-file state when it still exists.
-  const migrated = await migrateLegacySlowTradingState();
-  if (migrated) {
-    return loadSlowTradingStorage(options);
-  }
 
   const hasConfigFile = await fs.pathExists(FILES.slow.config);
   const hasMemoryFile = await fs.pathExists(FILES.slow.memory);
@@ -598,98 +577,34 @@ export async function loadSlowTradingStorage(
 
   // C. Merge persisted split-file data on top of the latest defaults.
   // C.1 Support partial migrations by reading whichever file already exists.
-  const configRaw = hasConfigFile
-    ? ((await fs.readJSON(
-        FILES.slow.config,
-      )) as Partial<SlowTradingConfigFileData>)
-    : {};
   const memoryRaw = hasMemoryFile
     ? ((await fs.readJSON(
         FILES.slow.memory,
       )) as Partial<SlowTradingMemoryFileData>)
     : {};
-  const baseConfig = createDefaultSlowTradingConfig();
-  const baseRuntime = createDefaultSlowTradingRuntime();
-
-  const config: SlowTradingStorageData["config"] = {
-    ...baseConfig,
-    ...(configRaw.config ?? {}),
-    modelConfig: normalizeExitModelConfigDefaults(
-      configRaw.config?.modelConfig,
-      baseConfig.modelConfig,
-    ),
-    adaptiveAveraging: adaptiveAveraging.config.normalize(
-      configRaw.config?.adaptiveAveraging ?? baseConfig.adaptiveAveraging,
-    ),
-    blackSwan: blackSwan.config.normalize(
-      configRaw.config?.blackSwan ?? baseConfig.blackSwan,
-    ),
-    symbols: uniqueSymbols(configRaw.config?.symbols ?? baseConfig.symbols),
-  };
-  const exchangeAccounts = await loadSlowTradingExchangeAccounts(
-    baseRuntime.exchangeAccounts,
-  );
-  const runtime: SlowTradingStorageData["runtime"] = ensureExchangeAccountSelection({
-    ...baseRuntime,
-    ...(configRaw.runtime ?? {}),
-    exchangeAccounts,
-    exchangeAccountId: normalizeExchangeAccountId(
-      configRaw.runtime?.exchangeAccountId ?? baseRuntime.exchangeAccountId,
-    ),
-    notification: normalizeRuntimeNotification(
-      configRaw.runtime?.notification ?? baseRuntime.notification,
-      configRaw.runtime?.autoEntryDailyPnlLimitUSDT === undefined,
-    ),
-    withdrawal: normalizeWithdrawalConfig(configRaw.runtime?.withdrawal),
-    safeHaven: normalizeSafeHavenConfig(
-      configRaw.runtime?.safeHaven,
-      config.modelConfig,
-    ),
-    mcp: normalizeMcpConfig(configRaw.runtime?.mcp),
-  });
-
-  const sandboxInitialBalanceUSDT = Math.max(
-    0,
-    Number(runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE),
-  );
-  runtime.sandboxInitialBalanceUSDT = sandboxInitialBalanceUSDT;
-  runtime.autoEntryDailyPnlLimitUSDT =
-    slowTradingDailyPnlLimit.config.normalizeThresholdUsdt(
-      runtime.autoEntryDailyPnlLimitUSDT,
-    );
-  runtime.autoRemoveSymbolAbsLevel = normalizeAutoRemoveSymbolAbsLevel(
-    runtime.autoRemoveSymbolAbsLevel,
-  );
-  runtime.autoRemoveSymbolMinPrice = normalizeAutoRemoveSymbolMinPrice(
-    runtime.autoRemoveSymbolMinPrice,
-  );
-  runtime.autoRemoveSymbolMinMarketCapUSD =
-    normalizeAutoRemoveSymbolMinMarketCapUSD(
-      runtime.autoRemoveSymbolMinMarketCapUSD,
-    );
-  runtime.autoRemoveSymbolMinVPointPct =
-    normalizeAutoRemoveSymbolMinVPointPct(
-      runtime.autoRemoveSymbolMinVPointPct,
-    );
-  runtime.pnlHistoryBucketMinutes =
-    slowTradingPnlHistory.bucket.normalizeMinutes(
-      runtime.pnlHistoryBucketMinutes,
-    );
-  normalizeStageRuntimeConfig(runtime);
+  const {
+    account,
+    config,
+    sharedConfig,
+    runtime,
+    updatedAt: configUpdatedAt,
+  } = await loadSlowTradingConfigFile(options.account);
+  const sandboxInitialBalanceUSDT = runtime.sandboxInitialBalanceUSDT;
 
   const activeMode: SlowTradingMode = runtime.sandboxEnabled
     ? "sandbox"
     : "live";
   const effectiveModeScope =
-    !hasConfigFile || !hasMemoryFile
-      ? "all"
-      : options.modeScope ?? "all";
+    !hasConfigFile || !hasMemoryFile ? "all" : (options.modeScope ?? "all");
 
   const storage: SlowTradingStorageData = {
+    account,
+    sharedConfig,
     config,
     runtime,
     modes: {
       live: loadModeStateForScope({
+        accountSlug: account.slug,
         mode: "live",
         activeMode,
         memoryRaw,
@@ -698,6 +613,7 @@ export async function loadSlowTradingStorage(
         symbols: config.symbols,
       }),
       sandbox: loadModeStateForScope({
+        accountSlug: account.slug,
         mode: "sandbox",
         activeMode,
         memoryRaw,
@@ -706,7 +622,7 @@ export async function loadSlowTradingStorage(
         symbols: config.symbols,
       }),
     },
-    updatedAt: configRaw.updatedAt ?? memoryRaw.updatedAt ?? Date.now(),
+    updatedAt: configUpdatedAt ?? memoryRaw.updatedAt ?? Date.now(),
   };
 
   // C.2 Seed sandbox balance when this is an old file with no initialized memory yet.
@@ -755,6 +671,23 @@ export async function saveSlowTradingStorage(
   await saveSplitSlowTradingStorage(storage);
 }
 
+/** Removes orphaned live/sandbox memory after a dependency-safe account deletion. */
+export async function deleteSlowTradingAccountState(
+  accountSlug: string,
+): Promise<void> {
+  if (!(await fs.pathExists(FILES.slow.memory))) return;
+  const memory = (await fs.readJSON(
+    FILES.slow.memory,
+  )) as Partial<SlowTradingMemoryFileData>;
+  if (!memory.accounts?.[accountSlug]) return;
+  const accounts = { ...memory.accounts };
+  delete accounts[accountSlug];
+  await slowTradingJsonFile.write.atomic(FILES.slow.memory, {
+    accounts,
+    updatedAt: Date.now(),
+  } satisfies SlowTradingMemoryFileData);
+}
+
 /**
  * Persist one mode's execution memory while preserving the latest config/runtime.
  *
@@ -768,14 +701,12 @@ export async function saveSlowTradingStorage(
 export async function saveSlowTradingModeState(
   mode: "live" | "sandbox",
   modeState: SlowTradingStorageData["modes"]["live"],
+  options: { account?: string } = {},
 ): Promise<SlowTradingStorageData> {
   await migrateLegacyHistoryRoot();
-  const migrated = await migrateLegacySlowTradingState();
-  if (migrated) {
-    return saveSlowTradingModeState(mode, modeState);
-  }
 
-  const { config, runtime, updatedAt } = await loadSlowTradingConfigFile();
+  const { account, config, sharedConfig, runtime, updatedAt } =
+    await loadSlowTradingConfigFile(options.account);
   const hasMemoryFile = await fs.pathExists(FILES.slow.memory);
   const memoryRaw = hasMemoryFile
     ? ((await fs.readJSON(
@@ -784,25 +715,32 @@ export async function saveSlowTradingModeState(
     : {};
   const sandboxInitialBalanceUSDT = Math.max(
     0,
-    Number(runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE),
+    Number(
+      runtime.sandboxInitialBalanceUSDT ?? DEFAULT_SANDBOX_INITIAL_BALANCE,
+    ),
   );
   const targetModeState = ensureTradeSettings(modeState, config.symbols);
   await persistClosedPositionsToHistoryFiles(mode, targetModeState);
 
-  const fallbackModes = memoryRaw.modes ?? {
+  const fallbackModes = memoryRaw.accounts?.[account.slug] ?? {
     live: createModeState(0),
     sandbox: createModeState(sandboxInitialBalanceUSDT),
   };
+  // PROD:MULTI_ACCOUNT_STATE_ISOLATION
   const nextMemory: SlowTradingMemoryFileData = {
-    modes: {
-      live:
-        mode === "live"
-          ? stripClosedPositionsFromModeMemory(targetModeState)
-          : fallbackModes.live ?? createModeState(0),
-      sandbox:
-        mode === "sandbox"
-          ? stripClosedPositionsFromModeMemory(targetModeState)
-          : fallbackModes.sandbox ?? createModeState(sandboxInitialBalanceUSDT),
+    accounts: {
+      ...(memoryRaw.accounts ?? {}),
+      [account.slug]: {
+        live:
+          mode === "live"
+            ? stripClosedPositionsFromModeMemory(targetModeState)
+            : (fallbackModes.live ?? createModeState(0)),
+        sandbox:
+          mode === "sandbox"
+            ? stripClosedPositionsFromModeMemory(targetModeState)
+            : (fallbackModes.sandbox ??
+              createModeState(sandboxInitialBalanceUSDT)),
+      },
     },
     updatedAt: Date.now(),
   };
@@ -810,13 +748,16 @@ export async function saveSlowTradingModeState(
   await slowTradingJsonFile.write.atomic(FILES.slow.memory, nextMemory);
 
   return {
+    account,
     config,
+    sharedConfig,
     runtime,
     modes: {
       live:
         mode === "live"
           ? targetModeState
           : loadModeStateForScope({
+              accountSlug: account.slug,
               mode: "live",
               activeMode: mode,
               memoryRaw: nextMemory,
@@ -828,6 +769,7 @@ export async function saveSlowTradingModeState(
         mode === "sandbox"
           ? targetModeState
           : loadModeStateForScope({
+              accountSlug: account.slug,
               mode: "sandbox",
               activeMode: mode,
               memoryRaw: nextMemory,
@@ -849,7 +791,12 @@ export async function saveSlowTradingModeState(
 export async function updateSlowTradingStorage(
   update: SlowTradingStorageUpdateInput,
 ): Promise<SlowTradingStorageData> {
-  const storage = await loadSlowTradingStorage();
+  const requestedAccount = normalizeExchangeAccountSlug(
+    update.exchangeAccountSlug,
+  );
+  const storage = await loadSlowTradingStorage({
+    account: requestedAccount || undefined,
+  });
   let safeHavenLog: Parameters<typeof appendSlowTradingSafeHavenLog>[0] | null =
     null;
 
@@ -865,6 +812,14 @@ export async function updateSlowTradingStorage(
         update.config.blackSwan ?? storage.config.blackSwan,
       ),
     };
+    storage.sharedConfig = slowTradingAccountConfig.shared.fromEffectiveConfig(
+      storage.sharedConfig,
+      storage.config,
+    );
+    storage.account = slowTradingAccountConfig.trading.withEffectiveConfig(
+      storage.account,
+      storage.config,
+    );
   }
 
   // B. Apply legacy top-level update fields kept for API compatibility.
@@ -1002,13 +957,8 @@ export async function updateSlowTradingStorage(
     );
   }
 
-  if (
-    typeof update.exchangeAccountId === "number" ||
-    typeof update.exchangeAccountId === "string"
-  ) {
-    storage.runtime.exchangeAccountId = normalizeExchangeAccountId(
-      update.exchangeAccountId,
-    );
+  if (requestedAccount) {
+    storage.runtime.exchangeAccountSlug = storage.account.slug;
   }
   storage.runtime = ensureExchangeAccountSelection(storage.runtime);
 
@@ -1018,6 +968,19 @@ export async function updateSlowTradingStorage(
       update.sandboxInitialBalanceUSDT,
     );
   }
+
+  storage.account = {
+    ...storage.account,
+    sandbox: {
+      enabled: storage.runtime.sandboxEnabled,
+      initialBalanceUSDT: storage.runtime.sandboxInitialBalanceUSDT,
+    },
+    updatedAt: Date.now(),
+  };
+  storage.runtime.exchangeAccounts = storage.runtime.exchangeAccounts.map(
+    (account) =>
+      account.slug === storage.account.slug ? storage.account : account,
+  );
 
   if (update.withdrawal !== undefined) {
     storage.runtime.withdrawal = normalizeWithdrawalConfig({
@@ -1044,6 +1007,15 @@ export async function updateSlowTradingStorage(
     storage.config.symbols = uniqueSymbols(update.symbols);
   }
 
+  storage.sharedConfig = slowTradingAccountConfig.shared.fromEffectiveConfig(
+    storage.sharedConfig,
+    storage.config,
+  );
+  storage.account = slowTradingAccountConfig.trading.withEffectiveConfig(
+    storage.account,
+    storage.config,
+  );
+
   // C. Rebuild per-mode trade settings after config changes, then persist.
   storage.modes.live = ensureTradeSettings(
     storage.modes.live,
@@ -1064,6 +1036,7 @@ export async function updateSlowTradingStorage(
 
     if (Math.abs(previousSafeHavenUSDT - nextSafeHavenUSDT) > 1e-9) {
       safeHavenLog = {
+        account: storage.account.slug,
         mode: activeMode,
         previousUSDT: previousSafeHavenUSDT,
         nextUSDT: nextSafeHavenUSDT,
@@ -1087,9 +1060,10 @@ export async function updateSlowTradingStorage(
  * @returns Storage state after sandbox reset.
  */
 export async function resetSandboxSlowTrading(params?: {
+  account?: string;
   sandboxInitialBalanceUSDT?: number;
 }): Promise<SlowTradingStorageData> {
-  const storage = await loadSlowTradingStorage();
+  const storage = await loadSlowTradingStorage({ account: params?.account });
   if (typeof params?.sandboxInitialBalanceUSDT === "number") {
     storage.runtime.sandboxInitialBalanceUSDT = Math.max(
       0,
@@ -1100,6 +1074,7 @@ export async function resetSandboxSlowTrading(params?: {
     createModeState(storage.runtime.sandboxInitialBalanceUSDT),
     storage.config.symbols,
   );
+  // PROD:MULTI_ACCOUNT_SANDBOX_ISOLATION
   await saveSlowTradingStorage(storage);
   return storage;
 }

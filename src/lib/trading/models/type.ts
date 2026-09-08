@@ -1,6 +1,7 @@
 import { type FetchKlinesFunction } from "@lib/datasets/type";
 import { type Kline } from "@/lib/exchange/platform/tokocrypto";
 import type {
+  EntryLegs,
   PredictionEngineMemory,
   TradingModelConfigDynamic,
 } from "@lib/dynamic";
@@ -335,6 +336,8 @@ export interface PositionAveragingExecution {
   reservedMarginUsdt?: number;
   adaptiveMultiplier?: number;
   projectedProfitPct?: number;
+  /** Frozen copy of the position's last monitoring stage when this fill completed. */
+  monitoringState?: PositionLastMonitoringStage;
 }
 
 export interface PositionAveragingState {
@@ -370,7 +373,9 @@ export interface PositionPnl {
   currentValueUsdt?: number;
   maxUpPct?: number;
   maxDownPct?: number;
+  /** Best observed fee-aware net PnL in USDT. */
   maxUpUsdt?: number;
+  /** Worst observed fee-aware net PnL in USDT. */
   maxDownUsdt?: number;
   history?: PositionPnlPoint[];
 }
@@ -435,11 +440,15 @@ export interface PositionLastMonitoringStage {
 
 /** Canonical position persisted by production, sandbox, and backtest flows. */
 export interface Position<TFeature = unknown> {
+  /** Immutable SLOW account slug that owns this position. */
+  account: string;
   symbol: string;
   /** Stable worker-pair identity retained across independent leg re-entries. */
   pairId?: string;
   /** Missing only on legacy one-way positions, which normalize as MAIN. */
   role?: PositionRole;
+  /** Hedge-strategy leg selection captured when this position was opened. */
+  entryLegs?: EntryLegs;
   executionMode: PositionExecutionMode;
   tradingMode: TradingMode;
   direction: PositionDirection;
