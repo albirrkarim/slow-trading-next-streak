@@ -17,7 +17,6 @@ import {
 } from "@mui/material";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
-import CrisisAlertIcon from "@mui/icons-material/CrisisAlert";
 import TuneIcon from "@mui/icons-material/Tune";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -40,12 +39,6 @@ const sidebarSections = [
     {
         title: "Development",
         items: [
-            {
-                text: "Black Swan Backtest",
-                href: "/dev/black-swan",
-                icon: <CrisisAlertIcon />,
-                description: "Replay portfolio crash protection from raw closed one-minute candles.",
-            },
             {
                 text: "Good Coin Finder",
                 href: "/dev/coins",

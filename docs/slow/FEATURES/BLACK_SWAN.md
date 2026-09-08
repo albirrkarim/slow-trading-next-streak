@@ -18,17 +18,10 @@ Implementation summary:
 - `CLOSE_ADVERSE` and `FLATTEN_ALL` reuse the existing forced-exit path. Futures
   exits therefore retain its reduce-only order behavior and failed-close retry
   state.
-- `/dev/black-swan` is the dedicated raw-candle replay page. The existing
-  vPoint-only Dynamic Trade backtest is intentionally unchanged.
-- Its charts default to an incident-focused window with 30 minutes of context
-  before the first protection transition and after recovery. A `Full range`
-  toggle preserves the complete selected-period view, and the page uses the
-  available dashboard width for clearer inspection.
-- The dedicated page validates detector timing and evidence. The Black Swan
-  settings tab also provides a date-selectable savings replay with cached raw
-  klines, mixed entry/averaging levels, per-symbol candlestick charts, and a
-  comparison of normal stop-loss behavior with the current unsaved protection
-  policy.
+- The Black Swan settings tab provides a date-selectable savings replay with
+  cached raw klines, mixed entry/averaging levels, per-symbol candlestick
+  charts, and a comparison of normal stop-loss behavior with the current
+  unsaved protection policy.
 
 ## Problem
 
@@ -412,26 +405,21 @@ the latest evaluation time, evaluation cadence, and available BTC and breadth
 evidence. Do not place it as a global top alert or represent it only as a toast
 because the state can survive a browser refresh or process restart.
 
-## Dedicated Candle Backtest
+## Candle Replay Engine
 
-Black Swan replay lives on `/dev/black-swan`, separate from
-`/dev/dynamic-trade`. This is a deliberate data-integrity boundary: Dynamic
-Trade uses compact vPoints, while crash detection requires raw one-minute
-candles.
-
-The dedicated page and production use the same pure detection and
-state-transition calculations. It downloads or reuses compact cached Binance
-USDT perpetual-futures one-minute candles, includes a 65-minute warm-up, limits
-one run to seven days and 30 symbols, and shows BTC price, detector evidence,
-state bands, and an explicit transition table.
+The internal Black Swan replay and production use the same pure detection and
+state-transition calculations. The replay downloads or reuses compact cached
+Binance USDT perpetual-futures one-minute candles and includes a 65-minute
+warm-up. It remains separate from the Dynamic Trade backtest because Dynamic
+Trade uses compact vPoints while crash detection requires raw candles.
 
 - Use only closed candles available at the current simulated timestamp.
 - Never inspect a future candle, future vPoint, future low, or final incident
   result.
-- Preserve the state transitions and reasons in the result for chart/debug UI.
+- Preserve the state transitions and reasons in the replay result.
 
-The dedicated candle page remains a detector replay. It does not claim full
-portfolio execution, slippage, averaging, or order-book fill accuracy.
+The detector replay does not claim full portfolio execution, slippage,
+averaging, or order-book fill accuracy.
 
 The dashboard Settings preview adds a vPoint-driven savings comparison:
 
@@ -612,8 +600,7 @@ The implementation should remain separated:
 - Exchange-specific reduce-only and cancellation behavior under
   `src/lib/exchange/**`.
 - Candle-driven replay and reporting under
-  `src/lib/devBacktest/black-swan/**` and
-  `src/components/dev/BlackSwanBacktest/**`.
+  `src/lib/devBacktest/black-swan/**`.
 
 Do not implement the feature as scattered checks in only the dashboard or only
 the production cycle. The execution-boundary guards must be authoritative even

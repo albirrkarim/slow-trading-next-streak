@@ -96,13 +96,11 @@ The backtest page is useful locally but should not be part of normal Railway pro
 ```text
 /dev/dynamic-trade
 /dev/coins
-/dev/black-swan
 /dev/vpoints
 /api/dev/dynamic-trade
 /api/dev/dynamic-trade/leaderboards
 /api/dev/coins
 /api/dev/coin-tags
-/api/dev/black-swan
 /api/dev/vpoints
 ```
 
@@ -135,18 +133,18 @@ must still be access-controlled at the deployment or network layer.
 
 Implemented behavior:
 
-- `/dev/dynamic-trade`, `/dev/coins`, `/dev/black-swan`, and `/dev/vpoints`
+- `/dev/dynamic-trade`, `/dev/coins`, and `/dev/vpoints`
   are force-dynamic and return `notFound()` in production unless dev backtest
   is enabled.
 - `/api/dev/dynamic-trade` is a tiny route stub that returns `404` in production unless dev backtest is enabled.
 - `/api/dev/dynamic-trade/leaderboards` is a tiny route stub that returns `404` in production unless dev backtest is enabled.
-- `/api/dev/coins`, `/api/dev/coin-tags`, `/api/dev/black-swan`, and
+- `/api/dev/coins`, `/api/dev/coin-tags`, and
   `/api/dev/vpoints` return `404` in production unless dev backtest is enabled.
 - Heavy dev API implementations live outside `src/pages/api` under `src/lib/devBacktest/api`.
 - Heavy dev API implementations are dynamically imported only after the API guard passes.
 - The vPoint page dynamically imports its tuner UI only after its page guard
   passes.
-- The Dynamic Trade, Coins, and Black Swan pages still use static imports in
+- The Dynamic Trade and Coins pages still use static imports in
   their own guarded route modules. Next.js keeps these out of the `/slow` route
   chunk, but they remain candidates for post-guard dynamic imports if a future
   bundle report shows meaningful standalone or build-size savings.
@@ -233,13 +231,11 @@ Expected production behavior:
 ENABLE_DEV_BACKTEST unset:
   /dev/dynamic-trade -> not found
   /dev/coins -> not found
-  /dev/black-swan -> not found
   /dev/vpoints -> not found
   /api/dev/dynamic-trade -> not found
   /api/dev/dynamic-trade/leaderboards -> not found
   /api/dev/coins -> not found
   /api/dev/coin-tags -> not found
-  /api/dev/black-swan -> not found
   /api/dev/vpoints -> not found
 
 ENABLE_DEV_BACKTEST=1:
@@ -361,13 +357,11 @@ Then verify the build route list:
 /api/slow-trading/* exists
 /dev/dynamic-trade is unavailable or guarded in production
 /dev/coins is unavailable or guarded in production
-/dev/black-swan is unavailable or guarded in production
 /dev/vpoints is unavailable or guarded in production
 /api/dev/dynamic-trade is unavailable or guarded in production
 /api/dev/dynamic-trade/leaderboards is unavailable or guarded in production
 /api/dev/coins is unavailable or guarded in production
 /api/dev/coin-tags is unavailable or guarded in production
-/api/dev/black-swan is unavailable or guarded in production
 /api/dev/vpoints is unavailable or guarded in production
 /liquidation does not exist
 /api/liquidation-map does not exist
