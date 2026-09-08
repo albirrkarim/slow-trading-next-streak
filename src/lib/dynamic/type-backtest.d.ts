@@ -128,7 +128,7 @@ export interface BacktestConfigDynamic {
     watchReserveLevels?: number;
 
     /**
-     * Maximum number of next volatility levels that can trigger averaging.
+     * Maximum number of successful averaging executions.
      */
     watchMaxNextAveragingLevels?: number;
 

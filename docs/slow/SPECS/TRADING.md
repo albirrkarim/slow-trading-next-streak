@@ -1055,6 +1055,13 @@ TC: `PROD:HEDGE_POSITION_RECONCILIATION`
 
 Each open leg evaluates averaging independently in its own adverse direction:
 
+- `watchMaxNextAveragingLevels` caps the number of successful averaging
+  executions, not the numeric distance from the original entry level. A newer
+  adverse vPoint may consume the next averaging budget step even when confirmed
+  vPoints skipped intervening numeric levels.
+- One confirmed vPoint can trigger at most one successful averaging execution
+  for a leg. Repeated monitoring cycles may retry a failed order, but must not
+  consume another step after that vPoint succeeds.
 - A `LONG` leg prepares progressively lower signed levels. For example, an
   entry at `L1` displays `L1 -> L0 -> L-1 -> L-2`.
 - A `SHORT` leg prepares progressively higher signed levels. For example, an
@@ -1073,6 +1080,8 @@ One leg averaging does not change the other leg's margin or weighted entry.
 Level identity and labels must preserve the sign; `L1` and `L-1` are distinct
 steps and must never be deduplicated by absolute magnitude. The usual averaging
 exit and safety rules in B.1 and B.4 remain active.
+
+TC: `BOTH:AVERAGING_EXECUTION_COUNT_CAP`
 
 ### B.5.6 Exit policy
 

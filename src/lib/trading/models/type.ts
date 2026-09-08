@@ -329,6 +329,8 @@ export interface PositionReserveStep {
 
 export interface PositionAveragingExecution {
   t: number;
+  /** Confirmed volatility point that triggered this averaging fill. */
+  vPointId?: string;
   level: number;
   marginUsdt: number;
   price: number;

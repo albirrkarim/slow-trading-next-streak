@@ -453,7 +453,7 @@ export default function DynamicBacktestConfig({
 
                                 <HelpTextField
                                     label="Max Next Averaging Levels"
-                                    tooltip="Applied to backtest. Relative cap for automatic averaging. Example: entry at level 4 and max 2 means averaging may add on 5 and 6, but not 7."
+                                    tooltip="Applied to backtest. Maximum successful averaging executions. Each newer adverse vPoint can consume one execution even when it skips numeric levels."
                                     type="number"
                                     size="small"
                                     value={backtestConfig.watchMaxNextAveragingLevels ?? 2}

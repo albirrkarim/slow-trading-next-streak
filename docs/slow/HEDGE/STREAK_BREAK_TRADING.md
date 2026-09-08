@@ -51,6 +51,12 @@ Account 1 will doing this. for example we on level `TOP[2]-C` main will TP on th
 
 using `BOTH:POST_AVERAGE_STOP_LOSS`
 
+`maximal average next level = 2` means two successful averaging executions,
+not a maximum numeric distance from `TOP[2]-C`. Therefore `BOTTOM[0]-E`
+consumes the first averaging execution and `BOTTOM[-1]-F` consumes the second.
+Repeated runtime cycles on the same confirmed vPoint cannot consume another
+execution.
+
 so its losses right.
 
 and the losses will not reduced by the Account 2 because the entry level abs range is 3-4 so it will not open on the `TOP[2]-C` because its out of the range.

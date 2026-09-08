@@ -604,12 +604,13 @@ export function tryExecuteBacktestAveraging({
   const averagingSummary = averagingMessage.format({
     adaptiveMessageSuffix,
     marginUsdt,
-    stepLevel: nextStep.level,
+    stepLevel: recommend.lvl ?? nextStep.level,
   });
   position.strategy.averaging.executions ??= [];
   position.strategy.averaging.executions.push({
     t: executionTimeMs,
-    level: nextStep.level,
+    vPointId: recommend.id,
+    level: recommend.lvl ?? nextStep.level,
     marginUsdt,
     allocationPct: usedPctAlloc,
     adaptiveMultiplier:
@@ -627,6 +628,7 @@ export function tryExecuteBacktestAveraging({
   markReservedWatchStepUsed({
     averaging: position.strategy.averaging,
     handledLevel: nextStep.level,
+    executedLevel: recommend.lvl,
     executedPrice: price,
     usedAt: executionTimeMs,
     usedMarginUsdt: marginUsdt,

@@ -411,7 +411,7 @@ function TradingAccountSettings({
                     : prev,
                 )
               }
-              info="Relative cap for automatic averaging. Example: entry at level 4 and max 2 means watch logic may add on level 5 and 6, but not 7. Set 0 to disable."
+              info="Maximum successful averaging executions. Each newer adverse vPoint can consume one execution even when it skips numeric levels. Example: max 2 allows two averaging fills. Set 0 to disable."
             />
           </Grid>
         </Grid>

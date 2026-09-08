@@ -6,6 +6,7 @@ import type { VolatilityPoint } from "@/lib/dynamic";
 import slowTrading from "@/lib/slowTrading";
 import { executeAveraging } from "@/lib/trading/execute/execute-averaging";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
+import postAverageStopLoss from "@/lib/trading/post-average-stop-loss";
 import type {
   PositionAveragingState,
   TradingModelMemory,
@@ -141,6 +142,235 @@ describe("slow specs watch", () => {
     expect(result.recommendations).toHaveLength(1);
     expect(result.recommendations[0].symbol).toBe("SUI");
     expect(result.recommendations[0].investAmount).toBe(20);
+  });
+
+  it("counts skipped-level vPoints as separate averaging executions", async () => {
+    const watchState = buildSlowWatchReserveState({
+      direction: "LONG",
+      baseMarginUsdt: 5,
+      entryLevel: 2,
+      reserveLevels: 0,
+      maxNextLevels: 2,
+      pctAlloc: 2,
+    });
+    const counter = createWatchPosition({
+      watchState,
+      direction: "LONG",
+      entryLevel: 2,
+      role: "COUNTER",
+    });
+    const main = createWatchPosition({
+      watchState: buildSlowWatchReserveState({
+        direction: "SHORT",
+        baseMarginUsdt: 5,
+        entryLevel: 2,
+        reserveLevels: 0,
+        maxNextLevels: 2,
+      }),
+      direction: "SHORT",
+      entryLevel: 2,
+      role: "MAIN",
+    });
+    const modelMemory: TradingModelMemory = {
+      positions: [counter],
+      positionsSell: [main],
+    };
+    const config = {
+      averagingRescueProjectionGuardEnabled: false,
+      watchMaxNextAveragingLevels: 2,
+    } as any;
+    const points = [
+      {
+        id: "BOTTOM[0]-E",
+        symbol: "SUI",
+        l: "B",
+        lvl: 0,
+        p: 9,
+        pct: 2,
+        t: 2,
+      },
+      {
+        id: "BOTTOM[-1]-F",
+        symbol: "SUI",
+        l: "B",
+        lvl: -1,
+        p: 8,
+        pct: 2,
+        t: 3,
+      },
+      {
+        id: "BOTTOM[-2]-G",
+        symbol: "SUI",
+        l: "B",
+        lvl: -2,
+        p: 7,
+        pct: 2,
+        t: 4,
+      },
+    ] as VolatilityPoint[];
+
+    for (const [index, point] of points.slice(0, 2).entries()) {
+      const recommendation = generateAveragingRecommendations({
+        activePositions: [counter],
+        pairPositions: [counter, main],
+        volatilityPointsMap: { SUI: points.filter((item) => item.t <= point.t) },
+        config,
+        currentTimeMs: point.t,
+      }).recommendations[0];
+      expect(recommendation?.id).toBe(point.id);
+
+      exchangeMocks.getKlines.mockResolvedValueOnce([
+        [point.t, String(point.p), String(point.p), String(point.p), String(point.p), "100"],
+      ]);
+      const result = await executeAveraging({
+        symbol: "SUI",
+        modelConfig: { orderType: "taker" } as any,
+        modelMemory,
+        volatilityPoints: points.filter((item) => item.t <= point.t),
+        exchangeType: "tokocrypto",
+        tradingMode: TradingMode.FUTURES,
+        balanceOverride: { baseAsset: 0, quoteAsset: 1_000 },
+        averagingRecommendation: recommendation,
+        averagingRescueProjectionGuardEnabled: false,
+      });
+      expect(result.tradingDetail?.action).toBe("BUY");
+
+      if (index === 0) {
+        const samePointRetry = generateAveragingRecommendations({
+          activePositions: [counter],
+          pairPositions: [counter, main],
+          volatilityPointsMap: { SUI: [point] },
+          config,
+          currentTimeMs: point.t,
+        });
+        expect(samePointRetry.recommendations).toHaveLength(0);
+      }
+    }
+
+    const beyondCap = generateAveragingRecommendations({
+      activePositions: [counter],
+      pairPositions: [counter, main],
+      volatilityPointsMap: { SUI: points },
+      config,
+      currentTimeMs: 4,
+    });
+
+    // BOTH:AVERAGING_EXECUTION_COUNT_CAP
+    expect(counter.strategy.averaging.executions).toMatchObject([
+      { vPointId: "BOTTOM[0]-E", level: 0 },
+      { vPointId: "BOTTOM[-1]-F", level: -1 },
+    ]);
+    expect(counter.strategy.averaging.lastHandledLevel).toBe(-1);
+    expect(beyondCap.recommendations).toHaveLength(0);
+
+    const stopEvaluation = postAverageStopLoss.evaluate({
+      config: {
+        enabled: true,
+        thresholds: [
+          { minAveragingCount: 2, maxNetPnlPct: 0, maxNetPnlUsdt: -5 },
+        ],
+      },
+      netPnlPercent: -4,
+      netPnlUsdt: -5,
+      position: counter,
+    });
+    expect(stopEvaluation).toMatchObject({
+      completedAveragingCount: 2,
+      hitUsdt: true,
+      shouldExit: true,
+    });
+  });
+
+  it("uses the same skipped-level execution cap in backtest", () => {
+    const counter = createWatchPosition({
+      watchState: buildSlowWatchReserveState({
+        direction: "LONG",
+        baseMarginUsdt: 5,
+        entryLevel: 2,
+        reserveLevels: 0,
+        maxNextLevels: 2,
+        pctAlloc: 2,
+      }),
+      direction: "LONG",
+      entryLevel: 2,
+      role: "COUNTER",
+    });
+    const main = createWatchPosition({
+      watchState: buildSlowWatchReserveState({
+        direction: "SHORT",
+        baseMarginUsdt: 5,
+        entryLevel: 2,
+        reserveLevels: 0,
+        maxNextLevels: 2,
+      }),
+      direction: "SHORT",
+      entryLevel: 2,
+      role: "MAIN",
+    });
+    const modelMemoryMap: Record<string, TradingModelMemory> = {
+      SUI: { positions: [counter], positionsSell: [main] },
+    };
+    const dynamicTradeMemory = {
+      quoteAsset: 1_000,
+      reservedQuoteAsset: 0,
+    } as any;
+    const backtestPack = { tradeHistoryMap: { SUI: [] } } as any;
+    const config = {
+      averagingRescueProjectionGuardEnabled: false,
+      exchangeType: "tokocrypto",
+      watchMaxNextAveragingLevels: 2,
+    } as any;
+    const points = [
+      {
+        id: "BOTTOM[0]-E",
+        symbol: "SUI",
+        l: "B",
+        lvl: 0,
+        p: 9,
+        pct: 2,
+        t: 2,
+      },
+      {
+        id: "BOTTOM[-1]-F",
+        symbol: "SUI",
+        l: "B",
+        lvl: -1,
+        p: 8,
+        pct: 2,
+        t: 3,
+      },
+    ] as VolatilityPoint[];
+
+    for (const point of points) {
+      const availablePoints = points.filter((item) => item.t <= point.t);
+      const recommendation = generateAveragingRecommendations({
+        activePositions: [counter],
+        pairPositions: [counter, main],
+        volatilityPointsMap: { SUI: availablePoints },
+        config,
+        currentTimeMs: point.t,
+      }).recommendations[0];
+
+      expect(
+        tryExecuteBacktestAveraging({
+          currentTimeMs: point.t,
+          modelMemoryMap,
+          dynamicTradeMemory,
+          backtestPack,
+          config,
+          recommend: recommendation,
+          volatilityPoints: availablePoints,
+          symbol: "SUI",
+        } as any),
+      ).toBe(true);
+    }
+
+    // BOTH:AVERAGING_EXECUTION_COUNT_CAP
+    // BTEST:AVERAGING_EXECUTION_COUNT_CAP
+    expect(counter.strategy.averaging.executions).toMatchObject([
+      { vPointId: "BOTTOM[0]-E", level: 0 },
+      { vPointId: "BOTTOM[-1]-F", level: -1 },
+    ]);
   });
 
   it("keeps the owning position symbol when compact vPoints omit it", () => {

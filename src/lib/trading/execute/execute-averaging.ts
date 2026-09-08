@@ -175,6 +175,12 @@ export async function executeAveraging({
   }
 
   const price = parseFloat(current[4]);
+  const executedLevel =
+    typeof averagingRecommendation?.lvl === "number" &&
+    Number.isFinite(averagingRecommendation.lvl)
+      ? averagingRecommendation.lvl
+      : nextStep.level;
+  const triggerVPointId = averagingRecommendation?.id;
   const rescueProjection = resolveAveragingRescueProjection({
     position: existingPosition,
     step: nextStep,
@@ -307,12 +313,13 @@ export async function executeAveraging({
     const averagingSummary = averagingMessage.format({
       adaptiveMessageSuffix,
       marginUsdt: executedMarginUSDT,
-      stepLevel: nextStep.level,
+      stepLevel: executedLevel,
     });
     existingPosition.strategy.averaging.executions ??= [];
     existingPosition.strategy.averaging.executions.push({
       t: current[0],
-      level: nextStep.level,
+      vPointId: triggerVPointId,
+      level: executedLevel,
       marginUsdt: executedMarginUSDT,
       price,
       allocationPct: usedPctAlloc,
@@ -332,6 +339,7 @@ export async function executeAveraging({
     markReservedWatchStepUsed({
       averaging: existingPosition.strategy.averaging,
       handledLevel: nextStep.level,
+      executedLevel,
       executedPrice: price,
       usedAt: current[0],
       usedMarginUsdt: executedMarginUSDT,
@@ -434,12 +442,13 @@ export async function executeAveraging({
       const averagingSummary = averagingMessage.format({
         adaptiveMessageSuffix,
         marginUsdt: liveMarginUSDT,
-        stepLevel: nextStep.level,
+        stepLevel: executedLevel,
       });
       existingPosition.strategy.averaging.executions ??= [];
       existingPosition.strategy.averaging.executions.push({
         t: current[0],
-        level: nextStep.level,
+        vPointId: triggerVPointId,
+        level: executedLevel,
         marginUsdt: liveMarginUSDT,
         price: executedPrice,
         allocationPct: usedPctAlloc,
@@ -459,6 +468,7 @@ export async function executeAveraging({
       markReservedWatchStepUsed({
         averaging: existingPosition.strategy.averaging,
         handledLevel: nextStep.level,
+        executedLevel,
         executedPrice,
         usedAt: current[0],
         usedMarginUsdt: liveMarginUSDT,

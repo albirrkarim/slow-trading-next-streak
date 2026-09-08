@@ -53,7 +53,7 @@ describe("settings behavior: averaging", () => {
     expect(watchState.reservedRemainingMarginUsdt).toBe(150);
   });
 
-  it("uses watchMaxNextAveragingLevels to cap deeper averaging recommendations", () => {
+  it("uses watchMaxNextAveragingLevels as an execution-count cap", () => {
     const position = createPosition();
     const volatilityPointsMap = {
       SUI: [
@@ -70,6 +70,48 @@ describe("settings behavior: averaging", () => {
         },
       ],
     } as any;
+
+    expect(
+      slowTradingWatchReserve.averaging.generateRecommendations({
+        activePositions: [position],
+        volatilityPointsMap,
+        config: {
+          enableWatchLogic: true,
+          watchMaxNextAveragingLevels: 1,
+        } as any,
+      }).recommendations,
+    ).toHaveLength(1);
+
+    expect(
+      slowTradingWatchReserve.averaging.generateRecommendations({
+        activePositions: [position],
+        volatilityPointsMap,
+        config: {
+          enableWatchLogic: true,
+          watchMaxNextAveragingLevels: 2,
+        } as any,
+      }).recommendations,
+    ).toHaveLength(1);
+
+    position.strategy.averaging.steps[0].status = "USED";
+    position.strategy.averaging.executions = [
+      {
+        t: 2,
+        vPointId: "SUI-level-minus-6",
+        level: -6,
+        marginUsdt: 20,
+        price: 80,
+        allocationPct: 2,
+      },
+    ];
+    volatilityPointsMap.SUI = [
+      {
+        ...volatilityPointsMap.SUI[0],
+        id: "SUI-level-minus-7",
+        lvl: -7,
+        t: 3,
+      },
+    ];
 
     expect(
       slowTradingWatchReserve.averaging.generateRecommendations({

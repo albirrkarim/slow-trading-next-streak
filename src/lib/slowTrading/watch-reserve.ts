@@ -13,6 +13,7 @@ import type {
 } from "@/lib/trading/models";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
 import bothDirection from "@/lib/trading/both-direction";
+import postAverageRescue from "@/lib/trading/post-average-rescue";
 
 /** One step in the SLOW averaging reserve ladder. */
 export type WatchReserveStep = PositionReserveStep;
@@ -348,7 +349,8 @@ export function isEntrySignalVolatilityPointUsed(params: {
 /**
  * Checks whether a volatility point may trigger averaging. One-way positions
  * keep level `0` and absolute level `1` observation-only. A verified
- * both-direction leg may consume its exact next adverse watch step there.
+ * both-direction leg may consume its next adverse watch step there, including
+ * when confirmed vPoints skipped the step's numeric level.
  */
 export function isActionableAveragingVolatilityLevel(
   volatilityPoint: Pick<VolatilityPoint, "lvl">,
@@ -373,12 +375,14 @@ export function isActionableAveragingVolatilityLevel(
   // BOTH:LOW_LEVEL_NEXT_ADVERSE_AVERAGING
   return Boolean(
     pairContext &&
-    volatilityPoint.lvl === pairContext.nextStepLevel &&
     (bothDirection.position.isHedgeStrategy(pairContext.position) ||
       bothDirection.pair.hasCounterpart(
         pairContext.position,
         pairContext.pairPositions,
-      )),
+      )) &&
+    (pairContext.position.direction === "LONG"
+      ? volatilityPoint.lvl <= pairContext.nextStepLevel
+      : volatilityPoint.lvl >= pairContext.nextStepLevel),
   );
 }
 
@@ -1004,6 +1008,7 @@ export function getNextWatchStep(params: {
 export function markReservedWatchStepUsed(params: {
   averaging?: PositionAveragingState;
   handledLevel?: number;
+  executedLevel?: number;
   executedPrice: number;
   usedAt: number;
   usedMarginUsdt?: number;
@@ -1058,7 +1063,11 @@ export function markReservedWatchStepUsed(params: {
       ),
   );
 
-  averaging.lastHandledLevel = step.level;
+  averaging.lastHandledLevel =
+    typeof params.executedLevel === "number" &&
+    Number.isFinite(params.executedLevel)
+      ? params.executedLevel
+      : step.level;
 
   return step;
 }
@@ -1108,7 +1117,10 @@ export function generateAveragingRecommendations(params: {
     currentTimeMs,
   } = params;
   const recommendations: AveragingRecommendation[] = [];
-  const maxNextLevels = config.watchMaxNextAveragingLevels ?? 2;
+  const maxNextLevels = Math.max(
+    0,
+    Math.floor(config.watchMaxNextAveragingLevels ?? 2),
+  );
   const pairPositions = params.pairPositions ?? activePositions;
 
   // B. Scan each active position against its latest volatility point.
@@ -1134,6 +1146,13 @@ export function generateAveragingRecommendations(params: {
 
     // C. Resolve the next watch step that this position is allowed to consume.
     const entryLevel = position.opened.vPoint.lvl ?? 0;
+    const completedAveragingCount =
+      postAverageRescue.averaging.countCompleted(position);
+    const alreadyAveragedAtPoint =
+      typeof lastPoint.id === "string" &&
+      position.strategy.averaging.executions?.some(
+        (execution) => execution.vPointId === lastPoint.id,
+      );
     const nextStep = getNextWatchStep({
       averaging: position.strategy.averaging,
       includeUnreserved: true,
@@ -1145,7 +1164,8 @@ export function generateAveragingRecommendations(params: {
 
     // Check if we should recommend an averaging entry
     if (
-      maxNextLevels > 0 &&
+      completedAveragingCount < maxNextLevels &&
+      !alreadyAveragedAtPoint &&
       isActionableAveragingVolatilityLevel(lastPoint, {
         nextStepLevel: nextStep.level,
         pairPositions,
@@ -1178,19 +1198,16 @@ export function generateAveragingRecommendations(params: {
         lastPoint.lvl >= nextStep.level;
 
       if (isDeeperLong || isDeeperShort) {
-        const distance = Math.abs(lastPoint.lvl - entryLevel);
-
-        if (distance <= maxNextLevels) {
-          recommendations.push({
-            ...lastPoint,
-            // Compact backtest vPoints omit runtime-only ownership metadata.
-            // The active position remains the source of truth in every mode.
-            symbol: position.symbol,
-            message: `Averaging ${direction} for ${position.symbol} at level ${lastPoint.lvl}`,
-            maxLeverage: position.exposure.leverage ?? 1,
-            investAmount: nextStep.marginUsdt,
-          });
-        }
+        // BOTH:AVERAGING_EXECUTION_COUNT_CAP
+        recommendations.push({
+          ...lastPoint,
+          // Compact backtest vPoints omit runtime-only ownership metadata.
+          // The active position remains the source of truth in every mode.
+          symbol: position.symbol,
+          message: `Averaging ${direction} for ${position.symbol} at level ${lastPoint.lvl}`,
+          maxLeverage: position.exposure.leverage ?? 1,
+          investAmount: nextStep.marginUsdt,
+        });
       }
     }
   }

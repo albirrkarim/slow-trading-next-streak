@@ -111,8 +111,9 @@ export interface DynamicTradeConfig {
   watchReserveLevels?: number;
 
   /**
-   * Relative cap for automatic averaging. E.g., entry at level 4 and max 2 means watch logic
-   * may add on 5 and 6, but not 7. Set 0 to disable.
+   * Maximum number of successful automatic averaging executions. Each newer
+   * adverse vPoint may consume one execution even when numeric levels were skipped.
+   * Set 0 to disable.
    */
   watchMaxNextAveragingLevels?: number;
 
