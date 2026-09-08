@@ -39,7 +39,7 @@ Account 1 config:
 Account 2 config:
 
 - entry on main leg
-- entry level abs range is 3 - 4
+- entry level abs range is 3 - 5
 - maximal average next level = 2
 
 Case:
@@ -49,17 +49,13 @@ Case:
 Account 1 will doing this. for example we on level `TOP[2]-C` main will TP on the `BOTTOM[0]-E` but the counter leg still open LONG from the
 `TOP[2]-C` so it will be averaging on the `BOTTOM[0]-E` and `BOTTOM[-1]-F` then hit stop loss because i set stop loss
 
-using `BOTH:POST_AVERAGE_STOP_LOSS`
-
-`maximal average next level = 2` means two successful averaging executions,
-not a maximum numeric distance from `TOP[2]-C`. Therefore `BOTTOM[0]-E`
-consumes the first averaging execution and `BOTTOM[-1]-F` consumes the second.
-Repeated runtime cycles on the same confirmed vPoint cannot consume another
-execution.
+using `BOTH:POST_AVERAGE_STOP_LOSS` i have set the maximal loss on account 1 is $5 on averaging 2 levels
 
 so its losses right.
 
 and the losses will not reduced by the Account 2 because the entry level abs range is 3-4 so it will not open on the `TOP[2]-C` because its out of the range.
+
+the our Account 2 when entry on level abs 3 is desined to TP about $8
 
 ## Scenario Behavior
 

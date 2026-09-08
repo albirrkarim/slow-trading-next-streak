@@ -445,8 +445,6 @@ function ExitStagePreview({
               }`}
             />
           )}
-          {!hasCounterLeg && netUsdtStopLossIsFirst &&
-            netUsdtStopLossCalculation}
         </StageLegGroup>
 
         {hasCounterLeg && (
@@ -474,23 +472,23 @@ function ExitStagePreview({
           </StageLegGroup>
         )}
 
-        {hasCounterLeg && stage.firstStopLoss && (
+        {stage.firstStopLoss && (
           <StageStopOutcome label="FIRST STOP OUTCOME">
             {hardStopLossIsFirst && (
               <PreviewCalculation
                 color="error.dark"
-                detail="the traditional percentage hard SL closes only MAIN; COUNTER continues its independent lifecycle"
+                detail={`the traditional percentage hard SL closes the ${activeLegName.toUpperCase()} leg without closing another role`}
                 formula={lossFormula}
-                label="MAIN exits at hard SL"
+                label={`${activeLegName.toUpperCase()} exits at hard SL`}
               />
             )}
             {netUsdtStopLossIsFirst && netUsdtStopLossCalculation}
             {postAverageStopLossIsFirst && (
               <PreviewCalculation
                 color="error.dark"
-                detail="this is the earliest configured loss boundary at this stage and closes only MAIN"
+                detail={`this is the earliest configured loss boundary at this stage and closes the ${activeLegName.toUpperCase()} leg`}
                 formula={postAverageStopFormula}
-                label="MAIN exits at post-average stop"
+                label={`${activeLegName.toUpperCase()} exits at post-average stop`}
               />
             )}
           </StageStopOutcome>

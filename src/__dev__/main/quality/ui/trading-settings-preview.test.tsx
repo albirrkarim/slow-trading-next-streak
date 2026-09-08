@@ -264,11 +264,13 @@ describe("TradingSettingsPreview", () => {
     );
 
     expect(screen.getByText("Post-average stop after 1 average")).toBeDefined();
-    expect(screen.getByText("-5% = -$2.10 OR -$10.00 = -23.81%")).toBeDefined();
+    expect(
+      screen.getAllByText("-5% = -$2.10 OR -$10.00 = -23.81%"),
+    ).toHaveLength(2);
     expect(
       screen.getByText("Post-average stop after 2 averages"),
     ).toBeDefined();
-    expect(screen.getByText("-$4.00 = -3.17%")).toBeDefined();
+    expect(screen.getAllByText("-$4.00 = -3.17%")).toHaveLength(2);
   });
 
   it("estimates a fixed-margin counter close from each averaging-stage move", () => {
@@ -389,8 +391,8 @@ describe("TradingSettingsPreview", () => {
     expect(screen.getByText("$14.00 x 5% = +$0.70")).toBeDefined();
     expect(screen.getByText("$126.00 x 5% = +$6.30")).toBeDefined();
     expect(screen.getAllByText("Loss at SL (20%)")).toHaveLength(3);
-    expect(screen.getByText("$14.00 x 20% = -$2.80")).toBeDefined();
-    expect(screen.getByText("$126.00 x 20% = -$25.20")).toBeDefined();
+    expect(screen.getAllByText("$14.00 x 20% = -$2.80")).toHaveLength(2);
+    expect(screen.getAllByText("$126.00 x 20% = -$25.20")).toHaveLength(2);
     expect(screen.queryByText(/net USDT stop \(\$50\.00\)/i)).toBeNull();
     expect(
       screen.getAllByText("Loss at volatility target SL (2%)"),
@@ -461,6 +463,69 @@ describe("TradingSettingsPreview", () => {
     ).toBeDefined();
     expect(
       within(stopOutcomes[2]).getByText("$126.00 x 20% = -$25.20"),
+    ).toBeDefined();
+  });
+
+  it("renders first stop outcomes for a MAIN-only account", () => {
+    const mainOnlyConfig = {
+      ...configDraft,
+      entryLegs: "MAIN" as const,
+      exactLeverage: 5,
+      maxEntryMargin: 100,
+      modelConfig: {
+        ...configDraft.modelConfig,
+        stopLossPercent: 16,
+        stopLossUSDT: 50,
+        takeProfitPercent: 1.6,
+        volatilityTargetStopLossPercent: 0.5,
+      },
+      openDirection: "BOTH" as const,
+      watchMaxNextAveragingLevels: 1,
+      watchReserveLevels: 0,
+      watchReservePctAlloc: 2,
+    };
+    const mainOnlyDashboardState = {
+      ...dashboardState,
+      balances: { spendableQuoteAsset: 1_000 },
+      openPositions: [],
+    } as unknown as DashboardState;
+    const preview = buildTradingLivePreview({
+      config: mainOnlyConfig,
+      dashboardState: mainOnlyDashboardState,
+    });
+
+    expect(preview.entryLegs).toBe("MAIN");
+    expect(preview.workerLegs).toBe(1);
+    expect(preview.exitStages[0].firstStopLoss).toEqual({
+      estimatedLossUsdt: 50,
+      type: "NET_USDT",
+    });
+
+    render(
+      <TradingSettingsPreview
+        configDraft={mainOnlyConfig}
+        dashboardState={mainOnlyDashboardState}
+      />,
+    );
+
+    const stopOutcomes = screen.getAllByTestId("stage-stop-outcome");
+
+    // BOTH:ACCOUNT_ENTRY_LEGS
+    // PROD:TRADING_ENTRY_LIVE_PREVIEW
+    expect(screen.queryByTestId("counter-leg-stage")).toBeNull();
+    expect(stopOutcomes).toHaveLength(2);
+    expect(
+      within(stopOutcomes[0]).getByText("FIRST STOP OUTCOME"),
+    ).toBeDefined();
+    expect(
+      within(stopOutcomes[0]).getByText(
+        "Maximum loss at net USDT stop ($50.00)",
+      ),
+    ).toBeDefined();
+    expect(
+      within(stopOutcomes[0]).getByText(
+        "-$50.00 / $500.00 x 100 = -10%",
+      ),
     ).toBeDefined();
   });
 
