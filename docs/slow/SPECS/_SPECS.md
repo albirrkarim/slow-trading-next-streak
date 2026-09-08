@@ -37,9 +37,8 @@ readmore `RUNTIME.md`
 readmore `TRADING.md`
 
 The implemented both-direction strategy contract is consolidated in
-`TRADING.md` under **B.5 Both-Direction Trading**. The original rationale,
-scenarios, and Binance Hedge Mode design notes remain in
-`../HEDGE/BOTH_DIRECTION_TRADING.md`.
+`TRADING.md` under **B.5 Both-Direction Trading**. The strategy rationale and
+scenarios remain in `../HEDGE/STREAK_BREAK_TRADING.md`.
 
 ## C. Storage (storage.test.ts)
 

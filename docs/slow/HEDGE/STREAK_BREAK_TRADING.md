@@ -2,7 +2,9 @@
 
 # Introduction
 
-This is the update of the strategy in `BOTH_DIRECTION_TRADING.md`
+This document records the rationale and scenarios for the Streak Break Hedge
+strategy. The authoritative implementation contract is consolidated in
+`../SPECS/TRADING.md` under **B.5 Both-Direction Trading**.
 
 # A. Scenario
 
