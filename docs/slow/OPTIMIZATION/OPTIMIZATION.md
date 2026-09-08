@@ -4,7 +4,7 @@ This document tracks how to keep the SLOW Railway deployment clean, efficient, a
 
 ## Optimization Score: 82/100
 
-Assessment date: August 27, 2026.
+Assessment date: September 8, 2026.
 
 The current SLOW production shape is reasonably optimized for a small Railway
 deployment. Dev/backtest routes are guarded, the `/slow` dashboard is client
@@ -12,9 +12,11 @@ lazy-loaded, runtime storage loads only the active mode, closed trade history is
 split out of normal memory, and several runtime caches are persisted outside the
 hot storage object. Completed SLOW stages also persist a compact section-duration
 breakdown, making the slowest operation visible from the dashboard. The remaining
-optimization gap is mostly bounded measurement: there is no regular memory budget
-report, no bundle-size budget, and no production-like load test that proves the
-memory cap is safe across larger symbol counts.
+optimization gap is mostly bounded measurement: there is no regular memory
+budget report, no bundle-size budget, and no production-like load test that
+proves the memory cap is safe across larger symbol or account counts. A short
+Railway sample now shows post-restart warm-up followed by partial reclamation
+and an early plateau, but it still needs a long-duration stability check.
 
 The score increased from 78 because cycle timing is now observable and tested,
 the full standalone liquidation-map feature was removed, and every current dev
@@ -25,12 +27,12 @@ bundle size, and production-scale throughput have not yet been benchmarked.
 ### Assessment evidence
 
 This assessment is based on the repository state and verification available on
-August 27, 2026:
+September 8, 2026:
 
 - `next.config.ts` uses `output: "standalone"`, disables production browser
   source maps, removes the powered-by header, and excludes persistent storage
   from output tracing.
-- All four current dev pages and all six current dev API routes call the shared
+- All three current dev pages and all five current dev API routes call the shared
   `isDevBacktestEnabled()` guard.
 - Dev API route shells dynamically import their heavy implementations only
   after the guard passes.
@@ -40,10 +42,46 @@ August 27, 2026:
   `positionsSell` rows.
 - The standalone liquidation-map route, API, components, model, tests, and docs
   are absent, while core trading liquidation behavior remains.
-- `npm run quality` passed after the removal with 112 test files and 642 tests.
+- `npm run quality` passed with 126 test files and 725 tests.
 
-No heap profile, route-chunk report, or Railway load sample was captured as part
-of this assessment. Those missing measurements cap the score.
+No heap profile, route-chunk report, or long-duration Railway load sample has
+been captured. Those missing measurements cap the score.
+
+### Railway restart observation — September 8, 2026
+
+A Railway observability screenshot for the production `Streak Grail : Two
+snake` service shows this approximate sequence:
+
+- Before the restart, memory was roughly `195-205 MB` during the visible
+  11:09-11:15 interval.
+- At approximately 11:15, the container restart reduced memory to roughly
+  `105 MB`.
+- From approximately 11:16 through 11:23, memory increased in steps to roughly
+  `135-140 MB`.
+- From approximately 11:23 through 11:26, memory declined to roughly
+  `120-125 MB`, then remained nearly flat through 11:29.
+- CPU remained close to idle except for a short spike around the restart/cycle
+  boundary.
+
+The newer sample shows that at least part of the startup increase was reclaimed
+and does not show continuous growth through the end of the visible window. That
+supports a warm-up/plateau interpretation more than a leak interpretation.
+However, the roughly 14-minute post-restart window is still too short to prove
+long-term stability. Next.js module loading, V8 heap expansion, exchange
+initialization, dashboard requests, and the first SLOW cycles can all establish
+a higher warm baseline. V8 may retain committed heap after garbage collection
+instead of immediately returning it to the operating system.
+
+The important distinction is:
+
+```text
+Warm-up: memory rises after restart, then oscillates around a stable plateau.
+Leak/retention: the post-GC floor keeps rising across equivalent runner cycles.
+```
+
+Treat the current runtime memory posture as **early plateau observed; long-term
+stability still under observation**. Do not lower the configured V8 limits
+until a longer sample confirms the plateau across repeated scheduled stages.
 
 The main rule:
 
@@ -87,7 +125,10 @@ NODE_OPTIONS=--max-old-space-size=96 --max-semi-space-size=2
 ```
 
 Use the tighter cap only after observing that the app does not restart during
-normal runner cycles.
+normal runner cycles. `--max-old-space-size` limits V8 old-space, not the
+process's total Railway memory. Total RSS also includes young-generation heap,
+native allocations, buffers, loaded code, and runtime overhead, so Railway can
+report more than the configured old-space value.
 
 ## Dev/Backtest Exclusion
 
@@ -276,6 +317,8 @@ Still important operational habits:
 - Avoid calling dashboard/debug endpoints that return very large arrays unless
   the UI needs them.
 - Monitor memory after deploys and after increasing symbol count.
+- Compare memory only at equivalent points in the runner cycle; a cycle peak
+  should not be compared with an idle post-GC floor.
 - Disable the automatic runner only when manual execution is acceptable:
 
 ```bash
@@ -369,7 +412,8 @@ Then verify the build route list:
 
 On Railway, watch:
 
-- Memory should settle after startup.
+- Memory should settle after startup instead of establishing a new higher floor
+  after every equivalent cycle.
 - CPU should stay low between runner cycles.
 - No repeated SIGTERM/restart loop.
 - `/slow` loads normally.
@@ -385,6 +429,23 @@ npm run monitor:local
 
 Repeat with representative symbol counts such as 9, 15, and 50 coins. Record
 idle memory after startup and memory after at least one runner cycle.
+
+For the current Railway observation, capture at least `60-120 minutes` after a
+fresh restart and include several occurrences of every enabled scheduled stage.
+Record these checkpoints:
+
+1. The first idle reading after the server becomes healthy.
+2. Memory immediately before and after each SLOW runner cycle.
+3. Memory before and after the first `/slow` dashboard visit.
+4. The lowest memory reading between cycles, not only each peak.
+5. Any deployment, restart, dashboard backtest, withdrawal scan, or account
+   configuration change on the same timeline.
+
+Escalate to a heap/RSS investigation when the between-cycle floor continues to
+rise over multiple comparable cycles, memory does not plateau during the full
+observation window, or Railway restarts the service for memory pressure. A
+single startup staircase that settles is normal warm-up evidence and should not
+be treated as a confirmed leak.
 
 ## Remaining Optimization Risks
 
@@ -423,7 +484,7 @@ Current status:
 
 ```text
 Production safety: good
-Runtime memory posture: good for small/medium symbol counts
+Runtime memory posture: early post-restart plateau; long-term stability unproven
 Measurement discipline: needs improvement
 Optimization confidence score: 82/100
 ```
