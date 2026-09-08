@@ -26,6 +26,35 @@ so it will averaging two level point right in `BOTTOM[0]-E` and `BOTTOM[-1]-F` a
 
 So the system will might always open for opening position, but of course considering entry guard like `PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT`
 
+## Scenario 2
+
+Trading config:
+
+Account 1 config:
+
+- entry on both leg
+- entry level abs range is 0 - 2
+- maximal average next level = 2
+
+Account 2 config:
+
+- entry on main leg
+- entry level abs range is 3 - 4
+- maximal average next level = 2
+
+Case:
+
+`TOP[0]-A` -> `TOP[1]-B` -> `TOP[2]-C` -> `BOTTOM[0]-E` -> `BOTTOM[-1]-F` -> `BOTTOM[-2]-G` -> `TOP[0]-H`
+
+Account 1 will doing this. for example we on level `TOP[2]-C` main will TP on the `BOTTOM[0]-E` but the counter leg still open LONG from the
+`TOP[2]-C` so it will be averaging on the `BOTTOM[0]-E` and `BOTTOM[-1]-F` then hit stop loss because i set stop loss
+
+using `BOTH:POST_AVERAGE_STOP_LOSS`
+
+so its losses right.
+
+and the losses will not reduced by the Account 2 because the entry level abs range is 3-4 so it will not open on the `TOP[2]-C` because its out of the range.
+
 ## Scenario Behavior
 
 Both leg has same tp and all the exit rule.
