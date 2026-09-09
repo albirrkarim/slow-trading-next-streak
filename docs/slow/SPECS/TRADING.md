@@ -1159,10 +1159,10 @@ The dashboard's both-direction view always renders every configured coin, with
 `Open Positions Main`, per-symbol net USDT PnL, and `Open Positions Counter`.
 Net USDT PnL is the sum of active legs only. A closed leg must never remain as a
 closed card in this open-position view. Its now-missing role shows the
-role-specific current entry or re-entry reason directly inside that MAIN or
-COUNTER card.
+shared guard plus the role-specific current entry or re-entry reason for every
+enabled account directly inside that MAIN or COUNTER card.
 It must not redirect the user to another UI section. `Entry Decisions` renders
-the same shared diagnostic source.
+the same source-attributed diagnostics.
 
 Closed-trade tables, including Quick Backtest Trade History, show a semantic
 `MAIN` or `COUNTER` badge beside the symbol so paired rows remain identifiable.

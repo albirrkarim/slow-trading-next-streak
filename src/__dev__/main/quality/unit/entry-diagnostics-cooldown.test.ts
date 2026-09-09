@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  build: vi.fn(),
+  buildEnabledAccounts: vi.fn(),
   cooldown: vi.fn(),
 }));
 
@@ -9,7 +9,7 @@ vi.mock("@/lib/slowTrading", () => ({
   default: {
     signals: {
       diagnostics: {
-        build: mocks.build,
+        buildEnabledAccounts: mocks.buildEnabledAccounts,
       },
     },
     storage: {
@@ -61,6 +61,37 @@ describe("entry diagnostics Binance cooldown", () => {
       error: "Binance cooldown",
       retryAt,
     });
-    expect(mocks.build).not.toHaveBeenCalled();
+    expect(mocks.buildEnabledAccounts).not.toHaveBeenCalled();
+  });
+
+  it("returns diagnostics for all enabled accounts", async () => {
+    const diagnostics = [
+      {
+        code: "SHARED_ENTRY_GUARDS_READY",
+        reason: "Shared guards passed.",
+        source: { scope: "shared" },
+        status: "ready",
+        symbol: "AAVE",
+      },
+    ];
+    mocks.cooldown.mockReturnValue(null);
+    mocks.buildEnabledAccounts.mockResolvedValue(diagnostics);
+    const json = vi.fn();
+    const response = {
+      json,
+      setHeader: vi.fn(),
+      status: vi.fn(),
+    } as any;
+    response.status.mockReturnValue(response);
+
+    await handler({ method: "GET" } as any, response);
+
+    // PROD:MULTI_ACCOUNT_ENTRY_DIAGNOSTICS
+    expect(mocks.buildEnabledAccounts).toHaveBeenCalledOnce();
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(json).toHaveBeenCalledWith({
+      diagnostics,
+      generatedAt: expect.any(Number),
+    });
   });
 });

@@ -41,7 +41,8 @@ export default async function handler(
   }
 
   try {
-    const diagnostics = await slowTrading.signals.diagnostics.build();
+    const diagnostics =
+      await slowTrading.signals.diagnostics.buildEnabledAccounts();
     res.status(200).json({
       diagnostics,
       generatedAt: Date.now(),

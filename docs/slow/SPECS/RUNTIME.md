@@ -612,11 +612,14 @@ The dashboard shows an `Entry Decisions` section immediately below VPoints
 Frequency. It evaluates every configured coin, including explicit blocked
 states when no confirmed vPoint exists or the latest point is outside the
 configured entry range. Each row identifies the coin, optional role and level,
-and whether it is ready or blocked, followed by the same server-generated
-reason used by the entry decision flow. The browser does not reimplement or
-translate decision reasons. In BOTH mode, a missing MAIN or COUNTER card shows
-that shared role-specific reason inline and is expanded by default; it never
-redirects the user to `Entry Decisions` to discover the reason.
+and whether it is ready or blocked, followed by the server-generated reason
+used by the entry decision flow. The browser does not reimplement or translate
+decision reasons. Diagnostics evaluate every enabled account. In BOTH mode, a
+missing MAIN or COUNTER card shows one shared runner/automatic-entry guard and
+one role-specific decision for every enabled account, labeled with the account
+name. The card is expanded by default and never redirects the user to `Entry
+Decisions` to discover a reason. An account whose `entryLegs` excludes that
+role receives an explicit account-level blocked reason.
 The missing-role card also shows the diagnostic generation time and the latest
 completed Capture Entry stage time, both including seconds. A ready diagnostic
 generated after the last Capture Entry pass explicitly says that execution has
@@ -648,6 +651,8 @@ quantity-precision validation, and order acceptance still run during execution
 and therefore are not guaranteed by this read-only preview.
 
 TC: `PROD:ENTRY_DECISION_DIAGNOSTICS`
+
+TC: `PROD:MULTI_ACCOUNT_ENTRY_DIAGNOSTICS`
 
 The dashboard estimates how many entry workers were needed to capture every
 selected-engine opportunity immediately in the current vPoint time range. It

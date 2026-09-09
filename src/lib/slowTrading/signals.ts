@@ -555,6 +555,7 @@ export async function buildSlowTradingSignals(params?: {
 
 /** Builds read-only entry explanations for every currently actionable coin. */
 export async function buildSlowTradingEntryDiagnostics(params?: {
+  marketSnapshot?: SlowTradingSharedMarketSnapshot;
   storage?: SlowTradingStorageData;
 }): Promise<SlowTradingEntryDiagnostic[]> {
   const diagnosticStorage =
@@ -563,6 +564,7 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
       modeScope: "active",
     }));
   const result = await buildSlowTradingSignals({
+    marketSnapshot: params?.marketSnapshot,
     storage: diagnosticStorage,
   });
   const { storage, activeMode, modelMemoryMap } = result;
@@ -1106,13 +1108,215 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
   return diagnostics;
 }
 
+/** Builds the process-wide entry control outcome for each configured symbol. */
+function buildSharedEntryDiagnostics(
+  storage: SlowTradingStorageData,
+): SlowTradingEntryDiagnostic[] {
+  const block = !storage.runtime.runnerEnabled
+    ? {
+        code: "RUNNER_DISABLED",
+        reason: "Blocked because the shared SLOW runner is disabled.",
+      }
+    : !storage.runtime.autoEntryEnabled
+      ? {
+          code: "AUTO_ENTRY_DISABLED",
+          reason: "Blocked because shared automatic entry is disabled.",
+        }
+      : null;
+
+  return storage.sharedConfig.symbols.map((rawSymbol) => ({
+    code: block?.code ?? "SHARED_ENTRY_GUARDS_READY",
+    reason:
+      block?.reason ??
+      "Shared runner and automatic-entry guards passed; continue to each enabled account's checks.",
+    source: { scope: "shared" as const },
+    status: block ? ("blocked" as const) : ("ready" as const),
+    symbol: rawSymbol.trim().toUpperCase(),
+  }));
+}
+
+/** Expands one account's pair-level decision into explicit MAIN and COUNTER outcomes. */
+function attachAccountEntryDiagnostics(params: {
+  diagnostics: SlowTradingEntryDiagnostic[];
+  storage: SlowTradingStorageData;
+}): SlowTradingEntryDiagnostic[] {
+  const { account, config } = params.storage;
+  const source = {
+    accountName: account.name,
+    accountSlug: account.slug,
+    scope: "account" as const,
+  };
+
+  if (!bothDirection.config.isEnabled(config.openDirection)) {
+    return params.diagnostics.map((diagnostic) => ({ ...diagnostic, source }));
+  }
+
+  const enabledRoles = new Set(resolveFreshEntryRoles(config) ?? []);
+  const activeMode = slowTradingStorage.mode.getActive(params.storage);
+  const activePositions = params.storage.modes[
+    activeMode
+  ].tradeSettings.flatMap((tradeSetting) =>
+    (tradeSetting.model_memory.positions ?? []).filter(
+      (position) => !position.closed,
+    ),
+  );
+
+  return config.symbols.flatMap((rawSymbol) => {
+    const symbol = rawSymbol.trim().toUpperCase();
+    return (["MAIN", "COUNTER"] as const).map((role) => {
+      if (!enabledRoles.has(role)) {
+        return {
+          code: "ACCOUNT_ENTRY_LEG_DISABLED",
+          reason:
+            `Blocked because ${account.name} is configured to open ` +
+            `${config.entryLegs ?? "BOTH"} only, not ${role}.`,
+          role,
+          source,
+          status: "blocked" as const,
+          symbol,
+        };
+      }
+
+      const openPosition = activePositions.find(
+        (position) =>
+          position.symbol.trim().toUpperCase() === symbol &&
+          (position.role ?? "MAIN") === role,
+      );
+      if (openPosition) {
+        return {
+          code: "ACCOUNT_ROLE_ALREADY_OPEN",
+          level: openPosition.opened.vPoint.lvl,
+          pointId: openPosition.opened.vPoint.id,
+          reason: `Blocked because ${account.name} already has an open ${role} position for ${symbol}.`,
+          role,
+          source,
+          status: "blocked" as const,
+          symbol,
+        };
+      }
+
+      const diagnostic =
+        params.diagnostics.find(
+          (candidate) =>
+            candidate.symbol.trim().toUpperCase() === symbol &&
+            candidate.role === role,
+        ) ??
+        params.diagnostics.find(
+          (candidate) =>
+            candidate.symbol.trim().toUpperCase() === symbol &&
+            !candidate.role,
+        );
+
+      const blockedBySharedControl =
+        diagnostic?.code === "RUNNER_DISABLED" ||
+        diagnostic?.code === "AUTO_ENTRY_DISABLED";
+
+      return diagnostic
+        ? blockedBySharedControl
+          ? {
+              code: "ACCOUNT_CHECK_SKIPPED_BY_SHARED_GUARD",
+              level: diagnostic.level,
+              pointId: diagnostic.pointId,
+              reason: `${account.name} was not evaluated because the shared entry guard is blocked.`,
+              role,
+              source,
+              status: "blocked" as const,
+              symbol,
+            }
+          : { ...diagnostic, role, source }
+        : {
+            code: "ACCOUNT_ENTRY_DECISION_UNAVAILABLE",
+            reason: `No current ${role} entry decision is available for ${account.name}.`,
+            role,
+            source,
+            status: "blocked" as const,
+            symbol,
+          };
+    });
+  });
+}
+
+/** Builds shared and per-account entry outcomes for every enabled account. */
+export async function buildEnabledAccountEntryDiagnostics(params?: {
+  storage?: SlowTradingStorageData;
+}): Promise<SlowTradingEntryDiagnostic[]> {
+  const catalog =
+    params?.storage ??
+    (await slowTradingStorage.data.load({
+      modeScope: "active",
+    }));
+  const accountStorages: SlowTradingStorageData[] = [];
+  for (const account of catalog.runtime.exchangeAccounts) {
+    if (!account.enabled) continue;
+    accountStorages.push(
+      account.slug === catalog.account.slug
+        ? catalog
+        : await slowTradingStorage.data.load({
+            account: account.slug,
+            modeScope: "active",
+          }),
+    );
+  }
+
+  const sharedDiagnostics = buildSharedEntryDiagnostics(catalog);
+  if (sharedDiagnostics.some((diagnostic) => diagnostic.status === "blocked")) {
+    const sharedWithoutSource = sharedDiagnostics.map(
+      ({ source: _source, ...diagnostic }) => diagnostic,
+    );
+    return [
+      ...sharedDiagnostics,
+      ...accountStorages.flatMap((storage) =>
+        attachAccountEntryDiagnostics({
+          diagnostics: sharedWithoutSource,
+          storage,
+        }),
+      ),
+    ];
+  }
+
+  const minimumLevels = accountStorages
+    .map((storage) => storage.config.minAbsLevelToEntry)
+    .filter((level): level is number => Number.isFinite(level));
+  const profiler = slowTradingPerformance.cycle.createProfiler();
+  const representative = accountStorages[0];
+  const marketSnapshot = representative
+    ? await slowTradingCycleSharedMarket.prepare({
+        minAbsLevelToEntry:
+          minimumLevels.length > 0 ? Math.min(...minimumLevels) : undefined,
+        prepareEntryContext: true,
+        profiler,
+        storage: representative,
+        symbols: slowTradingShared.symbols.buildExecution(
+          catalog.sharedConfig.symbols,
+        ),
+      })
+    : null;
+  const accountDiagnostics: SlowTradingEntryDiagnostic[] = [];
+
+  for (const storage of accountStorages) {
+    accountDiagnostics.push(
+      ...attachAccountEntryDiagnostics({
+        diagnostics: await buildSlowTradingEntryDiagnostics({
+          marketSnapshot: marketSnapshot ?? undefined,
+          storage,
+        }),
+        storage,
+      }),
+    );
+  }
+
+  return [...sharedDiagnostics, ...accountDiagnostics];
+}
+
 /**
  * Grouped signal API for SLOW entry signal generation and filtering.
  */
 const slowTradingSignals = {
   build: buildSlowTradingSignals,
   diagnostics: {
+    attachAccount: attachAccountEntryDiagnostics,
     build: buildSlowTradingEntryDiagnostics,
+    buildEnabledAccounts: buildEnabledAccountEntryDiagnostics,
   },
   filter: {
     actionableVolatilityLevel: filterSignalsWithActionableVolatilityLevel,

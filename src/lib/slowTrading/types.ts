@@ -86,6 +86,14 @@ export type SlowTradingDailyPnlLimitNotificationState = Partial<
 
 /** Current explanation for an actionable coin's entry outcome. */
 export interface SlowTradingEntryDiagnostic {
+  /** Identifies whether this decision belongs to shared controls or one account. */
+  source?:
+    | { scope: "shared" }
+    | {
+        accountName: string;
+        accountSlug: ExchangeAccountSlug;
+        scope: "account";
+      };
   code: string;
   level?: number;
   pointId?: string;

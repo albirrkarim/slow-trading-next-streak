@@ -27,6 +27,7 @@ import { useMemo, useState } from "react";
 
 import HeaderMetrics from "@/components/ui/HeaderMetrics";
 import openPositionPnlContribution from "./open-position-pnl-contribution";
+import MissingPositionDecision from "./MissingPositionDecision";
 import OpenPositionCoinInfo from "./OpenPositionCoinInfo";
 import OpenPositionItem from "./OpenPositionItem";
 
@@ -332,98 +333,17 @@ function PairedOpenPositions(props: OpenPositionsProps) {
     position?: SlowTradingHistoryPosition,
   ) => {
     if (!position) {
-      const diagnostic =
-        props.entryDiagnostics?.find(
-          (item) =>
-            item.symbol.trim().toUpperCase() === symbol && item.role === role,
-        ) ??
-        props.entryDiagnostics?.find(
-          (item) =>
-            item.symbol.trim().toUpperCase() === symbol && !item.role,
-        );
-      const reason = props.entryDiagnosticsLoading
-        ? `Evaluating why ${role} is not open...`
-        : props.entryDiagnosticsError
-          ? `Unable to load the ${role} entry reason: ${props.entryDiagnosticsError}`
-          : diagnostic?.reason ??
-            `No current ${role} entry decision is available.`;
-      const diagnosticMeta = diagnostic
-        ? [
-            diagnostic.code,
-            diagnostic.pointId,
-            typeof diagnostic.level === "number"
-              ? `Level ${diagnostic.level}`
-              : undefined,
-          ].filter(Boolean).join(" · ")
-        : "";
-      const decisionCheckedAt = props.entryDiagnosticsGeneratedAt ?? 0;
-      const captureEntryLastRunAt = props.captureEntryLastRunAt ?? 0;
-      const timingMeta = [
-        decisionCheckedAt > 0
-          ? `Decision checked ${moment(decisionCheckedAt).format("D MMM HH:mm:ss")}`
-          : "Decision check time unavailable",
-        captureEntryLastRunAt > 0
-          ? `Capture Entry completed ${moment(captureEntryLastRunAt).format("D MMM HH:mm:ss")}`
-          : "Capture Entry has never completed",
-      ].join(" · ");
-      const awaitsNextCaptureEntry =
-        diagnostic?.status === "ready" &&
-        decisionCheckedAt > captureEntryLastRunAt;
-
       return (
-        <HeaderMetrics
-          defaultExpanded
-          title={<Typography fontWeight={700}>{title}</Typography>}
-          titleRight={
-            diagnostic && (
-              <Chip
-                color={
-                  diagnostic.status === "ready" ? "success" : "warning"
-                }
-                label={
-                  diagnostic.status === "ready" ? "Ready" : "Blocked"
-                }
-                size="small"
-                variant="outlined"
-              />
-            )
-          }
-          toggleLabel={`${title} details`}
-          sx={{ border: 1, borderColor: "divider" }}
-          headerSx={{ p: 0.5 }}
-        >
-          {(expanded) =>
-            expanded && (
-              <Box sx={{ borderTop: 1, borderColor: "divider", p: 1.5 }}>
-                <Typography color="text.secondary" variant="body2">
-                  {reason}
-                </Typography>
-                {awaitsNextCaptureEntry && (
-                  <Typography color="success.main" sx={{ display: "block", mt: 0.5 }} variant="caption">
-                    Ready after the last Capture Entry pass; execution has not
-                    checked this state yet.
-                  </Typography>
-                )}
-                <Typography
-                  color="text.disabled"
-                  sx={{ display: "block", mt: 0.5 }}
-                  variant="caption"
-                >
-                  {timingMeta}
-                </Typography>
-                {diagnostic && (
-                  <Typography
-                    color="text.disabled"
-                    sx={{ display: "block", mt: 0.5 }}
-                    variant="caption"
-                  >
-                    {diagnosticMeta}
-                  </Typography>
-                )}
-              </Box>
-            )
-          }
-        </HeaderMetrics>
+        <MissingPositionDecision
+          captureEntryLastRunAt={props.captureEntryLastRunAt}
+          diagnostics={props.entryDiagnostics}
+          error={props.entryDiagnosticsError}
+          generatedAt={props.entryDiagnosticsGeneratedAt}
+          loading={props.entryDiagnosticsLoading}
+          role={role}
+          symbol={symbol}
+          title={title}
+        />
       );
     }
     const volatilityPoints = getPositionVolatilityPoints(

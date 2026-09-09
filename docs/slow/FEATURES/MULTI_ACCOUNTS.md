@@ -290,6 +290,11 @@ positions, and history. It has no global account selector. Shared Daily PnL uses
 the combined shared history. Any account-specific feature owns a local account
 selector that changes only that feature.
 
+Entry diagnostics also evaluate every enabled account. A missing MAIN or
+COUNTER card groups the shared entry guard with one separately labeled outcome
+for each enabled account, including explicit reasons when that account does not
+enable the requested entry leg.
+
 All account-scoped read-only MCP tools follow the same boundary. The
 `slow_balance_read` top-level balance is the sum of every enabled account in the
 requested mode, and its `accounts[]` field preserves each included account's
@@ -333,6 +338,7 @@ these exact TC comments:
 - `BOTH:MULTI_ACCOUNT_POSITION_OWNER`
 - `BOTH:MULTI_ACCOUNT_HISTORY_OWNER`
 - `PROD:MULTI_ACCOUNT_SEQUENTIAL_CYCLE`
+- `PROD:MULTI_ACCOUNT_ENTRY_DIAGNOSTICS`
 - `PROD:MULTI_ACCOUNT_SHARED_MARKET_PREPARATION`
 - `PROD:MULTI_ACCOUNT_SEQUENTIAL_ACCOUNT_EXECUTION`
 - `PROD:MULTI_ACCOUNT_PRIVATE_STATE_ISOLATION`

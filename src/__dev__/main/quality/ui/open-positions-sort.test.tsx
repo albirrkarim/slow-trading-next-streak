@@ -31,6 +31,70 @@ function renderedSymbols() {
 }
 
 describe("OpenPositions PnL sorting", () => {
+  it("shows the shared guard and every enabled account decision", () => {
+    render(
+      <OpenPositions
+        availableTags={[]}
+        coinDescriptions={{}}
+        coinTags={{}}
+        config={{ openDirection: "BOTH", symbols: ["AAVE"] } as any}
+        entryDiagnostics={[
+          {
+            code: "SHARED_ENTRY_GUARDS_READY",
+            reason: "Shared entry guards passed.",
+            source: { scope: "shared" },
+            status: "ready",
+            symbol: "AAVE",
+          },
+          {
+            code: "ENTRY_OUTSIDE_ABS_LEVEL_RANGE",
+            level: 0,
+            reason: "Outside Main's configured range 0-2.",
+            role: "MAIN",
+            source: {
+              accountName: "Main",
+              accountSlug: "binance-1",
+              scope: "account",
+            },
+            status: "blocked",
+            symbol: "AAVE",
+          },
+          {
+            code: "ENTRY_OUTSIDE_ABS_LEVEL_RANGE",
+            level: 0,
+            reason: "Outside Second's configured range 2-5.",
+            role: "MAIN",
+            source: {
+              accountName: "Second",
+              accountSlug: "binance-2",
+              scope: "account",
+            },
+            status: "blocked",
+            symbol: "AAVE",
+          },
+        ]}
+        exchangeType={"binance" as any}
+        mode="sandbox"
+        onCoinDescriptionChange={vi.fn()}
+        onCoinTagsChange={vi.fn()}
+        positions={[]}
+        spendableQuoteAsset={0}
+        tagColors={{}}
+        tagDescriptions={{}}
+        volatilityMap={{}}
+        volume24hBySymbol={{}}
+      />,
+    );
+
+    expect(screen.getAllByText("Shared guard")).toHaveLength(2);
+    expect(
+      screen.getByText("Outside Main's configured range 0-2."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Outside Second's configured range 2-5."),
+    ).toBeTruthy();
+  });
+
   it("shows every configured BOTH coin even when neither leg is open", () => {
     render(
       <OpenPositions

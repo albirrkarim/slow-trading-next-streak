@@ -112,9 +112,13 @@ function EntryBlockersContent({
         >
           {diagnostics.map((diagnostic) => {
             const ready = diagnostic.status === "ready";
+            const sourceLabel =
+              diagnostic.source?.scope === "account"
+                ? diagnostic.source.accountName
+                : "Shared guard";
             return (
               <Paper
-                key={`${diagnostic.symbol}-${diagnostic.role ?? "PAIR"}-${diagnostic.pointId ?? diagnostic.code}`}
+                key={`${diagnostic.symbol}-${diagnostic.role ?? "PAIR"}-${diagnostic.source?.scope === "account" ? diagnostic.source.accountSlug : "SHARED"}-${diagnostic.pointId ?? diagnostic.code}`}
                 sx={{
                   borderLeft: 3,
                   borderLeftColor: ready ? "success.main" : "warning.main",
@@ -140,6 +144,9 @@ function EntryBlockersContent({
                   )}
                   <Typography fontWeight={700} variant="body2">
                     {diagnostic.symbol}
+                  </Typography>
+                  <Typography color="text.secondary" variant="caption">
+                    {sourceLabel}
                   </Typography>
                   {diagnostic.role && (
                     <Chip
