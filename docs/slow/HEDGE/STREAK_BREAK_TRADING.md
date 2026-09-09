@@ -59,9 +59,19 @@ the our Account 2 when entry on level abs 3 is desined to TP about $8
 
 ## Scenario Behavior
 
-Both leg has same tp and all the exit rule.
+Default Behavior:
 
-the take profit logic like traditional TP and stop loss plus is disabled. we just using the volatility points rails. to determine the exit.
+Both leg has same tp and all the exit rule. the take profit logic like traditional TP and stop loss plus is disabled. we just using the volatility points rails. to determine the exit.
+
+Exception Condition:
+
+- The favorable price distance from the latest volatility point must be at least
+  `VOLATILITY_THRESHOLD` so the v points is still forming,A new target vPoint does not need to
+  be confirmed; the latest available vPoint is the price anchor for this distance
+  calculation.
+  and we must reenable the traditional TP and stop loss plus.
+
+Definition:
 
 the current `BOTH:VOLATILITY_TARGET_EXIT` is not always in level 0. see the scenario
 

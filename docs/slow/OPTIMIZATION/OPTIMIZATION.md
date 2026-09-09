@@ -2,7 +2,7 @@
 
 This document tracks how to keep the SLOW Railway deployment clean, efficient, and production-focused.
 
-## Optimization Score: 82/100
+## A. Optimization Assessment — 82/100
 
 Assessment date: September 9, 2026.
 
@@ -26,7 +26,7 @@ page/API has an explicit production guard. The score reflects architecture and
 operational safety, not a measured percentage reduction: peak memory, client
 bundle size, and production-scale throughput have not yet been benchmarked.
 
-### Assessment evidence
+### A.1 Assessment Evidence
 
 This assessment is based on the repository state and verification available on
 September 9, 2026:
@@ -49,7 +49,7 @@ September 9, 2026:
 No heap profile, route-chunk report, or controlled production-like load sample
 has been captured. Those missing measurements cap the score.
 
-### Railway redeploy memory finding — September 9, 2026
+### A.2 Railway Redeploy Memory Finding — September 9, 2026
 
 A Railway observability screenshot and MCP metrics for the production `Streak
 Grail : Two snake` service show a clear process-replacement boundary. The
@@ -76,7 +76,7 @@ memory point at the deployment boundary as one container's peak. See Railway's
 [singleton deployment reference](https://docs.railway.com/deployments/reference#singleton-deploys)
 and [zero-downtime redeploy documentation](https://docs.railway.com/guides/rotate-credentials-zero-downtime#make-the-redeploy-itself-zero-downtime).
 
-#### What the drop proves
+#### A.2.1 What the Drop Proves
 
 The drop proves that the old process had a larger warm resident set that was
 released only when that process exited. In operational terms, there was about
@@ -89,7 +89,7 @@ V8 committed-but-currently-unused pages, loaded Next.js/module code, native
 allocations, HTTP/TLS buffers, external memory, and intentional caches. A
 redeploy releases all of those categories together.
 
-#### Leading cause from the code audit
+#### A.2.2 Leading Cause from the Code Audit
 
 The leading explanation is **transient SLOW-cycle allocation followed by V8
 and native allocator retention**, with smaller intentional process caches. The
@@ -128,13 +128,15 @@ explains a `90-115 MB` unbounded increase:
 - Runner, mutation, and JSON-write promise chains replace or delete settled
   work and do not retain completed cycle results.
 
-The live service currently has `MEMORY_MONITOR_WARNING_MB=150` and
-`MEMORY_MONITOR_DANGER_MB=430`, but no `NODE_OPTIONS` variable. Consequently,
-the V8 old-space cap recommended later in this document is **not active** in
-this Railway service. The monitor only alerts; it does not make the runtime
+At the time of this `Streak Grail : Two snake` observation, the service had
+`MEMORY_MONITOR_WARNING_MB=150` and `MEMORY_MONITOR_DANGER_MB=430`, but no
+`NODE_OPTIONS` variable. Consequently, no explicit V8 old-space cap was active
+during this observation. That absence does not itself explain the warm resident
+floor: a heap cap limits allocation but does not require V8 or the native
+allocator to return resident pages. The monitor also only alerts; it does not
 release memory.
 
-#### Root-cause status
+#### A.2.3 Root-Cause Status
 
 ```text
 Confirmed cause of the vertical drop:
@@ -174,7 +176,7 @@ Production should only ship and run the SLOW dashboard, SLOW APIs, auth, storage
 Development backtest pages/APIs should not be available or loaded in Railway production unless explicitly enabled.
 ```
 
-## Goals
+## B. Goals
 
 - Keep Railway memory stable and low.
 - Keep the standalone production bundle focused on `/slow`.
@@ -182,7 +184,7 @@ Development backtest pages/APIs should not be available or loaded in Railway pro
 - Keep dev/backtest tools available locally.
 - Make optimization decisions based on real runtime impact, not only build output cosmetics.
 
-## Current Production Target
+## C. Current Production Target
 
 Railway production should run the standalone Next.js server:
 
@@ -198,23 +200,67 @@ PORT=8080
 NODE_ENV=production
 NEXT_TELEMETRY_DISABLED=1
 PERSISTENT_STORAGE_ROOT=/storage/persistent/instances/3010
+```
+
+### C.1 Heap Limits Are Not a Flat-Memory Solution
+
+Do not set a low service-wide `NODE_OPTIONS` value as the memory optimization.
+Railway exposes service variables to the build as well as the running service.
+On September 9, 2026, setting the following value caused the `Holy Grail : Sub
+Machine gun` deployment to fail during `npm install`:
+
+```bash
 NODE_OPTIONS=--max-old-space-size=128 --max-semi-space-size=4
 ```
 
-This is a conservative production cap. If memory is still stable after normal
-runner cycles, dashboard use, and withdrawal scans, a tighter cap can be tested:
+The build log reached approximately `127 MB` of V8 heap and terminated with
+`Reached heap limit Allocation failed - JavaScript heap out of memory`. This is
+a build-time failure caused by applying a runtime-sized heap limit to the npm
+installer.
+
+If a heap ceiling is needed as a runtime safety experiment, remove the global
+`NODE_OPTIONS` variable and put the flags directly on Railway's custom start
+command:
 
 ```bash
-NODE_OPTIONS=--max-old-space-size=96 --max-semi-space-size=2
+node --max-old-space-size=128 --max-semi-space-size=4 .next/standalone/server.js
 ```
 
-Use the tighter cap only after observing that the app does not restart during
-normal runner cycles. `--max-old-space-size` limits V8 old-space, not the
-process's total Railway memory. Total RSS also includes young-generation heap,
-native allocations, buffers, loaded code, and runtime overhead, so Railway can
-report more than the configured old-space value.
+This keeps installation and `next build` unrestricted while limiting only the
+standalone server. It must still be tested through every SLOW stage because a
+128 MB old-space limit can cause a runtime OOM. It also does **not** cap total
+Railway memory or guarantee a lower flat line: total RSS includes young
+generation, committed free heap pages, loaded code, native allocations,
+external buffers, and runtime overhead.
 
-## Dev/Backtest Exclusion
+Treat runtime heap flags as a crash-containment guardrail, not as evidence that
+the cost problem is solved. Forced garbage collection has the same limitation:
+it may make objects collectible without returning the process's resident pages
+to the operating system.
+
+### C.2 Memory-Cost Target
+
+Railway bills actual memory over time, so the desired profile is:
+
+```text
+low idle baseline -> short stage spike -> return close to the idle baseline
+```
+
+Achieving that profile requires reducing or isolating the allocation source:
+
+1. Stop reading and cloning complete volatility and price-normal datasets when
+   a stage needs only selected symbols and a bounded time window.
+2. Measure cgroup, RSS, heap used/committed, external memory, and ArrayBuffers
+   before and after each SLOW stage to identify the allocation owner.
+3. If V8/native memory still holds the higher floor after references are
+   released, move the allocation-heavy market-preparation work into a
+   short-lived child process. Process exit is the reliable boundary that makes
+   the operating system reclaim those pages after the spike.
+
+Success must be measured by the comparable between-stage Railway baseline, not
+by avoiding an OOM or lowering `heapUsed` alone.
+
+## D. Dev/Backtest Exclusion
 
 The backtest page is useful locally but should not be part of normal Railway production behavior:
 
@@ -236,7 +282,7 @@ These routes are not expected to consume a large amount of idle memory just beca
 - Makes the deployed app easier to reason about.
 - Avoids dev UI imports leaking into the `/slow` production client bundle.
 
-## Implemented Controls
+## E. Implemented Controls
 
 Production now uses one shared server-side dev-backtest guard:
 
@@ -282,7 +328,7 @@ Enabling dev backtests in production is an explicit operational override. These
 tools are expensive and should not be exposed on a public deployment merely for
 convenience.
 
-## Production UI Boundaries
+## F. Production UI Boundaries
 
 The production dashboard is lazy-loaded from a client wrapper:
 
@@ -306,7 +352,7 @@ coin-finder backtest itself. Moving them to a neutral shared directory would
 make the module boundary clearer, but it is not currently a demonstrated memory
 problem.
 
-## Runtime Performance Visibility
+## G. Runtime Performance Visibility
 
 Each completed SLOW cycle or scheduled stage now records:
 
@@ -325,7 +371,7 @@ This is diagnostic instrumentation, not a load budget. It shows where time was
 spent in one cycle but does not yet fail the build for excessive duration or
 memory use at representative production symbol counts.
 
-## API Guard
+## H. API Guard
 
 Dev APIs should be hard-guarded:
 
@@ -346,7 +392,7 @@ const { runBacktestVolatilityDynamic } = await import("@/lib/dynamic/backtest-vo
 
 This avoids loading heavy backtest modules in production unless the dev endpoint is intentionally enabled.
 
-## Route Guard
+## I. Route Guard
 
 Dev pages should also be unavailable in Railway production unless enabled.
 
@@ -367,7 +413,7 @@ ENABLE_DEV_BACKTEST=1:
   dev pages/APIs are available
 ```
 
-## Real Memory Wins
+## J. Real Memory Wins
 
 These are already implemented or partly implemented and are more likely to
 reduce actual Railway runtime memory:
@@ -392,8 +438,8 @@ reduce actual Railway runtime memory:
 - Completed stage timing summaries are compactly persisted and visible in the
   dashboard, allowing runtime bottlenecks to be found without retaining raw
   profiler events.
-- `NODE_OPTIONS` old-space and semi-space caps are available for controlling
-  worst-case memory growth.
+- Runtime-only Node heap flags may be used as a tested safety guardrail, but
+  they are not counted as an idle-memory reduction.
 
 Still important operational habits:
 
@@ -411,7 +457,7 @@ DISABLE_SLOW_TRADING_RUNNER=1
 
 That flag can save memory and CPU, but it changes behavior because SLOW will no longer run automatically.
 
-## Build Cleanliness Wins
+## K. Build Cleanliness Wins
 
 These are good architecture, but may not visibly reduce idle memory:
 
@@ -428,7 +474,7 @@ These are good architecture, but may not visibly reduce idle memory:
 - Removing the unused standalone liquidation-map route, API, calculation model,
   charts, and page documentation while retaining exchange liquidation logic.
 
-## Client-Only Dashboard Pages
+## L. Client-Only Dashboard Pages
 
 Heavy dashboard pages should render as client-only UI:
 
@@ -462,7 +508,7 @@ src/components/LiveDashboard/index.tsx
 
 This reduces server-side rendering work for dashboard UI requests. It does not stop the SLOW runner, because the runner is server-side system logic and does not depend on whether the dashboard UI is open.
 
-## Verification Checklist
+## M. Verification Checklist
 
 After optimization changes:
 
@@ -538,7 +584,7 @@ observation window, or Railway restarts the service for memory pressure. A
 single startup staircase that settles is normal warm-up evidence and should not
 be treated as a confirmed leak.
 
-## Remaining Optimization Risks
+## N. Remaining Optimization Risks
 
 - Cycle-section timing instrumentation and its quality test exist, but there is
   no automated memory regression or realistic multi-symbol load budget for a
@@ -558,7 +604,7 @@ be treated as a confirmed leak.
 - Keep generated cache and history files compact; audit any new `fs.writeJSON`
   use before it enters a hot persistence path.
 
-## Decision
+## O. Decision
 
 Excluding dev/backtest from production is the right architecture.
 
@@ -582,7 +628,9 @@ Measurement discipline: needs improvement
 Optimization confidence score: 82/100
 ```
 
-The next meaningful improvement is to turn the existing section timing into
-repeatable budgets: bundle analysis, memory samples under realistic symbol
-counts, and a deterministic production-cycle load test with explicit duration
-and memory thresholds.
+The next meaningful improvement is to instrument memory around every stage,
+then remove full-dataset hydration and duplicate clones from the hottest stage.
+If the allocator still keeps the high floor, isolate that work in a short-lived
+child process. Bundle analysis and a deterministic production-cycle load test
+should then enforce explicit duration, peak-memory, and post-stage baseline
+budgets.
