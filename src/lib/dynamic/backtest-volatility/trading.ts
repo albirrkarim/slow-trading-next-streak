@@ -4,7 +4,7 @@ import type {
   DataBacktestPurpose,
   EntryRecommendation,
 } from "@/lib/brain/algorithms/type-execute";
-import { decisionEngineLevelConfig } from "@/lib/brain/algorithms/v4/decisions/v19/constants";
+import { decisionEngineLevelConfig } from "@/lib/brain/algorithms/v4/decisions/utils";
 import { timeMsToReadable } from "@/lib/datasets/utils";
 import type {
   BacktestConfigDynamic,

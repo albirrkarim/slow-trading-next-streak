@@ -21,7 +21,7 @@ import type {
 } from "@/lib/trading/models";
 import moment from "moment-timezone";
 import type { EntryRecommendation } from "../../brain/algorithms/type-execute";
-import { decisionEngineLevelConfig } from "../../brain/algorithms/v4/decisions/v19/constants";
+import { decisionEngineLevelConfig } from "../../brain/algorithms/v4/decisions/utils";
 import type { Kline } from "../../exchange/platform/tokocrypto";
 import { tradeLog } from "../helper/log";
 import { notif } from "../helper/notification"; // Email/notification system

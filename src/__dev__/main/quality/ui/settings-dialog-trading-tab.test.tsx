@@ -24,7 +24,7 @@ const configDraft = {
   autoEntryEnabled: true,
   autoExitEnabled: true,
   autoRemoveSymbolAbsLevel: 0,
-  decisionEngineVersion: "decision.v19",
+  decisionEngineVersion: "decision.v20",
   description: "",
   enableWatchLogic: false,
   entrySignalBypass: false,

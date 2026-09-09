@@ -210,8 +210,6 @@ export interface DataBacktestPurpose {
    */
   downTrend?: { timeMs: number; level: number }[];
 
-  priceNormMapOverTime: Record<string, PriceNorm[]>;
-
   verbose: boolean;
 }
 

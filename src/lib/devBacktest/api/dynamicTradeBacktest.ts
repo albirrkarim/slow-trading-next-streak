@@ -61,11 +61,10 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
 
     mode = "kline",
 
-    decisionEngineVersion = "decision.v7",
-
     verbose = true,
     multiAccount = false,
   } = params as DynamicTradeBacktestInput;
+  const decisionEngineVersion = "decision.v20" as const;
 
   let { range, startTime, endTime } = params as DynamicTradeBacktestInput;
 
@@ -85,19 +84,15 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
     const [
       { DYNAMIC_ALGORITM_MAP, GET_RECOMMENDATIONS_MAP },
       { DECISION_ENGINE_MAP },
-      { getSharpDownRatio },
       { runBacktestVolatilityDynamic },
       { getHistoricalEntrySignal },
-      { windowsMs },
       { saveOrGetBacktestResult },
       { default: makeLeaderboard },
     ] = await Promise.all([
       import("@/lib/brain/algorithms"),
       import("@/lib/brain/algorithms/v4/decisions"),
-      import("@/lib/brain/algorithms/v4/decisions/v12/feature/utils"),
       import("@/lib/dynamic/backtest-volatility"),
       import("@/lib/dynamic/utils/history"),
-      import("@/lib/dynamic/utils/nn/data/features/constants"),
       import("@/lib/dynamic/utils/report"),
       import("@/lib/evaluate/analysis/leaderboard"),
     ]);
@@ -171,8 +166,7 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
               runBacktestVolatilityDynamic({
                 ...id,
                 config: effectiveConfig,
-                decisionEngine:
-                  DECISION_ENGINE_MAP[decisionEngineVersion as string],
+                decisionEngine: DECISION_ENGINE_MAP["decision.v20"],
                 useVolatilityCache: !upToDateKlines,
               }),
             ),
@@ -182,7 +176,7 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
       } else {
         result = await runBacktestVolatilityDynamic({
           ...id,
-          decisionEngine: DECISION_ENGINE_MAP[decisionEngineVersion as string],
+          decisionEngine: DECISION_ENGINE_MAP["decision.v20"],
           useVolatilityCache: !upToDateKlines,
         });
       }
@@ -229,11 +223,6 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
     tradeLog.log("Common End ", timeMsToReadable(commonTime.commonEnd));
 
     symbols.sort();
-
-    const priceSeries: MultiLinePair = {
-      series: [],
-      names: [],
-    };
 
     // C.1 Trades Series
     const vPointsSeries: MultiLinePair = {
@@ -425,125 +414,6 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
       //   // await fs.writeJson(`storage/nn/evaluation/coins/${symbol}.json`, records);
       // }
 
-      const last15Day = windowsMs["1m"] / 2;
-
-      // PRICE NORMALIZED
-      // Find min and max
-      // const prices = volatilityPoints.map((d) => d.price);
-      // const min = Math.min(...prices);
-      // const max = Math.max(...prices);
-
-      // // Normalize
-      // const pricesPointsGlobal = volatilityPoints.map((e) => ({
-      //   time: Math.floor(e.t / 1000),
-      //   level: (e.p - min) / (max - min || 1),
-      // }));
-
-      // priceSeries.series.push(pricesPointsGlobal);
-      // priceSeries.names.push(symbol + "_global");
-
-      // const memory = {
-      //   max: 0,
-      //   min: Infinity,
-      // };
-
-      // Realtime calculation
-      // const priceNormOverTime = [];
-      // const pricesPoints: SeriesMinimal[] = [];
-      // const downRatioOverTime: SeriesMinimal[] = [];
-      // for (const vPoint of volatilityPoints) {
-      //   // vPoint
-
-      //   if (vPoint.p < memory.min) {
-      //     memory.min = vPoint.p;
-      //   }
-
-      //   if (vPoint.p > memory.max) {
-      //     memory.max = vPoint.p;
-      //   }
-
-      //   const current =
-      //     (vPoint.p - memory.min) / (memory.max - memory.min || 1);
-
-      //   const item: PriceNorm = {
-      //     t: vPoint.t,
-      //     x: memory.max,
-      //     n: memory.min,
-      //     c: current,
-      //   };
-
-      //   priceNormOverTime.push(item);
-
-      //   const cutOff = vPoint.t - last15Day;
-      //   const recent = priceNormOverTime.filter((e) => e.t > cutOff);
-
-      //   const downRatio = getSharpDownRatio(recent);
-      //   vPoint.message = "DR " + downRatio.toFixed(2);
-      //   downRatioOverTime.push({
-      //     time: Math.floor(vPoint.t / 1000),
-      //     level: downRatio,
-      //   });
-
-      //   pricesPoints.push({
-      //     time: Math.floor(vPoint.t / 1000),
-      //     level: current,
-      //   });
-      // }
-
-      // priceSeries.series.push(pricesPoints);
-      // priceSeries.names.push(symbol);
-
-      // cached.dynamicTradeMemory.priceNormMapOverTime
-
-      // priceSeries.series.push(downRatioOverTime);
-      // priceSeries.names.push(symbol + "_DOWN_RATIO");
-
-      if (cached.dynamicTradeMemory.priceNormMapOverTime) {
-        const priceNorm =
-          cached.backtestPack.priceNormMapOverTime[symbol] ?? [];
-
-        const data = priceNorm.map((e) => ({
-          time: Math.floor(e.t / 1000),
-          level: e.c,
-        }));
-
-        // tradeLog.log("data", data.length);
-
-        const downRatioOverTime: SeriesMinimal[] = [];
-        // const upRatioOverTime: SeriesMinimal[] = [];
-
-        for (const item of priceNorm) {
-          const cutOff = item.t - last15Day;
-          const recent = priceNorm.filter((e) => e.t > cutOff && e.t <= item.t);
-
-          // tradeLog.log("recent ", recent.length);
-          const downRatio = getSharpDownRatio(recent);
-
-          downRatioOverTime.push({
-            time: Math.floor(item.t / 1000),
-            level: downRatio,
-          });
-
-          // const upRatio = getSharpUpRatio(recent);
-
-          // upRatioOverTime.push({
-          //   time: Math.floor(item.t / 1000),
-          //   level: upRatio,
-          // });
-        }
-
-        // if (symbol !== "BTC") {
-        priceSeries.series.push(downRatioOverTime);
-        priceSeries.names.push(symbol + "_DOWN_RATIO");
-
-        // priceSeries.series.push(upRatioOverTime);
-        // priceSeries.names.push(symbol + "_UP_RATIO");
-        // }
-
-        priceSeries.series.push(data);
-        priceSeries.names.push(symbol + "_PRICE_NORM");
-      }
-
       const volatilityPointsLeveledMarkers = convertVolatilityToLeveledMarkers(
         symbol,
         volatilityPoints,
@@ -570,7 +440,6 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
     const historicalEntrySignal = await getHistoricalEntrySignal({
       volatilityMap: volatilityPointsMap,
       getRecommendations: GET_RECOMMENDATIONS_MAP[decisionEngineVersion],
-      exchangeType: (config as any)?.exchangeType ?? "binance",
       minAbsLevelToEntry: config.minAbsLevelToEntry,
       maxAbsLevelToEntry: config.maxAbsLevelToEntry,
     });
@@ -687,12 +556,6 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
 
     // ============================================================
 
-    applyTimeWindow(
-      priceSeries.series,
-      firstMarkerSimple.time,
-      endMarkerSimple.time,
-    );
-
     // E. Additional Charts
     tradeLog.log("E. Additional Charts");
 
@@ -789,7 +652,6 @@ async function dynamicTradeBacktest(req: NextApiRequest, res: NextApiResponse) {
       tradeHistory,
       tradeCountMap,
       vPointsSeries,
-      priceSeries,
       growthOvertimeSeries,
       customSeries,
       vSnapshots,

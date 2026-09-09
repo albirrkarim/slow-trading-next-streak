@@ -42,7 +42,7 @@ function dashboardState() {
         minProjectedProfitPct: 2,
       },
       averagingRescueProjectionGuardEnabled: true,
-      decisionEngineVersion: "decision.v19",
+      decisionEngineVersion: "decision.v20",
       description: "",
       enableWatchLogic: false,
       exchangeType: "binance",

@@ -143,10 +143,8 @@ assertion should focus on the contract the setting promises.
   - entry sizing should cap the entry margin by fixed USDT.
 
 - `minAbsLevelToEntry >= 3`
-  - decision.v19 should enter immediately only at or above this absolute vPoint
-    level. The level immediately below it remains a wait/projection candidate.
   - decision.v20 should return every unused latest vPoint at or above this
-    absolute level without Speed timing or projection.
+    absolute level without timing projection.
 
 - `maxLeverage > 0`
   - futures entry execution should not exceed the configured leverage cap.

@@ -8,7 +8,7 @@ Production and backtest should use the same configured threshold when their
 volatility points are expected to be comparable. Changing this threshold
 changes how frequently volatility points form; it does not change
 `config.minAbsLevelToEntry`, which separately controls which completed
-vPoint levels decision.v19 and decision.v20 may treat as actionable.
+vPoint levels decision.v20 may treat as actionable.
 
 The SLOW navbar displays the server-resolved global value as `Vol: <value>%`.
 The browser receives this value through the dashboard state and does not read
@@ -579,7 +579,7 @@ TC: `PROD:TRADING_ENTRY_LIVE_PREVIEW`
 The dashboard also counts historical entry sequences per coin for the current
 vPoint time range. Dashboard candidate signals require
 `abs(level) >= config.minAbsLevelToEntry`, resolved with the same
-minimum/default rules as decision.v19 and decision.v20. Multiple candidate
+minimum/default rules as decision.v20. Multiple candidate
 signals inside the same active sequence count once. A non-zero entry remains
 active until level zero or a defensive sign change. A level-zero entry follows
 the shared both-direction volatility-target lifecycle: later level-zero points
@@ -633,12 +633,9 @@ not checked that state yet. Diagnostics refresh after every newly observed
 Capture Entry completion, while the navbar stage report retains that pass's
 actual per-symbol execution or blocking message.
 
-For decision.v19, diagnostics distinguish an already-used vPoint, missing BTC
-market context, classifier rejection, waiting for a projected faster exit,
-another immediate candidate winning the fastest-exit selection, and the
-selected ready candidate. For decision.v20, diagnostics distinguish an
+For decision.v20, diagnostics distinguish an
 already-used vPoint, BTC context exclusion, and every qualifying ready
-candidate without requiring Speed timing or BTC price normalization. Shared
+candidate without requiring timing projection or normalized-price history. Shared
 pre-execution checks take precedence for a
 disabled runner or auto-entry setting, an existing open position, Spot SHORT
 restriction, live symbol auto-removal at its configured absolute level,

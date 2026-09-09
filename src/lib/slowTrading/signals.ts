@@ -3,12 +3,11 @@ import {
   assignVolatility,
   getManualEntrySignal,
 } from "@/components/api/production/utils";
-import { FILES } from "@/components/storage";
 import brain, {
   type EntryRecommendation,
   type EntryRecommendationDiagnostic,
 } from "@/lib/brain";
-import { decisionEngineLevelConfig } from "@/lib/brain/algorithms/v4/decisions/v19/constants";
+import { decisionEngineLevelConfig } from "@/lib/brain/algorithms/v4/decisions/utils";
 import dynamic, {
   type DynamicTradeConfig,
   type DynamicTradeMemory,
@@ -26,7 +25,6 @@ import { resolveEntryLeverage } from "@/lib/trading/execute/entry-leverage";
 import entryFunding from "@/lib/trading/execute/entry-funding";
 import entryMarket from "@/lib/trading/execute/entry-market";
 import lateEntryVPointDrift from "@/lib/trading/execute/late-entry-vpoint-drift";
-import fs from "fs-extra";
 import slowTradingAutoRemoveSymbols from "./auto-remove-symbols";
 import slowTradingMarket from "./market";
 import slowTradingMarketVolume from "./market-volume";
@@ -378,9 +376,6 @@ export async function buildSlowTradingSignals(params?: {
         };
       }
 
-      const dynamicTradeMemory: DynamicTradeMemory = slowTradingShared.clone(
-        dynamic.defaults.tradingMemory,
-      );
       const exchange = getExchange(exchangeType, {
         defaultTradingMode: tradingMode,
       });
@@ -428,50 +423,13 @@ export async function buildSlowTradingSignals(params?: {
           modelMemoryMap[symbol].volatility?.lastVolatility ?? [];
       }
 
-      if (params?.marketSnapshot) {
-        dynamicTradeMemory.priceNormMapOverTime = slowTradingShared.clone(
-          params.marketSnapshot.priceNormMapOverTime,
-        );
-      } else {
-        await profiler.time("signals.priceNorm", () =>
-          dynamic.priceNorm.generateInitial({
-            currentTimeMs,
-            symbols,
-            startTime: currentTimeMs,
-            dynamicTradeMemory,
-            useCache: true,
-            exchangeType,
-            volatilityMap: volatilityPointsMap,
-          }),
-        );
-
-        brain.algorithms.runtime.updatePriceNorm({
-          currentTimeMs,
-          dynamicTradeMemory: {
-            priceNormMapOverTime: dynamicTradeMemory.priceNormMapOverTime,
-          },
-          volatilityPointsMap,
-        });
-
-        await profiler.time("signals.writePriceNorm", () =>
-          fs.writeJSON(
-            FILES.slow.priceNormMapOverTime(exchangeType),
-            dynamicTradeMemory.priceNormMapOverTime,
-          ),
-        );
-      }
-
       const evaluation = await profiler.time("signals.recommendations", () =>
         brain.algorithms.recommendations.evaluate({
           decisionEngineVersion:
-            storage.config.decisionEngineVersion ?? "decision.v14",
+            storage.config.decisionEngineVersion ?? "decision.v20",
           exchange,
-          latestKlineBySymbol: params?.marketSnapshot
-            ? slowTradingShared.clone(params.marketSnapshot.latestKlineBySymbol)
-            : undefined,
           marketType,
           volatilityPointsMap: slowTradingShared.clone(volatilityPointsMap),
-          priceNormMapOverTime: dynamicTradeMemory.priceNormMapOverTime,
           modelMemoryMap,
           bypass,
           minAbsLevelToEntry: storage.config.minAbsLevelToEntry,
@@ -1283,7 +1241,6 @@ export async function buildEnabledAccountEntryDiagnostics(params?: {
     ? await slowTradingCycleSharedMarket.prepare({
         minAbsLevelToEntry:
           minimumLevels.length > 0 ? Math.min(...minimumLevels) : undefined,
-        prepareEntryContext: true,
         profiler,
         storage: representative,
         symbols: slowTradingShared.symbols.buildExecution(

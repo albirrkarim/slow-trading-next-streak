@@ -168,7 +168,7 @@ export function NavbarIdentitySection({
               {(
                 configDraft.decisionEngineVersion ||
                 dashboardState.config.decisionEngineVersion ||
-                "decision.v14"
+                "decision.v20"
               ).replace("decision.", "")}
               {modeLabel && ` - ${modeLabel}`}
             </Typography>

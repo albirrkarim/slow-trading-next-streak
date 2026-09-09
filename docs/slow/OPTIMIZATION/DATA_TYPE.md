@@ -73,27 +73,6 @@ including:
 The `/api/alter/volatility` migration should write the canonical form so
 callers do not repeatedly convert legacy records.
 
-## Normalized Price
-
-```ts
-export interface PriceNorm {
-  /** Unix timestamp in milliseconds. */
-  t: number;
-
-  /** Highest price in the normalization window. */
-  x: number;
-
-  /** Lowest price in the normalization window. */
-  n: number;
-
-  /**
-   * Current normalized price on the 0-1 scale.
-   * Persist with at most two decimal places.
-   */
-  c: number;
-}
-```
-
 ## Position
 
 The current flat position object mixes execution facts, mutable exposure,

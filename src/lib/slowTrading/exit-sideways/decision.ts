@@ -1,10 +1,10 @@
 import type { EntryRecommendation } from "@/lib/brain";
-import type { SpeedTier } from "@/lib/brain/algorithms/v4/decisions/v19/constants";
 import {
   buildSpeedTierBySymbolFromMetadata,
   getSpeedTierFromMap,
-} from "@/lib/brain/algorithms/v4/decisions/v19/speed-tier";
-import type { SpeedTierBySymbol } from "@/lib/brain/algorithms/v4/decisions/v19/types";
+  type SpeedTier,
+  type SpeedTierBySymbol,
+} from "./speed-tier";
 import type { Position } from "@/lib/trading/models";
 
 const SIDEWAYS_NET_PNL_THRESHOLD_PERCENT = 1;

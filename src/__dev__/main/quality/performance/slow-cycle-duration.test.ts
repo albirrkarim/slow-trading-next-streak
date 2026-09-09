@@ -14,10 +14,6 @@ const exchangeMocks = vi.hoisted(() => ({
   getTotalFeePercent: vi.fn(),
 }));
 
-const dynamicMocks = vi.hoisted(() => ({
-  generateInitialPriceNorm: vi.fn(),
-}));
-
 const brainMocks = vi.hoisted(() => ({
   getInvestmentAmount: vi.fn(),
 }));
@@ -91,21 +87,6 @@ vi.mock("@/components/api/production/utils", async () => {
   };
 });
 
-vi.mock("@/lib/dynamic", async () => {
-  const actual = await vi.importActual<any>("@/lib/dynamic");
-
-  return {
-    ...actual,
-    default: {
-      ...actual.default,
-      priceNorm: {
-        ...actual.default.priceNorm,
-        generateInitial: dynamicMocks.generateInitialPriceNorm,
-      },
-    },
-  };
-});
-
 vi.mock("@/lib/brain", async () => {
   const actual = await vi.importActual<any>("@/lib/brain");
 
@@ -157,15 +138,6 @@ describe("slow cycle performance", () => {
     exchangeMocks.getPositions.mockResolvedValue([]);
     exchangeMocks.getTotalFeePercent.mockReturnValue(0);
     brainMocks.getInvestmentAmount.mockReturnValue(20);
-    dynamicMocks.generateInitialPriceNorm.mockImplementation(
-      async ({ dynamicTradeMemory }: any) => {
-        await delay(5);
-        dynamicTradeMemory.priceNormMapOverTime = {
-          SUI: [{ t: Date.UTC(2026, 0, 1, 0, 5), value: 1 }],
-          BTC: [{ t: Date.UTC(2026, 0, 1, 0, 5), value: 1 }],
-        };
-      },
-    );
   });
 
   afterEach(async () => {
@@ -225,7 +197,6 @@ describe("slow cycle performance", () => {
     expect(durations.get("signals.assignVolatility")).toBeGreaterThanOrEqual(
       750,
     );
-    expect(durations.has("cycle.priceNorm")).toBe(true);
     expect(durations.has("cycle.entryExecution")).toBe(true);
     expect(durations.has("cycle.cachePersist")).toBe(true);
     expect(durations.has("cycle.modeStatePersist")).toBe(true);
@@ -304,10 +275,6 @@ describe("slow cycle performance", () => {
         closeReason: "VOLATILITY_TARGET_EXIT",
       },
     ];
-    await fs.outputJSON(
-      path.join(tmpRoot!, "slow/binance/priceNormMapOverTime.json"),
-      {},
-    );
     await slowTradingStorage.data.save(storage);
 
     const result = await slowTrading.service.runSlowTradingCycle({

@@ -26,6 +26,20 @@ function createEmptyModelMemory(): TradingModelMemory {
   };
 }
 
+/** Drops fields that belonged to removed decision engines from persisted memory. */
+function normalizeDynamicTradeMemory(
+  value: SlowTradingModeState["dynamicTradeMemory"] | undefined,
+): SlowTradingModeState["dynamicTradeMemory"] {
+  const legacy = clone(
+    value ?? DEFAULT_DYNAMIC_TRADING_MEMORY,
+  ) as SlowTradingModeState["dynamicTradeMemory"] & Record<string, unknown>;
+  delete legacy.priceNormMapOverTime;
+  return {
+    ...clone(DEFAULT_DYNAMIC_TRADING_MEMORY),
+    ...legacy,
+  };
+}
+
 /**
  * Create the initial state container for one slow-trading mode.
  *
@@ -243,10 +257,7 @@ export function ensureTradeSettings(
   return {
     ...state,
     tradeSettings,
-    dynamicTradeMemory: {
-      ...clone(DEFAULT_DYNAMIC_TRADING_MEMORY),
-      ...clone(state.dynamicTradeMemory ?? DEFAULT_DYNAMIC_TRADING_MEMORY),
-    },
+    dynamicTradeMemory: normalizeDynamicTradeMemory(state.dynamicTradeMemory),
     highVolatilityNotificationState: normalizeHighVolatilityNotificationState(
       state.highVolatilityNotificationState,
       nextSymbols,

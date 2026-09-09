@@ -34,7 +34,6 @@ import TypographyTooltip from "../ui/TypographyTooltip";
 import KlinesAndMarkers, { type KlineMarker } from "./Feature/KlinesAndMarkers";
 import LatestVolatilityPoints from "./Feature/LatestVolatilityPoints";
 import OpenPositions from "./Feature/OpenPositions";
-import PriceNormFeature from "./Feature/PriceNorm";
 import QuickBacktest from "./Feature/QuickBacktest";
 import SlowTradingQueuesPanel from "./Feature/SlowTradingQueues";
 import VPointsFrequency from "./Feature/VPointsFrequency";
@@ -1085,26 +1084,6 @@ export default function DynamicTradeHistoryPage({
             onSimulationSeriesChange={applyQuickBacktestSimulationSeries}
           />
         )}
-
-        <HeaderMetrics
-          title={
-            <Typography variant="body1" sx={{ fontWeight: "bold" }}>
-              Price Normalized
-            </Typography>
-          }
-        >
-          {(expanded) => (
-            <>
-              {expanded && (
-                <PriceNormFeature
-                  symbols={symbols}
-                  config={config}
-                  exchangeType={currentExchangeType}
-                />
-              )}
-            </>
-          )}
-        </HeaderMetrics>
 
         <KlinesAndMarkers data={data} exchangeType={currentExchangeType} />
       </Box>

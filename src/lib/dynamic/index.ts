@@ -9,7 +9,6 @@ import {
   monthFromMs,
   validateSeasonalConfig,
 } from "./utils/config";
-import { generateInitialPriceNorm } from "./utils/priceNorm";
 
 export type * from "./type-dynamic.d";
 export type * from "./type-backtest.d";
@@ -19,11 +18,11 @@ export * from "./constants";
 
 export * from "./utils/nn/data/features/data";
 export * from "./utils/assets";
-export * from "./utils/priceNorm";
 export * from "./utils/config";
 export * from "./utils/data";
 export * from "./utils/volatility/memory_design";
 export * from "./utils/volatility";
+export * from "./utils/volatility/crop";
 export * from "./utils/volatility/engine";
 
 /**
@@ -43,9 +42,6 @@ const dynamic = {
     findSeasonIndexForMonth,
     monthFromMs,
     validateSeasonalConfig,
-  },
-  priceNorm: {
-    generateInitial: generateInitialPriceNorm,
   },
 } as const;
 

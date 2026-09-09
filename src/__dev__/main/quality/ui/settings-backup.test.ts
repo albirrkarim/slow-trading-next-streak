@@ -19,7 +19,7 @@ const configDraft = {
   autoRemoveSymbolMinMarketCapUSD: 100_000_000,
   autoRemoveSymbolMinPrice: 0.01,
   autoRemoveSymbolMinVPointPct: 15,
-  decisionEngineVersion: "decision.v19",
+  decisionEngineVersion: "decision.v20",
   description: "Backup test",
   enableWatchLogic: true,
   entrySignalBypass: false,

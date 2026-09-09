@@ -43,8 +43,6 @@ export interface DynamicTradeBacktestReturn {
 
   vPointsSeries: MultiLinePair;
 
-  priceSeries: MultiLinePair;
-
   customSeries?: MultiLinePair;
 
   vSnapshots: Record<string, MultiLinePair>;

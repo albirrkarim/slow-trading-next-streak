@@ -12,10 +12,6 @@ const exchangeMocks = vi.hoisted(() => ({
   getTotalFeePercent: vi.fn(),
 }));
 
-const dynamicMocks = vi.hoisted(() => ({
-  generateInitialPriceNorm: vi.fn(),
-}));
-
 const productionMocks = vi.hoisted(() => ({
   assignVolatility: vi.fn(),
 }));
@@ -164,21 +160,6 @@ vi.mock("@/components/api/production/utils", async () => {
   };
 });
 
-vi.mock("@/lib/dynamic", async () => {
-  const actual = await vi.importActual<any>("@/lib/dynamic");
-
-  return {
-    ...actual,
-    default: {
-      ...actual.default,
-      priceNorm: {
-        ...actual.default.priceNorm,
-        generateInitial: dynamicMocks.generateInitialPriceNorm,
-      },
-    },
-  };
-});
-
 vi.mock("@/lib/brain", async () => {
   const actual = await vi.importActual<any>("@/lib/brain");
 
@@ -240,13 +221,6 @@ describe("slow end-to-end cycle", () => {
     exchangeMocks.getTotalFeePercent.mockReturnValue(0);
     brainMocks.getInvestmentAmount.mockReturnValue(20);
     marketCapMocks.getMap.mockResolvedValue({});
-    dynamicMocks.generateInitialPriceNorm.mockImplementation(
-      async ({ dynamicTradeMemory }: any) => {
-        dynamicTradeMemory.priceNormMapOverTime = {
-          SUI: [{ t: Date.UTC(2026, 0, 1, 0, 5), value: 1 }],
-        };
-      },
-    );
   });
 
   afterEach(async () => {
@@ -296,7 +270,6 @@ describe("slow end-to-end cycle", () => {
         symbol: "SUI_USDT",
       }),
     );
-    expect(dynamicMocks.generateInitialPriceNorm).toHaveBeenCalled();
     expect(await fs.pathExists(path.join(tmpRoot!, "slow/config.json"))).toBe(
       true,
     );
@@ -368,7 +341,6 @@ describe("slow end-to-end cycle", () => {
 
     // PROD:MULTI_ACCOUNT_SHARED_MARKET_PREPARATION
     expect(productionMocks.assignVolatility).toHaveBeenCalledTimes(1);
-    expect(dynamicMocks.generateInitialPriceNorm).toHaveBeenCalledTimes(1);
     // PROD:MULTI_ACCOUNT_SEQUENTIAL_ACCOUNT_EXECUTION
     // PROD:MULTI_ACCOUNT_PRIVATE_STATE_ISOLATION
     expect(result.executedEntrySignals).toBe(2);

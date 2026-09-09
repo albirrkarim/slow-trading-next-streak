@@ -119,8 +119,6 @@ async function execute(params: {
         slowTradingCycleSharedMarket.prepare({
           minAbsLevelToEntry:
             minimumLevels.length > 0 ? Math.min(...minimumLevels) : undefined,
-          prepareEntryContext:
-            !params.request?.stage || params.request.stage === "capture-entry",
           profiler: sharedProfiler,
           storage: representative.storage,
           symbols,

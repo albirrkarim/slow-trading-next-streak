@@ -85,6 +85,7 @@ function toEffectiveConfig(
   return {
     ...clone(sharedConfig),
     ...tradingConfig,
+    decisionEngineVersion: "decision.v20",
     modelConfig: {
       ...clone(sharedConfig.modelConfig),
       ...clone(account.trading.modelConfig),
@@ -147,9 +148,7 @@ function toPersistedSharedConfig(
     tradingMode: config.tradingMode,
   };
 
-  if (config.decisionEngineVersion !== undefined) {
-    persisted.decisionEngineVersion = config.decisionEngineVersion;
-  }
+  persisted.decisionEngineVersion = "decision.v20";
   if (config.blackSwan !== undefined) {
     persisted.blackSwan = clone(config.blackSwan);
   }

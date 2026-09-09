@@ -34,7 +34,6 @@ type TradeChartPosition = Pick<
 type SlowKlinesResponse = {
   klines: any[];
   markers?: Marker[];
-  priceSeries?: MultiLinePair;
   vPointsSeries?: MultiLinePair;
 };
 
@@ -111,9 +110,6 @@ export default function TradeChartBase({
   const [vPointsSeries, setVPointsSeries] = useState<MultiLinePair | undefined>(
     undefined,
   );
-  const [priceSeries, setPriceSeries] = useState<MultiLinePair | undefined>(
-    undefined,
-  );
   const [interval, setInterval] = useState<IntervalKlines>(defaultInterval);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,11 +172,6 @@ export default function TradeChartBase({
         setVPointsSeries(undefined);
       }
 
-      if (res.data.priceSeries?.series?.length) {
-        setPriceSeries(res.data.priceSeries);
-      } else {
-        setPriceSeries(undefined);
-      }
     } catch (err) {
       tradeLog.error("Failed to fetch klines for trade chart", err);
       setError("Failed to load chart data");
@@ -294,27 +285,6 @@ export default function TradeChartBase({
         </HeaderMetrics>
       )}
 
-      {priceSeries && (
-        <HeaderMetrics
-          title={
-            <Typography sx={{ mx: 1 }} variant="h6" gutterBottom>
-              Price Normalized
-            </Typography>
-          }
-          sx={{ my: 2 }}
-        >
-          {(expanded) => (
-            <>
-              {expanded && (
-                <MultiLineTimelined
-                  series={priceSeries.series}
-                  names={priceSeries.names}
-                />
-              )}
-            </>
-          )}
-        </HeaderMetrics>
-      )}
     </Box>
   );
 }

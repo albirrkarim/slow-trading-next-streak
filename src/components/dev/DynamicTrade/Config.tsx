@@ -643,7 +643,7 @@ export default function DynamicBacktestConfig({
 
                                 <HelpTextField
                                     label="Min Abs Level To Entry"
-                                    tooltip="Minimum absolute vPoint level decision.v19 or decision.v20 may enter. Default 2; minimum 0. At 0, level-zero vPoints are immediately actionable. Only decision.v19 treats the level immediately below a positive value as projection-only."
+                                    tooltip="Minimum absolute vPoint level decision.v20 may enter. Default 2; minimum 0. At 0, level-zero vPoints are immediately actionable."
                                     type="number"
                                     size="small"
                                     value={backtestConfig.minAbsLevelToEntry ?? 0}
@@ -667,7 +667,7 @@ export default function DynamicBacktestConfig({
 
                                 <HelpTextField
                                     label="Max Abs Level To Entry"
-                                    tooltip="Maximum absolute vPoint level decision.v19 or decision.v20 may enter. Inclusive; default 5 and minimum 0."
+                                    tooltip="Maximum absolute vPoint level decision.v20 may enter. Inclusive; default 5 and minimum 0."
                                     type="number"
                                     size="small"
                                     value={backtestConfig.maxAbsLevelToEntry ?? 5}

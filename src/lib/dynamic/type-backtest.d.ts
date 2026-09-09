@@ -97,7 +97,7 @@ export interface BacktestConfigDynamic {
 
     /**
      * Minimum absolute volatility level that a compatible decision engine may
-     * treat as immediately actionable. Consumed by decision.v19 and v20.
+     * treat as immediately actionable. Consumed by decision.v20.
      * Default 2; minimum 0.
      */
     minAbsLevelToEntry?: number;

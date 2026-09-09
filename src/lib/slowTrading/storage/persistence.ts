@@ -462,6 +462,7 @@ async function loadSlowTradingConfigFile(accountSlug?: string): Promise<{
   const sharedConfig: SlowTradingStorageData["sharedConfig"] = {
     ...baseConfig,
     ...(configRaw.config ?? {}),
+    decisionEngineVersion: "decision.v20",
     modelConfig: normalizeExitModelConfigDefaults(
       configRaw.config?.modelConfig,
       baseConfig.modelConfig,

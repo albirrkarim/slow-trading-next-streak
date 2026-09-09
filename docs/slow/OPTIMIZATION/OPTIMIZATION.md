@@ -98,15 +98,14 @@ hot production path performs several allocation-heavy operations:
 - `assignVolatility()` reads persisted volatility JSON for every selected
   symbol. When a symbol lacks enough recent state, `predictionEngine()` can
   fetch and process up to six months of klines.
-- `generateInitialPriceNorm()` reads the persisted multi-symbol price-normal
-  file, filters its arrays, and may rebuild missing symbol history.
-- `cycle/shared-market.ts` builds and clones volatility maps, price-normal maps,
-  kline maps, and per-account snapshots during one stage.
-- Finalization removes volatility and `priceNormMapOverTime` from persisted hot
-  mode state, so those large cycle objects are not intentionally retained in
-  `SlowTradingRunner`; however, garbage collection does not require V8 or the
-  native allocator to return the freed pages to the operating system
-  immediately.
+- `cycle/shared-market.ts` builds volatility maps and per-account snapshots
+  during one stage.
+- The obsolete v12-v19 engines and their normalized-price history were removed
+  on September 9, 2026. That eliminates one known multi-symbol allocation tree;
+  the remaining leading candidate is volatility/kline hydration and cloning.
+- Finalization removes volatility from persisted hot mode state. Garbage
+  collection still does not require V8 or the native allocator to return freed
+  pages to the operating system immediately.
 
 This allocation/reuse pattern fits the observed graph better than a classic
 unbounded object leak: the old process reclaimed tens of megabytes during its
@@ -146,7 +145,7 @@ Confirmed cause of the 315 MB boundary sample:
   old/new deployment overlap aggregated at service level
 
 Leading cause of the old container's higher stable floor:
-  large transient volatility/kline/price-normal allocations expanded the
+  large transient volatility/kline allocations expanded the
   process heap; V8/native allocators retained reusable pages, plus bounded caches
 
 Not proven:
@@ -424,8 +423,9 @@ reduce actual Railway runtime memory:
   kept in `model_memory.positionsSell` during normal runner loads.
 - Signal generation hydrates only the current UTC month's closed history when
   monthly counters need it, instead of loading all durable history.
-- Runtime caches such as volatility and `priceNormMapOverTime` are persisted to
-  cache files and removed from the saved mode snapshot after cycle completion.
+- Runtime volatility is persisted outside the saved mode snapshot after cycle
+  completion. The removed normalized-price cache is no longer loaded or
+  generated.
 - Latest 24-hour market volume is fetched as one ticker batch and persisted as a
   compact JSON snapshot.
 - Live exchange-position reconciliation updates local open-position size/margin

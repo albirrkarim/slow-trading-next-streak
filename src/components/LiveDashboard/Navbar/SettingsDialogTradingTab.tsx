@@ -246,7 +246,7 @@ function TradingAccountSettings({
                   min: 0,
                 },
               }}
-              info="Minimum absolute vPoint level decision.v19 or decision.v20 may enter. Default 2; minimum 0. At 0, level-zero vPoints are immediately actionable. Only decision.v19 treats the level immediately below a positive value as a projection candidate."
+              info="Minimum absolute vPoint level decision.v20 may enter. Default 2; minimum 0. At 0, level-zero vPoints are immediately actionable."
             />
           </Grid>
 
@@ -277,7 +277,7 @@ function TradingAccountSettings({
                   min: 0,
                 },
               }}
-              info="Maximum absolute vPoint level decision.v19 or decision.v20 may enter. The limit is inclusive. Default 5; minimum 0. For example, a range of 0 to 3 allows L0, L1, L-1, L2, L-2, L3, and L-3, but blocks L4 and L-4."
+              info="Maximum absolute vPoint level decision.v20 may enter. The limit is inclusive. Default 5; minimum 0. For example, a range of 0 to 3 allows L0, L1, L-1, L2, L-2, L3, and L-3, but blocks L4 and L-4."
             />
           </Grid>
 

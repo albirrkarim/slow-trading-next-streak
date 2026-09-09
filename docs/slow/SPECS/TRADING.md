@@ -583,7 +583,7 @@ TC: `PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT`
 
 For one-way positions, averaging should not run on absolute level `1` or level
 `0`. Entry uses `config.minAbsLevelToEntry`; setting it to `1` allows
-decision.v19 and decision.v20 to enter on absolute level `1`, while setting it
+decision.v20 to enter on absolute level `1`, while setting it
 to `0` also allows entry on level `0`. This does not relax one-way averaging.
 
 Both-direction trading has a stronger, narrow exception. A leg with a verified

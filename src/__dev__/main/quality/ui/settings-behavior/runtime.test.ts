@@ -12,10 +12,6 @@ const exchangeMocks = vi.hoisted(() => ({
   getTotalFeePercent: vi.fn(),
 }));
 
-const dynamicMocks = vi.hoisted(() => ({
-  generateInitialPriceNorm: vi.fn(),
-}));
-
 vi.mock("@/lib/exchange/adapters/binance", () => ({
   BinanceAdapter: class {
     getBalance = exchangeMocks.getBalance;
@@ -44,21 +40,6 @@ vi.mock("@/components/api/production/utils", async () => {
         };
       }
     }),
-  };
-});
-
-vi.mock("@/lib/dynamic", async () => {
-  const actual = await vi.importActual<any>("@/lib/dynamic");
-
-  return {
-    ...actual,
-    default: {
-      ...actual.default,
-      priceNorm: {
-        ...actual.default.priceNorm,
-        generateInitial: dynamicMocks.generateInitialPriceNorm,
-      },
-    },
   };
 });
 
@@ -172,11 +153,6 @@ describe("settings behavior: runtime cycle toggles", () => {
     ]);
     exchangeMocks.getPositions.mockResolvedValue([]);
     exchangeMocks.getTotalFeePercent.mockReturnValue(0);
-    dynamicMocks.generateInitialPriceNorm.mockImplementation(
-      async ({ dynamicTradeMemory }: any) => {
-        dynamicTradeMemory.priceNormMapOverTime = {};
-      },
-    );
   });
 
   afterEach(async () => {

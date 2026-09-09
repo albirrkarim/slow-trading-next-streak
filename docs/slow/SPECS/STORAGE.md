@@ -10,7 +10,7 @@ Everything in the UI of Slow Trading must be loaded from files under:
 
 `storage/persistent/instances/[PORT]/slow`
 
-This folder is the source-of-truth root for slow trading. The data may be split into multiple files such as config, memory, history, volatility cache, and priceNorm cache.
+This folder is the source-of-truth root for slow trading. The data may be split into multiple files such as config, memory, history, and volatility cache.
 
 ## C.2 History Independence
 

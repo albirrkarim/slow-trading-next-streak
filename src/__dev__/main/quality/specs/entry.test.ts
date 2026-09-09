@@ -67,7 +67,6 @@ function createRuntime() {
     safeHavenRequest: 0,
     safeHavenHistory: [],
     volatilitySnapshots: [],
-    priceNormMapOverTime: {},
   };
 
   return {
@@ -101,7 +100,6 @@ function createModeState(): SlowTradingModeState {
       safeHavenRequest: 0,
       safeHavenHistory: [],
       volatilitySnapshots: [],
-      priceNormMapOverTime: {},
     },
   } as SlowTradingModeState;
 }

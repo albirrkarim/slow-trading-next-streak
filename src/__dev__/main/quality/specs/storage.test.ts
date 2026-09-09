@@ -68,6 +68,29 @@ describe("slow specs storage", () => {
     expect(loaded.modes.live.stageRuns).toEqual({});
   });
 
+  it("normalizes removed strategy state to decision.v20", async () => {
+    const slowTradingStorage = (await import("@/lib/slowTrading")).default
+      .storage;
+    const storage = slowTradingStorage.data.createDefault();
+    storage.config.decisionEngineVersion = "decision.v14";
+    Object.assign(storage.modes.live.dynamicTradeMemory, {
+      priceNormMapOverTime: { SUI: [{ t: 1, c: 0.5 }] },
+    });
+    storage.modes.live = slowTradingStorage.mode.ensureTradeSettings(
+      storage.modes.live,
+      [],
+    );
+
+    expect("priceNormMapOverTime" in storage.modes.live.dynamicTradeMemory).toBe(
+      false,
+    );
+
+    await slowTradingStorage.data.save(storage);
+    expect(
+      (await slowTradingStorage.data.load()).config.decisionEngineVersion,
+    ).toBe("decision.v20");
+  });
+
   it("stores account balances independently and aggregates selected accounts", async () => {
     const { FILES } = await import("@/components/storage");
     const slowTradingStorage = (await import("@/lib/slowTrading")).default

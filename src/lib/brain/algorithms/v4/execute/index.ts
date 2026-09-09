@@ -44,7 +44,7 @@ export async function executeDynamicTrade({
   modelConfig,
   dynamicTradeMemory,
   klinesMap,
-  decisionEngineVersion = "decision.v12",
+  decisionEngineVersion = "decision.v20",
   maxAbsLevelToEntry,
   minAbsLevelToEntry,
 

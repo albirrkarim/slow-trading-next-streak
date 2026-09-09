@@ -794,10 +794,7 @@ async function runSingle({
     ...cloneJson(config),
     startingBalanceUSDT: Number.isFinite(startAmount) ? startAmount : 100,
   };
-  const decisionEngine =
-    DECISION_ENGINE_MAP[
-      config.decisionEngineVersion ?? PRODUCTION_DECISION_ENGINE
-    ] ?? DECISION_ENGINE_MAP[PRODUCTION_DECISION_ENGINE];
+  const decisionEngine = DECISION_ENGINE_MAP[PRODUCTION_DECISION_ENGINE];
   // PROD:QUICK_BACKTEST_DEMAND_ONLY
   const { runBacktestVolatilityDynamic } =
     await import("../dynamic/backtest-volatility");

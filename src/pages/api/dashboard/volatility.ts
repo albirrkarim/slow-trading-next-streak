@@ -279,7 +279,7 @@ async function keepTheVolatilityUpdated(
     // D. Get historical entry signal for the bounded dashboard response.
     // const getRecommendations =
     //   GET_RECOMMENDATIONS_MAP[
-    //     slowStorage.config.decisionEngineVersion ?? "decision.v14"
+    //     slowStorage.config.decisionEngineVersion ?? "decision.v20"
     //   ] ?? getRecommendationsProduction;
 
     // const historicalEntrySignal = await getHistoricalEntrySignal({

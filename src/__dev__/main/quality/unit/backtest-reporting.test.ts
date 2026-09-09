@@ -15,7 +15,6 @@ function createDynamicTradeMemory(quoteAsset = 390): DynamicTradeMemory {
     safeHavenRequest: 0,
     safeHavenHistory: [],
     volatilitySnapshots: [],
-    priceNormMapOverTime: {},
   };
 }
 
@@ -119,7 +118,6 @@ describe("backtest canonical position reporting", () => {
         tradeHistoryMap: { SUI: [] },
         growthOvertime: [],
         modelMemoryMap: { SUI: modelMemory },
-        priceNormMapOverTime: {},
         verbose: false,
       },
       config: {
@@ -185,7 +183,6 @@ describe("backtest canonical position reporting", () => {
           tradeHistoryMap: { SUI: [] },
           growthOvertime: [],
           modelMemoryMap: { SUI: modelMemory },
-          priceNormMapOverTime: {},
           verbose: false,
         },
         config: {
@@ -277,7 +274,6 @@ describe("backtest canonical position reporting", () => {
         tradeHistoryMap: { SUI: [] },
         growthOvertime: [],
         modelMemoryMap: { SUI: modelMemory },
-        priceNormMapOverTime: {},
         verbose: false,
       },
       config: {

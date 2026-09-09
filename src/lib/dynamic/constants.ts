@@ -12,14 +12,13 @@ export const DEFAULT_DYNAMIC_TRADING_MEMORY: DynamicTradeMemory = {
   safeHavenRequest: 0,
   safeHavenHistory: [],
   volatilitySnapshots: [],
-  priceNormMapOverTime: {},
 };
 
 export const DEFAULT_DYNAMIC_TRADE_CONFIG_PRODUCTION: DynamicTradeConfig = {
   name: "SLOW Trade",
   description: "",
   symbols: ["SUI", "SOL", "HBAR"],
-  decisionEngineVersion: "decision.v14",
+  decisionEngineVersion: "decision.v20",
   modelConfig: {
     takeProfitPercent: 5,
     stopLossPercent: 20,

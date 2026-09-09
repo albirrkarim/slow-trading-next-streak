@@ -1,12 +1,7 @@
 import { assignVolatility } from "@/components/api/production/utils";
-import { FILES } from "@/components/storage";
-import brain from "@/lib/brain";
-import { buildLatestKlineBySymbol } from "@/lib/brain/algorithms/v4/decisions/v19/latest-klines";
-import type { LatestKlineBySymbol } from "@/lib/brain/algorithms/v4/decisions/v19/types";
-import dynamic, {
-  type DynamicTradeMemory,
-  type PredictionEngineMemory,
-  type VolatilityPoint,
+import type {
+  PredictionEngineMemory,
+  VolatilityPoint,
 } from "@/lib/dynamic";
 import { getExchange } from "@/lib/exchange";
 import exchangeFundingRate from "@/lib/exchange/funding-rate";
@@ -14,7 +9,6 @@ import type { UnifiedFundingRate } from "@/lib/exchange/types";
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
 import { tradeLog } from "@/lib/trading/helper/log";
 import type { TradingModelMemory } from "@/lib/trading/models";
-import fs from "fs-extra";
 import slowTradingMarket from "../market";
 import slowTradingMarketVolume from "../market-volume";
 import type { SlowTradingCycleProfiler } from "../performance";
@@ -24,14 +18,11 @@ import type { SlowTradingStorageData } from "../types";
 import binanceRequestCoordinator from "@/lib/exchange/platform/binance/request-coordinator";
 import slowTradingNotifications from "../notifications";
 
-type PriceNormMap = NonNullable<DynamicTradeMemory["priceNormMapOverTime"]>;
 type PricePurpose = "position-sync" | "reporting";
 const FIVE_MINUTES_MS = 5 * 60_000;
 
 export interface SlowTradingSharedMarketSnapshot {
   currentTimeMs: number;
-  latestKlineBySymbol: LatestKlineBySymbol;
-  priceNormMapOverTime: PriceNormMap;
   symbols: string[];
   volatilityMemoryBySymbol: Record<string, PredictionEngineMemory>;
   fundingRates: {
@@ -96,7 +87,6 @@ function buildVolatilityPointsMap(
 /** Builds the single immutable public-market snapshot used by one stage cycle. */
 async function prepareUncached(params: {
   minAbsLevelToEntry?: number;
-  prepareEntryContext: boolean;
   profiler: SlowTradingCycleProfiler;
   storage: SlowTradingStorageData;
   symbols: string[];
@@ -131,7 +121,6 @@ async function prepareUncached(params: {
       ),
     ]),
   );
-  const volatilityPointsMap = buildVolatilityPointsMap(modelMemoryMap);
   const marketType = resolveMarketTypeForTradingMode(
     params.storage.config.tradingMode,
   );
@@ -174,47 +163,6 @@ async function prepareUncached(params: {
     currentTimeMs = currentTimeKline[0];
   }
 
-  const sharedDynamicMemory = slowTradingShared.clone(
-    dynamic.defaults.tradingMemory,
-  );
-  if (params.prepareEntryContext) {
-    await params.profiler.time("signals.priceNorm", () =>
-      dynamic.priceNorm.generateInitial({
-        currentTimeMs,
-        symbols,
-        startTime: currentTimeMs,
-        dynamicTradeMemory: sharedDynamicMemory,
-        useCache: true,
-        exchangeType: params.storage.config.exchangeType,
-        volatilityMap: volatilityPointsMap,
-      }),
-    );
-    brain.algorithms.runtime.updatePriceNorm({
-      currentTimeMs,
-      dynamicTradeMemory: {
-        priceNormMapOverTime: sharedDynamicMemory.priceNormMapOverTime,
-      },
-      volatilityPointsMap,
-    });
-    await params.profiler.time("signals.writePriceNorm", () =>
-      fs.outputJSON(
-        FILES.slow.priceNormMapOverTime(params.storage.config.exchangeType),
-        sharedDynamicMemory.priceNormMapOverTime,
-        { spaces: 0 },
-      ),
-    );
-  }
-
-  const latestKlineBySymbol =
-    params.prepareEntryContext &&
-    params.storage.config.decisionEngineVersion === "decision.v19"
-      ? await buildLatestKlineBySymbol({
-          exchange,
-          marketType,
-          minAbsLevelToEntry: params.minAbsLevelToEntry,
-          volatilityPointsMap,
-        })
-      : {};
   const priceCache: Record<PricePurpose, Record<string, number>> = {
     "position-sync": {},
     reporting: {},
@@ -263,10 +211,6 @@ async function prepareUncached(params: {
 
   return {
     currentTimeMs,
-    latestKlineBySymbol,
-    priceNormMapOverTime: slowTradingShared.clone(
-      sharedDynamicMemory.priceNormMapOverTime ?? {},
-    ),
     symbols,
     volatilityMemoryBySymbol,
     fundingRates: {
@@ -326,7 +270,6 @@ async function prepareUncached(params: {
 /** Coalesces concurrent consumers of the same immutable public snapshot. */
 async function prepare(params: {
   minAbsLevelToEntry?: number;
-  prepareEntryContext: boolean;
   profiler: SlowTradingCycleProfiler;
   storage: SlowTradingStorageData;
   symbols: string[];
@@ -341,9 +284,7 @@ async function prepare(params: {
     "shared-snapshot",
     params.storage.config.exchangeType,
     params.storage.config.tradingMode,
-    params.storage.config.decisionEngineVersion,
     params.minAbsLevelToEntry ?? "default",
-    params.prepareEntryContext ? "entry" : "monitoring",
     symbols.join(","),
   ].join(":");
 

@@ -75,7 +75,7 @@ export interface DynamicTradeConfig {
   modelConfig: TradingModelConfig;
 
   /**
-   * The version string specifying the decision engine algorithm (e.g., "decision.v14").
+   * The active decision engine. Older persisted values are normalized to v20.
    */
   decisionEngineVersion?: string;
 
@@ -261,31 +261,4 @@ export interface DynamicTradeMemory {
    */
   deltaTimeMap?: Record<string, Record<string, Record<string, any>>>;
 
-  /**
-   * One year record or equivalent of 70 volatility point
-   */
-  priceNormMapOverTime: Record<string, PriceNorm[]>;
-}
-
-export interface PriceNorm {
-  /** milliseconds */
-  t: number;
-
-  /**
-   * highest price seen in the window
-   */
-  x: number;
-
-  /**
-   * lowest price seen in the window
-   */
-  n: number;
-
-  /**
-   * current price normalized 0-1
-   *
-   * maximal two floating points
-   * eg: 0.65
-   */
-  c: number;
 }

@@ -23,7 +23,7 @@ function createConfigDraft(): ConfigDraft {
     autoEntryEnabled: false,
     autoExitEnabled: false,
     autoRemoveSymbolAbsLevel: 0,
-    decisionEngineVersion: "decision.v19",
+    decisionEngineVersion: "decision.v20",
     description: "",
     entrySignalBypass: false,
     exchangeAccountSlug: "1",

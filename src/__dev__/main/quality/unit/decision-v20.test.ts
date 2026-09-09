@@ -105,7 +105,6 @@ describe("decision.v20 direct level entry", () => {
     const recommendations = decisionEngineV20({
       currentTimeMs: BASE_TIME,
       dynamicTradeMemory: {
-        priceNormMapOverTime: {},
         quoteAsset: 100,
         safeHaven: 0,
         safeHavenHistory: [],
@@ -158,7 +157,6 @@ describe("decision.v20 direct level entry", () => {
       decisionEngineVersion: "decision.v20",
       minAbsLevelToEntry: 2,
       modelMemoryMap: {},
-      priceNormMapOverTime: {},
       volatilityPointsMap: {
         AIXBT: [point("AIXBT", -2)],
       },

@@ -45,26 +45,6 @@ export default function DebugSeries({ data }: { data: DynamicTradeBacktestReturn
 
             <HeaderMetrics
                 title={
-                    <Button size="small" color="inherit" disabled={data.priceSeries.series.length == 0}>
-                        Chart of Prices
-                    </Button>
-                }
-            >
-                {(expand) => (
-                    <>
-                        {(expand && data.priceSeries) && (
-                            <MultiLineTimelined
-                                series={data.priceSeries.series}
-                                names={data.priceSeries.names}
-                                colors={DEFAULT_COLORS}
-                            />
-                        )}
-                    </>
-                )}
-            </HeaderMetrics>
-
-            <HeaderMetrics
-                title={
                     <Button size="small" color="inherit" disabled={(data.customSeries?.series ?? []).length == 0}>
                         Chart of Custom Series
                     </Button>

@@ -316,14 +316,6 @@ async function executeSlowTradingAccountCycle(
         });
       }
 
-      if (plan.shouldCaptureEntry) {
-        await profiler.time("cycle.priceNorm", () => {
-          dynamicTradeMemory.priceNormMapOverTime = slowTradingShared.clone(
-            sharedMarket.priceNormMapOverTime,
-          );
-        });
-      }
-
       const runtime: SlowTradingCycleRuntime = {
         ...plan,
         activeMode,

@@ -1,15 +1,5 @@
-import { deepCopy } from "@/components/client/utils";
 import { FILES } from "@/components/storage";
-import type {
-  DynamicTradeMemory,
-  PredictionEngineMemory,
-  VolatilityPoint,
-} from "@/lib/dynamic";
-import {
-  DEFAULT_DYNAMIC_TRADING_MEMORY,
-  generateInitialPriceNorm,
-  predictionEngine,
-} from "@/lib/dynamic";
+import { predictionEngine } from "@/lib/dynamic";
 import { DEFAULT_EXCHANGE } from "@/lib/exchange/constants";
 import exchangeFundingRate from "@/lib/exchange/funding-rate";
 import {
@@ -88,7 +78,6 @@ async function initializeDashboard(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (reinitialize) {
-      await fs.remove(FILES.slow.priceNormMapOverTime(exchangeType));
       await fs.remove(FILES.slow.volatility(exchangeType));
     }
 
@@ -122,78 +111,43 @@ async function initializeDashboard(req: NextApiRequest, res: NextApiResponse) {
       tradeLog.error("Failed to refresh dashboard funding rates", error);
     }
 
-    if (
-      !(await fs.exists(FILES.slow.priceNormMapOverTime(exchangeType))) ||
-      reinitialize
-    ) {
-      // Volatility
-      const volatilityMap: Record<string, VolatilityPoint[]> = {};
-      // check directory
-      const files = await fs.readdir(FILES.slow.volatility(exchangeType));
+    const files = await fs.readdir(FILES.slow.volatility(exchangeType));
 
-      tradeLog.log("files ", files);
+    tradeLog.log("files ", files);
 
-      for (const symbol of symbols) {
-        // A. Load existing volatility from file if exists
-        if (
-          (await fs.exists(
-            `${FILES.slow.volatility(exchangeType)}/${symbol}.json`,
-          )) &&
-          !reinitialize
-        ) {
-          tradeLog.debug(
-            "A. Load existing volatility from file if exists ",
-            symbol,
-          );
-          const data = (await fs.readJSON(
-            `${FILES.slow.volatility(exchangeType)}/${symbol}.json`,
-          )) as PredictionEngineMemory;
+    for (const symbol of symbols) {
+      if (
+        (await fs.exists(
+          `${FILES.slow.volatility(exchangeType)}/${symbol}.json`,
+        )) &&
+        !reinitialize
+      ) {
+        tradeLog.debug(
+          "A. Load existing volatility from file if exists ",
+          symbol,
+        );
+      } else {
+        tradeLog.debug("B. Otherwise, generate new volatility data ", symbol);
 
-          volatilityMap[symbol] = data.lastVolatility;
-        } else {
-          // B. Otherwise, generate new volatility data
-          tradeLog.debug("B. Otherwise, generate new volatility data ", symbol);
+        const vMemory = {
+          symbol,
+          lastVolatility: [],
+        };
 
-          const vMemory = {
-            symbol,
-            lastVolatility: [],
-          };
+        await predictionEngine({
+          tradePair: `${symbol}_USDT`,
+          memory: vMemory,
+          endTime: Date.now(),
+          exchangeType,
+          marketType,
+          minAbsLevelToEntry: slowStorage.config.minAbsLevelToEntry,
+        });
 
-          await predictionEngine({
-            tradePair: `${symbol}_USDT`,
-            memory: vMemory,
-            endTime: Date.now(),
-            exchangeType,
-            marketType,
-            minAbsLevelToEntry:
-              slowStorage.config.minAbsLevelToEntry,
-          });
-
-          await fs.writeJson(
-            `${FILES.slow.volatility(exchangeType)}/${symbol}.json`,
-            vMemory,
-          );
-
-          volatilityMap[symbol] = vMemory.lastVolatility;
-        }
+        await fs.writeJson(
+          `${FILES.slow.volatility(exchangeType)}/${symbol}.json`,
+          vMemory,
+        );
       }
-
-      // Price Norm
-      const dynamicTradeMemory: DynamicTradeMemory = deepCopy(
-        DEFAULT_DYNAMIC_TRADING_MEMORY,
-      );
-      const currentTimeMs = Date.now();
-
-      await generateInitialPriceNorm({
-        currentTimeMs,
-        symbols,
-        startTime: currentTimeMs,
-        dynamicTradeMemory,
-        useCache: false,
-        saveToFile: true,
-        exchangeType,
-        volatilityMap,
-      });
     }
 
     res.json({

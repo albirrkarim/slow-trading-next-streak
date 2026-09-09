@@ -1,4 +1,4 @@
-import { decisionEngineLevelConfig } from "@/lib/brain/algorithms/v4/decisions/v19/constants";
+import { decisionEngineLevelConfig } from "@/lib/brain/algorithms/v4/decisions/utils";
 import type { DynamicTradeConfig } from "@/lib/dynamic";
 import { timeMsToReadable } from "@/lib/datasets/utils";
 import type { Kline } from "@/lib/exchange/platform/tokocrypto";

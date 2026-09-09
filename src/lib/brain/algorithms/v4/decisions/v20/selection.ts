@@ -4,8 +4,7 @@ import type {
 } from "@lib/brain/algorithms/type-execute";
 import type { VolatilityPoint } from "@lib/dynamic/utils/volatility";
 
-import { mapScaleValue } from "../v18/decision";
-import { decisionEngineLevelConfig } from "../v19/constants";
+import { decisionEngineLevelConfig, mapScaleValue } from "../utils";
 
 function makeEntryRecommendation(
   point: VolatilityPoint,
