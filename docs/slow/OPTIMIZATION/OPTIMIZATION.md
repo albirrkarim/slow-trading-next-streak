@@ -4,7 +4,7 @@ This document tracks how to keep the SLOW Railway deployment clean, efficient, a
 
 ## Optimization Score: 82/100
 
-Assessment date: September 8, 2026.
+Assessment date: September 9, 2026.
 
 The current SLOW production shape is reasonably optimized for a small Railway
 deployment. Dev/backtest routes are guarded, the `/slow` dashboard is client
@@ -14,9 +14,11 @@ hot storage object. Completed SLOW stages also persist a compact section-duratio
 breakdown, making the slowest operation visible from the dashboard. The remaining
 optimization gap is mostly bounded measurement: there is no regular memory
 budget report, no bundle-size budget, and no production-like load test that
-proves the memory cap is safe across larger symbol or account counts. A short
-Railway sample now shows post-restart warm-up followed by partial reclamation
-and an early plateau, but it still needs a long-duration stability check.
+proves the memory cap is safe across larger symbol or account counts. Railway
+redeploy evidence now confirms a material process-lifetime warm-memory delta,
+while the longer series shows reclamation and plateaus rather than a monotonic
+leak. The remaining gap is attributing that delta to V8 heap, native/external
+memory, or specific bounded caches with stage-level samples or a heap profile.
 
 The score increased from 78 because cycle timing is now observable and tested,
 the full standalone liquidation-map feature was removed, and every current dev
@@ -27,7 +29,7 @@ bundle size, and production-scale throughput have not yet been benchmarked.
 ### Assessment evidence
 
 This assessment is based on the repository state and verification available on
-September 8, 2026:
+September 9, 2026:
 
 - `next.config.ts` uses `output: "standalone"`, disables production browser
   source maps, removes the powered-by header, and excludes persistent storage
@@ -42,46 +44,128 @@ September 8, 2026:
   `positionsSell` rows.
 - The standalone liquidation-map route, API, components, model, tests, and docs
   are absent, while core trading liquidation behavior remains.
-- `npm run quality` passed with 126 test files and 725 tests.
+- `npm run quality` passed with 128 test files and 732 tests.
 
-No heap profile, route-chunk report, or long-duration Railway load sample has
-been captured. Those missing measurements cap the score.
+No heap profile, route-chunk report, or controlled production-like load sample
+has been captured. Those missing measurements cap the score.
 
-### Railway restart observation — September 8, 2026
+### Railway redeploy memory finding — September 9, 2026
 
-A Railway observability screenshot for the production `Streak Grail : Two
-snake` service shows this approximate sequence:
+A Railway observability screenshot and MCP metrics for the production `Streak
+Grail : Two snake` service show a clear process-replacement boundary. The
+deployment began at `2026-09-09 00:52:28 UTC` (`07:52:28 GMT+7`) and reached
+`SUCCESS` at `00:54:02 UTC`.
 
-- Before the restart, memory was roughly `195-205 MB` during the visible
-  11:09-11:15 interval.
-- At approximately 11:15, the container restart reduced memory to roughly
-  `105 MB`.
-- From approximately 11:16 through 11:23, memory increased in steps to roughly
-  `135-140 MB`.
-- From approximately 11:23 through 11:26, memory declined to roughly
-  `120-125 MB`, then remained nearly flat through 11:29.
-- CPU remained close to idle except for a short spike around the restart/cycle
-  boundary.
+- Immediately before the visible replacement boundary, the old container was
+  using approximately `195-205 MB`.
+- After the old container drained, the replacement process used approximately
+  `85-105 MB`; the screenshot tooltip reports `103 MB` at `07:56 GMT+7`.
+- Railway's downsampled service series reports `315 MB` at `00:53 UTC`, exactly
+  while the old and new deployments overlapped. This is aggregate service
+  memory from both deployments, not a valid single-process peak.
+- The previous deployment's longer series did not rise continuously. It
+  reclaimed from roughly `218 MB` to `148 MB`, then stayed near `149-165 MB`
+  for hours before the redeploy.
+- The new process stabilized near `100-105 MB` after deployment.
+- No OOM kill, crash, restart loop, or memory-pressure event appears in the
+  deployment history or searched runtime logs.
 
-The newer sample shows that at least part of the startup increase was reclaimed
-and does not show continuous growth through the end of the visible window. That
-supports a warm-up/plateau interpretation more than a leak interpretation.
-However, the roughly 14-minute post-restart window is still too short to prove
-long-term stability. Next.js module loading, V8 heap expansion, exchange
-initialization, dashboard requests, and the first SLOW cycles can all establish
-a higher warm baseline. V8 may retain committed heap after garbage collection
-instead of immediately returning it to the operating system.
+Railway singleton deployments have a slight old/new overlap for zero downtime,
+and configurable overlap can extend it. Therefore, never use the aggregate
+memory point at the deployment boundary as one container's peak. See Railway's
+[singleton deployment reference](https://docs.railway.com/deployments/reference#singleton-deploys)
+and [zero-downtime redeploy documentation](https://docs.railway.com/guides/rotate-credentials-zero-downtime#make-the-redeploy-itself-zero-downtime).
+
+#### What the drop proves
+
+The drop proves that the old process had a larger warm resident set that was
+released only when that process exited. In operational terms, there was about
+`90-115 MB` more process-lifetime memory in the old container than in the fresh
+container shown in the screenshot.
+
+It does **not** prove that `90-115 MB` consisted of unreachable JavaScript
+objects. Railway reports cgroup/container memory, which combines live V8 heap,
+V8 committed-but-currently-unused pages, loaded Next.js/module code, native
+allocations, HTTP/TLS buffers, external memory, and intentional caches. A
+redeploy releases all of those categories together.
+
+#### Leading cause from the code audit
+
+The leading explanation is **transient SLOW-cycle allocation followed by V8
+and native allocator retention**, with smaller intentional process caches. The
+hot production path performs several allocation-heavy operations:
+
+- `assignVolatility()` reads persisted volatility JSON for every selected
+  symbol. When a symbol lacks enough recent state, `predictionEngine()` can
+  fetch and process up to six months of klines.
+- `generateInitialPriceNorm()` reads the persisted multi-symbol price-normal
+  file, filters its arrays, and may rebuild missing symbol history.
+- `cycle/shared-market.ts` builds and clones volatility maps, price-normal maps,
+  kline maps, and per-account snapshots during one stage.
+- Finalization removes volatility and `priceNormMapOverTime` from persisted hot
+  mode state, so those large cycle objects are not intentionally retained in
+  `SlowTradingRunner`; however, garbage collection does not require V8 or the
+  native allocator to return the freed pages to the operating system
+  immediately.
+
+This allocation/reuse pattern fits the observed graph better than a classic
+unbounded object leak: the old process reclaimed tens of megabytes during its
+lifetime and then held a stable floor for hours. The sibling services also hold
+different stable warm floors, consistent with different process age, symbol
+sets, position state, and stage timing.
+
+The repository audit did not find a process-lifetime collection that obviously
+explains a `90-115 MB` unbounded increase:
+
+- The public-market completed cache expires entries and is capped at 256; its
+  in-flight operations are deleted when settled.
+- The funding-rate cache holds one replaceable all-symbol snapshot per market.
+- Black-swan candle cache entries hold at most the requested short 70-candle
+  window per touched exchange/market/symbol key. Removed symbols are not swept,
+  so this is cleanup debt, but each retained value is small.
+- Exchange-info, request-weight, balance-alert, and market-cap maps grow by a
+  bounded domain/symbol/account key rather than by runner cycle.
+- Runner, mutation, and JSON-write promise chains replace or delete settled
+  work and do not retain completed cycle results.
+
+The live service currently has `MEMORY_MONITOR_WARNING_MB=150` and
+`MEMORY_MONITOR_DANGER_MB=430`, but no `NODE_OPTIONS` variable. Consequently,
+the V8 old-space cap recommended later in this document is **not active** in
+this Railway service. The monitor only alerts; it does not make the runtime
+release memory.
+
+#### Root-cause status
+
+```text
+Confirmed cause of the vertical drop:
+  old Railway container exited and its complete resident set was reclaimed
+
+Confirmed cause of the 315 MB boundary sample:
+  old/new deployment overlap aggregated at service level
+
+Leading cause of the old container's higher stable floor:
+  large transient volatility/kline/price-normal allocations expanded the
+  process heap; V8/native allocators retained reusable pages, plus bounded caches
+
+Not proven:
+  an unreachable JavaScript-object leak that grows on every cycle
+```
 
 The important distinction is:
 
 ```text
-Warm-up: memory rises after restart, then oscillates around a stable plateau.
-Leak/retention: the post-GC floor keeps rising across equivalent runner cycles.
+Allocator warm-up/retention: memory rises after heavy work, can partially fall,
+then oscillates around a stable reusable plateau.
+
+Object leak: the comparable post-GC floor keeps rising across equivalent runner
+cycles and does not return to a previous plateau.
 ```
 
-Treat the current runtime memory posture as **early plateau observed; long-term
-stability still under observation**. Do not lower the configured V8 limits
-until a longer sample confirms the plateau across repeated scheduled stages.
+Treat the current runtime memory posture as **warm resident memory confirmed;
+unbounded leak not demonstrated**. Do not infer one process's peak from the
+redeploy-overlap sample, and do not lower memory limits until stage-level heap,
+RSS, external, and cgroup measurements identify which category establishes the
+warm floor.
 
 The main rule:
 
@@ -441,6 +525,13 @@ Record these checkpoints:
 5. Any deployment, restart, dashboard backtest, withdrawal scan, or account
    configuration change on the same timeline.
 
+To attribute the warm floor instead of only observing it, each checkpoint must
+record the process id/deployment id plus all fields already available from
+`resource-monitor.ts`: cgroup used, process RSS, V8 heap used/committed,
+external memory, and ArrayBuffers. Also record public-market cache occupancy and
+the stage name. Process-specific samples must exclude the old/new deployment
+overlap window.
+
 Escalate to a heap/RSS investigation when the between-cycle floor continues to
 rise over multiple comparable cycles, memory does not plateau during the full
 observation window, or Railway restarts the service for memory pressure. A
@@ -484,7 +575,9 @@ Current status:
 
 ```text
 Production safety: good
-Runtime memory posture: early post-restart plateau; long-term stability unproven
+Runtime memory posture: warm resident delta confirmed; unbounded leak unproven
+Memory attribution: transient SLOW-cycle allocation is the leading cause;
+  heap/native/cache split still needs process-specific samples
 Measurement discipline: needs improvement
 Optimization confidence score: 82/100
 ```
