@@ -603,7 +603,17 @@ function replayPosition(params: {
         t,
       });
       if (snapshot.metrics.quantity <= 0) continue;
+      // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+      const profitProtection = bothDirection.profitProtection.evaluate({
+        currentPrice,
+        latestVolatilityPrice: lastVolatilityPrice,
+        position: snapshot.position,
+        positions: [snapshot.position],
+      });
       const decision = resolveBacktestExitDecision({
+        allowProfitProtection: profitProtection.allowed,
+        allowTraditionalTpBeforeProfitZone:
+          profitProtection.exceptionTriggered,
         currentPrice,
         currentVolatilityLevel: latestConfirmedPoint?.lvl,
         forceSell: false,

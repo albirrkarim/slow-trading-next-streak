@@ -12,7 +12,7 @@ import SettingsRuleAccordion from "./SettingsRuleAccordion";
 import type { ConfigDraft, ConfigDraftSetter } from "./types";
 
 const STOP_LOSS_PLUS_INFO =
-  "Trailing profit lock after TP tracking starts. With TP 2% and retrace 1%, the initial exit threshold is 1%. The threshold rises with every higher profit peak.";
+  "Trailing profit lock after TP tracking starts. With TP 2% and retrace 1%, the initial exit threshold is 1%. The threshold rises with every higher profit peak. In BOTH mode it becomes eligible after a favorable VOLATILITY_THRESHOLD move from the latest vPoint and stays armed through the retrace.";
 
 function parseNumber(value: string) {
   const parsed = Number(value);
@@ -362,7 +362,7 @@ export default function ExitStrategyReference({
           </SettingsRuleAccordion>
 
           <SettingsRuleAccordion
-            behavior={`Activates at TP ${takeProfitPct}% and exits after profit retraces ${stopLossPlusTriggerPct}% from the recorded peak.`}
+            behavior={`Activates at TP ${takeProfitPct}% and exits after profit retraces ${stopLossPlusTriggerPct}% from the recorded peak. In BOTH mode, eligibility starts after a favorable VOLATILITY_THRESHOLD move from the latest vPoint.`}
             name="StopLoss+ trailing exit"
             number={8}
             status={stopLossPlusEnabled ? "Enabled" : "Disabled"}

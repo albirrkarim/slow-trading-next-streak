@@ -678,8 +678,10 @@ the stopLossPercent and takeProfitPercent anchor is based on the pure price (unl
 
 The TP fallback has a separate direction-specific profit-zone guard: a later
 `TOP` for LONG or a later `BOTTOM` for SHORT. For one-way positions, this guard
-is distinct from the level-zero target in B.4.4. BOTH positions do not use this
-percentage TP fallback and instead exit on the directional rail in B.5.7.
+is distinct from the level-zero target in B.4.4. BOTH positions normally do not
+use this percentage TP fallback and instead exit on the directional rail in
+B.5.7. The forming-vPoint exception in B.5.6 can temporarily re-enable it
+before that rail is confirmed.
 
 TC: `BOTH:TRADITIONAL_TP_SL`
 
@@ -1104,8 +1106,19 @@ TC: `BOTH:AVERAGING_EXECUTION_COUNT_CAP`
 Both `MAIN` and `COUNTER` evaluate the same configured structural, hard-stop,
 USDT-stop, post-average stop, rescue, liquidation, manual, and force-exit rules
 as OR conditions. Percentage take profit from `BOTH:TRADITIONAL_TP_SL` and
-`PROD:SL_PLUS` are disabled for both roles in BOTH mode; the directional rails
-in B.5.7 provide the repeated favorable exits.
+`PROD:SL_PLUS` are disabled for both roles in BOTH mode by default; the
+directional rails in B.5.7 provide the repeated favorable exits.
+
+While the next target vPoint is still forming, traditional TP or SL Plus is
+re-enabled for either role when the live/current price has moved at least
+`VOLATILITY_THRESHOLD` in that leg's favorable direction from the latest
+available vPoint price. A new target vPoint does not need to be confirmed. For
+LONG the distance is `(currentPrice - latestVPointPrice) / latestVPointPrice`;
+for SHORT it is `(latestVPointPrice - currentPrice) / latestVPointPrice`. Once
+SL Plus arms, it remains active through the configured retrace even if the
+current favorable distance falls back below `VOLATILITY_THRESHOLD`.
+
+TC: `BOTH:FORMING_VPOINT_PROFIT_PROTECTION`
 
 Every automatic stop or rescue closes only the leg that triggered it. The
 counterpart remains open and independently continues its averaging and exit

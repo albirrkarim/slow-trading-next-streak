@@ -29,6 +29,7 @@ interface ResolveBacktestExitDecisionProps {
   lastVolatilityPrice?: number;
   modelConfig: TradingModelConfig;
   allowProfitProtection?: boolean;
+  allowTraditionalTpBeforeProfitZone?: boolean;
   isCurrentVolatilityTarget?: boolean;
   exitFeeRatio?: number;
 }
@@ -175,6 +176,7 @@ export function resolveBacktestExitDecision({
   lastVolatilityPrice,
   modelConfig,
   allowProfitProtection = true,
+  allowTraditionalTpBeforeProfitZone = false,
   isCurrentVolatilityTarget = false,
   exitFeeRatio,
 }: ResolveBacktestExitDecisionProps): BacktestExitDecision {
@@ -479,7 +481,7 @@ export function resolveBacktestExitDecision({
     allowProfitProtection &&
     takeProfitPercent > 0 &&
     netProfitPercent >= takeProfitPercent &&
-    hasHitProfitZone
+    (hasHitProfitZone || allowTraditionalTpBeforeProfitZone)
   ) {
     return {
       shouldExit: true,

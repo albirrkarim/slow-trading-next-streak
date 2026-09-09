@@ -3,6 +3,7 @@ import {
   resolveBacktestExitDecision,
 } from "@/lib/dynamic/backtest-volatility/exit-policy";
 import { TradingMode } from "@/lib/exchange";
+import { VOLATILITY_THRESHOLD } from "@/lib/brain/constants";
 import { dynamicExit } from "@/lib/trading/execute/models/exit";
 import { TRADE_MESSAGE } from "@/lib/trading/message";
 import type {
@@ -661,39 +662,50 @@ describe("slow specs exit", () => {
     },
   );
 
-  it("reenables COUNTER-only profit protection after one favorable level", () => {
-    const counter = createTestPosition({
-      direction: "SHORT",
-      role: "COUNTER",
-    });
-    counter.entryLegs = "COUNTER";
+  it.each([
+    { currentPrice: 102, direction: "LONG" as const },
+    { currentPrice: 98, direction: "SHORT" as const },
+  ])(
+    "reenables $direction pair profit protection at the forming-vPoint threshold",
+    ({ currentPrice, direction }) => {
+      const position = createTestPosition({ direction, role: "MAIN" });
+      position.entryLegs = "BOTH";
 
-    // BOTH:ACCOUNT_ENTRY_LEGS
+      const belowThreshold = bothDirection.profitProtection.evaluate({
+        currentPrice: direction === "LONG" ? 101.99 : 98.01,
+        latestVolatilityPrice: 100,
+        position,
+        positions: [position],
+        volatilityThreshold: 2,
+      });
+      const atThreshold = bothDirection.profitProtection.evaluate({
+        currentPrice,
+        latestVolatilityPrice: 100,
+        position,
+        positions: [position],
+        volatilityThreshold: 2,
+      });
+
+      // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+      expect(belowThreshold.allowed).toBe(false);
+      expect(atThreshold).toMatchObject({
+        allowed: true,
+        exceptionTriggered: true,
+        favorableDistancePct: 2,
+      });
+    },
+  );
+
+  it("keeps ordinary one-way profit protection enabled", () => {
+    const position = createPosition();
+
     expect(
-      bothDirection.profitProtection.counterAllowed({
-        position: counter,
-        positions: [counter],
-        volatilityPoints: [],
+      bothDirection.profitProtection.evaluate({
+        currentPrice: 100,
+        position,
+        positions: [position],
       }),
-    ).toBe(false);
-    expect(
-      bothDirection.profitProtection.counterAllowed({
-        position: counter,
-        positions: [counter],
-        volatilityPoints: [
-          {
-            id: "BOTTOM[-3]",
-            l: "B",
-            lvl: -3,
-            p: 9,
-            pct: 10,
-            t: 2,
-            vb: 1,
-            vq: 1,
-          },
-        ],
-      }),
-    ).toBe(true);
+    ).toMatchObject({ allowed: true, exceptionTriggered: false });
   });
 
   it("exits at the configured absolute latest vPoint level", async () => {
@@ -968,6 +980,32 @@ describe("slow specs exit", () => {
     // BOTH:TRADITIONAL_TP_SL
     expect(sl.shouldExit).toBe(true);
     expect(sl.category).toBe(TRADE_MESSAGE.sell.SL);
+  });
+
+  it("allows backtest pair TP while the next favorable vPoint is forming", () => {
+    const position = createPosition();
+    position.entryLegs = "BOTH";
+
+    const exit = resolveBacktestExitDecision({
+      position,
+      currentPrice: 102,
+      forceSell: false,
+      globalLiquidation: false,
+      hasHitProfitZone: false,
+      allowProfitProtection: true,
+      allowTraditionalTpBeforeProfitZone: true,
+      modelConfig: {
+        takeProfitPercent: 2,
+        stopLossPercent: 10,
+      },
+    });
+
+    // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+    expect(exit).toMatchObject({
+      shouldExit: true,
+      category: TRADE_MESSAGE.sell.TP,
+      message: "BOTH:TRADITIONAL_TP_SL",
+    });
   });
 
   it("uses unlevered price PnL for backtest TP/SL and leveraged PnL for liquidation", () => {
@@ -1886,6 +1924,97 @@ describe("slow specs exit", () => {
     expect(trailingExit.action).toBe("SELL");
     expect(trailingExit.category).toBe(TRADE_MESSAGE.sell.SL_PLUS);
     expect(trailingExit.profit).toBeLessThan(0.05);
+  });
+
+  it("reenables pair traditional TP at the forming-vPoint threshold", async () => {
+    const memory = createMemory();
+    memory.positions[0].entryLegs = "BOTH";
+    memory.volatility!.lastVolatility = [
+      {
+        id: "BOTTOM[0]",
+        l: "B",
+        lvl: 0,
+        pct: 0,
+        p: 100,
+        t: 1,
+        vb: 1,
+        vq: 100,
+      },
+    ];
+
+    const exit = await dynamicExit({
+      symbol: "SUI",
+      current: buildKline(2, 100 * (1 + VOLATILITY_THRESHOLD / 100)),
+      config: {
+        takeProfitPercent: 2,
+        stopLossPercent: 90,
+        stopLossUSDT: 0,
+        useStopLossPlus: false,
+      },
+      memory,
+      exchangeType: "tokocrypto",
+      positionRole: "MAIN",
+      tradingMode: TradingMode.FUTURES,
+    });
+
+    // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+    expect(exit.action).toBe("SELL");
+    expect(exit.category).toBe(TRADE_MESSAGE.sell.TP);
+    expect(memory.positionsSell?.at(-1)?.closed?.reason).toBe("TAKE_PROFIT");
+  });
+
+  it("keeps pair SL Plus armed through a retrace below the forming threshold", async () => {
+    const memory = createMemory();
+    memory.positions[0].entryLegs = "BOTH";
+    memory.volatility!.lastVolatility = [
+      {
+        id: "BOTTOM[0]",
+        l: "B",
+        lvl: 0,
+        pct: 0,
+        p: 100,
+        t: 1,
+        vb: 1,
+        vq: 100,
+      },
+    ];
+    const config: TradingModelConfig = {
+      takeProfitPercent: 2,
+      stopLossPercent: 90,
+      stopLossUSDT: 0,
+      useStopLossPlus: true,
+      stopLossPlusTrigger: 1,
+    };
+    const activationPrice =
+      100 * (1 + VOLATILITY_THRESHOLD / 100) + 0.2;
+
+    const activation = await dynamicExit({
+      symbol: "SUI",
+      current: buildKline(2, activationPrice),
+      config,
+      memory,
+      exchangeType: "tokocrypto",
+      positionRole: "MAIN",
+      tradingMode: TradingMode.FUTURES,
+    });
+    const trailingExit = await dynamicExit({
+      symbol: "SUI",
+      current: buildKline(3, activationPrice - 1.1),
+      config,
+      memory,
+      exchangeType: "tokocrypto",
+      positionRole: "MAIN",
+      tradingMode: TradingMode.FUTURES,
+    });
+
+    // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+    // PROD:SL_PLUS
+    expect(activation.action).toBe("HOLD");
+    expect(trailingExit.action).toBe("SELL");
+    expect(trailingExit.category).toBe(TRADE_MESSAGE.sell.SL_PLUS);
+    expect(memory.positionsSell?.at(-1)?.closed?.reason).toBe(
+      "STOP_LOSS_PLUS_TP",
+    );
   });
 
   it("does not bypass production SL Plus before its activation threshold", async () => {

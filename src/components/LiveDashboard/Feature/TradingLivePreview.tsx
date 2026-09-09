@@ -264,6 +264,7 @@ function StageStopOutcome({
 }
 
 function ExitStagePreview({
+  bothDirection,
   entryLegs,
   leverage,
   stage,
@@ -272,6 +273,7 @@ function ExitStagePreview({
   takeProfitPct,
   targetZoneStopLossPct,
 }: {
+  bothDirection: boolean;
   entryLegs: "MAIN" | "COUNTER" | "BOTH";
   leverage: number;
   stage: TradingLivePreviewExitStage;
@@ -388,12 +390,12 @@ function ExitStagePreview({
           <PreviewCalculation
             color="success.main"
             detail={
-              isCounterOnly
-                ? "counter notional x take-profit percent; COUNTER-only enables normal TP after one favorable volatility level"
-                : "main notional x take-profit percent"
+              bothDirection
+                ? `${activeLegName} notional x take-profit percent; traditional TP or StopLoss+ becomes eligible after price moves VOLATILITY_THRESHOLD favorably from the latest vPoint`
+                : `${activeLegName} notional x take-profit percent`
             }
             formula={profitFormula}
-            label={`${isCounterOnly ? "Profit at TP after one favorable level" : "Profit at TP"} (${takeProfitPct}%)`}
+            label={`${bothDirection ? "Profit at forming-vPoint TP exception" : "Profit at TP"} (${takeProfitPct}%)`}
           />
           <PreviewCalculation
             color={
@@ -875,6 +877,7 @@ export default function TradingLivePreview({
             />
             {preview.exitStages.map((stage) => (
               <ExitStagePreview
+                bothDirection={config.openDirection === "BOTH"}
                 entryLegs={preview.entryLegs}
                 key={stage.stage}
                 leverage={preview.leverage}

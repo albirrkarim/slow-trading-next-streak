@@ -274,6 +274,13 @@ export async function dynamicExit({
         position: lastPosition,
         volatilityPoints: memory.volatility.lastVolatility,
       });
+  // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+  const profitProtection = bothDirection.profitProtection.evaluate({
+    currentPrice: price,
+    latestVolatilityPrice: lastVolatility?.p,
+    position: lastPosition,
+    positions: allPairPositions,
+  });
 
   // C.1 Exit at configured absolute vPoint level
   // BOTH:EXIT_ON_VPOINT_LEVEL
@@ -540,23 +547,16 @@ export async function dynamicExit({
 
   // C.2 STOP LOSS PLUS
   // PROD:SL_PLUS
-  const allowProfitProtection =
-    // BOTH:ACCOUNT_ENTRY_LEGS
-    bothDirection.profitProtection.counterAllowed({
-      position: lastPosition,
-      positions: allPairPositions,
-      volatilityPoints: memory.volatility.lastVolatility,
-    });
+  const memKey = bothDirection.pair.hasCounterpart(lastPosition, positions)
+    ? `${symbol}-${bothDirection.position.role.resolve(lastPosition)}-peakGain`
+    : `${symbol}-peakGain`;
+  const hasArmedSLPlus = memory[memKey] !== undefined;
   const useSLPlus =
-    allowProfitProtection &&
+    (profitProtection.allowed || hasArmedSLPlus) &&
     (config.useStopLossPlus === undefined ? true : config.useStopLossPlus);
 
   if (useSLPlus) {
     const stopLossPlusTrigger = (config.stopLossPlusTrigger ?? 1) / 100;
-    const memKey = bothDirection.pair.hasCounterpart(lastPosition, positions)
-      ? `${symbol}-${bothDirection.position.role.resolve(lastPosition)}-peakGain`
-      : `${symbol}-peakGain`;
-
     // Track peak gain once take profit threshold hit
     if (netGain >= config.takeProfitPercent / 100) {
       if (memory[memKey] == undefined) {
@@ -660,10 +660,13 @@ export async function dynamicExit({
     };
   }
 
-  if (allowProfitProtection && !useSLPlus) {
+  if (profitProtection.allowed && !useSLPlus) {
     // C.4 TRADITIONAL TAKE PROFIT
     // BOTH:TRADITIONAL_TP_SL
-    if (actualGain >= config.takeProfitPercent / 100 && hasHitProfitZone) {
+    if (
+      actualGain >= config.takeProfitPercent / 100 &&
+      (hasHitProfitZone || profitProtection.exceptionTriggered)
+    ) {
       const reason = `${TRADE_MESSAGE.sell.SELL} ${readableTime} - ${
         TRADE_MESSAGE.sell.TP
       } Locked profit at ${(actualGain * 100).toFixed(

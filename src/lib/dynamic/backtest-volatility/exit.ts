@@ -110,6 +110,13 @@ export function tryToExit({
             position: open,
             volatilityPoints: volatilityMap[symbol],
           });
+      // BOTH:FORMING_VPOINT_PROFIT_PROTECTION
+      const profitProtection = bothDirection.profitProtection.evaluate({
+        currentPrice: currentVolatility.p,
+        latestVolatilityPrice: lastVolatility?.p,
+        position: open,
+        positions: pairPositions,
+      });
 
       const exitDecision = resolveBacktestExitDecision({
         position: open,
@@ -123,13 +130,9 @@ export function tryToExit({
         // BOTH:POST_AVERAGE_RESCUE_EXIT
         lastVolatilityPrice: lastVolatility?.p,
         modelConfig: exitModelConfig,
-        allowProfitProtection:
-          // BOTH:ACCOUNT_ENTRY_LEGS
-          bothDirection.profitProtection.counterAllowed({
-            position: open,
-            positions: pairPositions,
-            volatilityPoints: volatilityMap[symbol],
-          }),
+        allowProfitProtection: profitProtection.allowed,
+        allowTraditionalTpBeforeProfitZone:
+          profitProtection.exceptionTriggered,
         // BOTH:VOLATILITY_TARGET_EXIT
         isCurrentVolatilityTarget:
           isPairPosition && volatilityTarget.hasReached,

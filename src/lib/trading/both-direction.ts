@@ -1,4 +1,5 @@
 import type { EntryLegs, OpenDirection, VolatilityPoint } from "@/lib/dynamic";
+import { VOLATILITY_THRESHOLD } from "@/lib/brain/constants";
 import type {
   Position,
   PositionDirection,
@@ -218,38 +219,62 @@ function resolveDirectionalVolatilityTarget<
   };
 }
 
-/** Checks whether a leg passed one whole level in its profit direction. */
-function hasPassedProfitLevel(params: {
-  position: Pick<Position, "direction" | "opened">;
-  volatilityPoints: VolatilityPoint[];
-}): boolean {
-  const entryLevel = params.position.opened.vPoint.lvl;
-  return getPostEntryPoints(params.position, params.volatilityPoints).some(
-    (point) =>
-      (params.position.direction === "LONG" && point.lvl >= entryLevel + 1) ||
-      (params.position.direction === "SHORT" && point.lvl <= entryLevel - 1),
-  );
+export interface ProfitProtectionState {
+  allowed: boolean;
+  exceptionTriggered: boolean;
+  favorableDistancePct: number;
 }
 
-/** Resolves whether ordinary TP/SL+ protection is allowed for this position. */
-function mayUseProfitProtection(params: {
+/** Resolves the forming-vPoint distance exception for traditional TP and SL+. */
+function evaluateProfitProtection(params: {
+  currentPrice: number;
+  latestVolatilityPrice?: number;
   position: Position;
   positions: Position[];
-  volatilityPoints: VolatilityPoint[];
-}): boolean {
-  if (params.position.entryLegs === "COUNTER") {
-    return hasPassedProfitLevel({
-      position: params.position,
-      volatilityPoints: params.volatilityPoints,
-    });
-  }
-  if (
+  volatilityThreshold?: number;
+}): ProfitProtectionState {
+  const isBothPosition =
     isHedgeStrategyPosition(params.position) ||
-    isPairLeg(params.position, params.positions)
-  ) {
-    return false;
+    isPairLeg(params.position, params.positions);
+  if (!isBothPosition) {
+    return {
+      allowed: true,
+      exceptionTriggered: false,
+      favorableDistancePct: 0,
+    };
   }
-  return true;
+
+  const currentPrice = Number(params.currentPrice);
+  const anchorPrice = Number(params.latestVolatilityPrice);
+  const volatilityThreshold = Number(
+    params.volatilityThreshold ?? VOLATILITY_THRESHOLD,
+  );
+  if (
+    !Number.isFinite(currentPrice) ||
+    currentPrice <= 0 ||
+    !Number.isFinite(anchorPrice) ||
+    anchorPrice <= 0 ||
+    !Number.isFinite(volatilityThreshold) ||
+    volatilityThreshold < 0
+  ) {
+    return {
+      allowed: false,
+      exceptionTriggered: false,
+      favorableDistancePct: 0,
+    };
+  }
+
+  const favorableDistancePct =
+    params.position.direction === "SHORT"
+      ? ((anchorPrice - currentPrice) / anchorPrice) * 100
+      : ((currentPrice - anchorPrice) / anchorPrice) * 100;
+  const exceptionTriggered = favorableDistancePct >= volatilityThreshold;
+
+  return {
+    allowed: exceptionTriggered,
+    exceptionTriggered,
+    favorableDistancePct,
+  };
 }
 
 function countOpenPairs(positions: Position[]): number {
@@ -292,8 +317,7 @@ const bothDirection = {
     },
   },
   profitProtection: {
-    counterAllowed: mayUseProfitProtection,
-    hasPassedProfitLevel,
+    evaluate: evaluateProfitProtection,
   },
   volatilityTarget: {
     resolve: resolveLevelZeroVolatilityTarget,
