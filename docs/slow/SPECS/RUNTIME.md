@@ -289,6 +289,12 @@ chips are not duplicated in the open-position header. Dashboard polling
 remains at 10 minutes; users may manually reload the non-critical dashboard to
 see newer persisted diagnostics.
 
+When a closed position has this persisted diagnostic, its EXIT chip in the
+position level sequence shows a Speedup or Standard icon. Hovering or focusing
+that icon shows the persisted `position.lastMonitoringStage.reason`.
+
+TC: `PROD:TRADE_HISTORY_EXIT_MONITORING_STAGE`
+
 - During live monitoring, the system should sync open-position size and margin from the exchange.
 
 Local book values may differ from exchange values because of rounding, partial fills, fees, contract sizing, or manual exchange actions.

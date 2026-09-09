@@ -2,6 +2,7 @@
 
 import type { VolatilityPoint } from "@/lib/dynamic";
 import bothDirection from "@/lib/trading/both-direction";
+import type { PositionLastMonitoringStage } from "@/lib/trading/models";
 import lateEntryVPointDrift from "@/lib/trading/execute/late-entry-vpoint-drift";
 import PositionLevelSequence, {
   type PositionLevelSequenceCoverage,
@@ -21,6 +22,7 @@ interface ReserveStep {
 interface AveragingTrigger {
   allocationPct?: number;
   level?: number;
+  monitoringState?: PositionLastMonitoringStage;
 }
 
 interface WatchState {
@@ -61,7 +63,7 @@ function levelMagnitude(level: number): number {
  * Builds the observed level path after the volatility target zone breaks averaging.
  */
 function getTargetHitSequence({
-  averagingMultiplierByLevel,
+  averagingExecutionByLevel,
   direction,
   directionalTarget,
   entryLevel,
@@ -69,7 +71,7 @@ function getTargetHitSequence({
   volatilityPoints,
   watchState,
 }: {
-  averagingMultiplierByLevel: Map<number, number | undefined>;
+  averagingExecutionByLevel: Map<number, AveragingTrigger>;
   direction?: "LONG" | "SHORT";
   directionalTarget?: boolean;
   entryLevel: number | null;
@@ -162,19 +164,21 @@ function getTargetHitSequence({
     },
     ...reachedAdverseLevels.map((point) => {
       const step = reserveStepsByLevel.get(levelIdentity(point.lvl));
+      const execution = averagingExecutionByLevel.get(
+        levelIdentity(point.lvl),
+      );
       const isAveraged =
         step?.status === "USED" ||
-        averagingMultiplierByLevel.has(levelIdentity(point.lvl));
+        execution !== undefined;
 
       return {
-        averagingMultiplier: averagingMultiplierByLevel.get(
-          levelIdentity(point.lvl),
-        ),
+        averagingMultiplier: execution?.allocationPct,
         coveredMarginUsdt: 0,
         isAveraged,
         isEntry: false,
         level: point.lvl,
         marginUsdt: step?.marginUsdt,
+        monitoringState: execution?.monitoringState,
         reserveStatus: step?.status,
         state: isAveraged ? ("passed" as const) : ("skipped" as const),
       };
@@ -212,19 +216,16 @@ export function buildOpenPositionLevelSequence({
     spendableQuoteAsset >= 0
       ? spendableQuoteAsset
       : null;
-  const averagingMultiplierByLevel = new Map<number, number | undefined>();
+  const averagingExecutionByLevel = new Map<number, AveragingTrigger>();
   for (const execution of watchState?.executions ?? []) {
     const level = finiteLevel(execution.level);
     if (level !== null) {
-      averagingMultiplierByLevel.set(
-        levelIdentity(level),
-        execution.allocationPct,
-      );
+      averagingExecutionByLevel.set(levelIdentity(level), execution);
     }
   }
   // BOTH:VOLATILITY_TARGET_TP
   const targetHitSequence = getTargetHitSequence({
-    averagingMultiplierByLevel,
+    averagingExecutionByLevel,
     direction,
     directionalTarget,
     entryLevel: normalizedEntryLevel,
@@ -337,9 +338,11 @@ export function buildOpenPositionLevelSequence({
   let remainingSpendableQuoteAsset = normalizedSpendableQuoteAsset ?? 0;
 
   return sequence.map((item, index) => {
+    const execution = averagingExecutionByLevel.get(
+      levelIdentity(item.level),
+    );
     const isAveraged =
-      item.reserveStatus === "USED" ||
-      averagingMultiplierByLevel.has(levelIdentity(item.level));
+      item.reserveStatus === "USED" || execution !== undefined;
     const validUnreservedMargin =
       item.reserveStatus === "UNRESERVED" &&
       typeof item.marginUsdt === "number" &&
@@ -379,12 +382,11 @@ export function buildOpenPositionLevelSequence({
 
     return {
       ...item,
-      averagingMultiplier: averagingMultiplierByLevel.get(
-        levelIdentity(item.level),
-      ),
+      averagingMultiplier: execution?.allocationPct,
       coveredMarginUsdt,
       driftPct: index === currentIndex ? currentDriftPct : undefined,
       isAveraged,
+      monitoringState: execution?.monitoringState,
       state,
       unreservedCoverage,
     };

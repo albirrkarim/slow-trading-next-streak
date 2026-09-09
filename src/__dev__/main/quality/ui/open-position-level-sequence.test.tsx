@@ -62,7 +62,7 @@ describe("OpenPositionLevelSequence", () => {
     ]);
   });
 
-  it("shows the actual multiplier for every averaged level", () => {
+  it("shows the actual multiplier and frozen monitoring stage for every averaged level", async () => {
     render(
       <OpenPositionLevelSequence
         currentLevel={-3}
@@ -71,8 +71,24 @@ describe("OpenPositionLevelSequence", () => {
         spendableQuoteAsset={100}
         watchState={{
           executions: [
-            { allocationPct: 2, level: -2 },
-            { allocationPct: 5, level: -3 },
+            {
+              allocationPct: 2,
+              level: -2,
+              monitoringState: {
+                lastUpdated: 200,
+                reason: "Negative PnL threshold matched",
+                stage: "speedup",
+              },
+            },
+            {
+              allocationPct: 5,
+              level: -3,
+              monitoringState: {
+                lastUpdated: 300,
+                reason: "No Speedup rule matched",
+                stage: "standard",
+              },
+            },
           ],
           steps: [
             { level: -2, marginUsdt: 20, status: "USED" },
@@ -84,6 +100,19 @@ describe("OpenPositionLevelSequence", () => {
 
     expect(screen.getByText("L-2 AVG 2x")).toBeTruthy();
     expect(screen.getByText("L-3 AVG 5x")).toBeTruthy();
+    // PROD:AVERAGING_MONITORING_STATE_SNAPSHOT
+    const speedupIcon = screen.getByLabelText(
+      "Speedup monitoring state at averaging level -2",
+    );
+    expect(
+      screen.getByLabelText(
+        "Standard monitoring state at averaging level -3",
+      ),
+    ).toBeTruthy();
+    fireEvent.mouseOver(speedupIcon);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      "Negative PnL threshold matched",
+    );
   });
 
   it("colors a reached current level as warning until averaging executes", async () => {

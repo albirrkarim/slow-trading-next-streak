@@ -2,7 +2,13 @@
  * @vitest-environment jsdom
  */
 
-import { render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitForElementToBeRemoved,
+  within,
+} from "@testing-library/react";
 import { SnackbarProvider } from "notistack";
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,7 +25,7 @@ vi.mock(
 );
 
 describe("trade-history level sequence", () => {
-  it("shows the persisted entry, averaging, and exit path below the PnL chart", () => {
+  it("shows the persisted entry, averaging, monitoring, and exit path below the PnL chart", async () => {
     const position = createTestPosition({
       averaging: {
         entryLevel: -2,
@@ -28,6 +34,11 @@ describe("trade-history level sequence", () => {
             allocationPct: 2,
             level: -4,
             marginUsdt: 40,
+            monitoringState: {
+              lastUpdated: 250,
+              reason: "No Speedup rule matched",
+              stage: "standard",
+            },
             price: 8,
             t: 250,
           },
@@ -35,6 +46,11 @@ describe("trade-history level sequence", () => {
             allocationPct: 5,
             level: -3,
             marginUsdt: 20,
+            monitoringState: {
+              lastUpdated: 200,
+              reason: "Negative PnL threshold matched",
+              stage: "speedup",
+            },
             price: 9,
             t: 200,
           },
@@ -73,6 +89,11 @@ describe("trade-history level sequence", () => {
       },
       symbol: "SUI",
     });
+    position.lastMonitoringStage = {
+      lastUpdated: 290,
+      reason: "Positive PnL threshold matched before exit",
+      stage: "speedup",
+    };
 
     render(
       <SnackbarProvider>
@@ -99,6 +120,31 @@ describe("trade-history level sequence", () => {
         .getAllByText(/^L/)
         .map((chip) => chip.textContent),
     ).toEqual(["L-2", "L-3 AVG 5x", "L-4 AVG 2x", "L0 EXIT"]);
+    // PROD:AVERAGING_MONITORING_STATE_SNAPSHOT
+    const averagingSpeedupIcon = within(sequence).getByLabelText(
+      "Speedup monitoring state at averaging level -3",
+    );
+    expect(
+      within(sequence).getByLabelText(
+        "Standard monitoring state at averaging level -4",
+      ),
+    ).toBeTruthy();
+    fireEvent.mouseOver(averagingSpeedupIcon);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      "Negative PnL threshold matched",
+    );
+    fireEvent.mouseOut(averagingSpeedupIcon);
+    await waitForElementToBeRemoved(() => screen.queryByRole("tooltip"));
+
+    // PROD:TRADE_HISTORY_EXIT_MONITORING_STAGE
+    const exitSpeedupIcon = within(sequence).getByLabelText(
+      "Speedup monitoring stage at exit level 0",
+    );
+    expect(exitSpeedupIcon.getAttribute("tabindex")).toBe("0");
+    fireEvent.mouseOver(exitSpeedupIcon);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Positive PnL threshold matched before exit",
+    );
     expect(chart.nextElementSibling?.contains(sequence)).toBe(true);
     expect(screen.getByText("Max Up USD")).toBeTruthy();
     expect(screen.getByText("Max Down USD")).toBeTruthy();

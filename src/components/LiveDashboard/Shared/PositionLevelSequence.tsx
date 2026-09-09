@@ -1,10 +1,15 @@
 "use client";
 
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
+import ScheduleRoundedIcon from "@mui/icons-material/ScheduleRounded";
+import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { Alert, Box, Chip, Tooltip } from "@mui/material";
 
-import type { Position } from "@/lib/trading/models";
+import type {
+  Position,
+  PositionLastMonitoringStage,
+} from "@/lib/trading/models";
 
 export type PositionLevelSequenceState =
   | "current"
@@ -25,11 +30,13 @@ export interface PositionLevelSequenceItem {
   averagingMultiplier?: number;
   coveredMarginUsdt: number;
   driftPct?: number;
+  exitMonitoringState?: PositionLastMonitoringStage;
   isAveraged: boolean;
   isEntry: boolean;
   isExit?: boolean;
   level: number;
   marginUsdt?: number;
+  monitoringState?: PositionLastMonitoringStage;
   reserveStatus?: PositionLevelSequenceReserveStatus;
   state: PositionLevelSequenceState;
   unreservedCoverage?: PositionLevelSequenceCoverage;
@@ -146,6 +153,47 @@ function formatCoverage(item: PositionLevelSequenceItem): string | null {
   return `Coverage ${formattedPct}% ($${item.coveredMarginUsdt.toFixed(2)} of $${item.marginUsdt.toFixed(2)})`;
 }
 
+function MonitoringStageIcon({
+  context,
+  level,
+  monitoringState,
+}: {
+  context: "averaging" | "exit";
+  level: number;
+  monitoringState: PositionLastMonitoringStage;
+}) {
+  const isSpeedup = monitoringState.stage === "speedup";
+  const stageLabel = isSpeedup ? "Speedup" : "Standard";
+  const Icon = isSpeedup ? SpeedRoundedIcon : ScheduleRoundedIcon;
+  const contextLabel = context === "averaging" ? "averaging" : "exit";
+  const diagnosticLabel = context === "averaging" ? "state" : "stage";
+  const tooltip =
+    context === "averaging"
+      ? `${stageLabel} was the last monitoring stage when this averaging execution was recorded. ${monitoringState.reason} Last updated: ${new Date(monitoringState.lastUpdated).toLocaleString()}`
+      : monitoringState.reason.trim() || "No monitoring reason recorded.";
+
+  return (
+    <Tooltip arrow placement="top" title={tooltip}>
+      <Box
+        aria-label={`${stageLabel} monitoring ${diagnosticLabel} at ${contextLabel} level ${formatLevel(level)}`}
+        component="span"
+        role="img"
+        sx={{
+          alignItems: "center",
+          color: isSpeedup ? "warning.main" : "text.secondary",
+          cursor: "help",
+          display: "inline-flex",
+          ml: context === "exit" ? 0.375 : 0,
+          mr: context === "averaging" ? 0.25 : 0,
+        }}
+        tabIndex={0}
+      >
+        <Icon aria-hidden sx={{ fontSize: context === "exit" ? 12 : 15 }} />
+      </Box>
+    </Tooltip>
+  );
+}
+
 /** Builds the hover explanation for one sequence chip. */
 function buildTooltip(
   item: PositionLevelSequenceItem,
@@ -238,6 +286,7 @@ export function buildHistoryPositionLevelSequence(
         isEntry: false,
         level: point.lvl,
         marginUsdt: execution?.marginUsdt,
+        monitoringState: execution?.monitoringState,
         reserveStatus: isAveraged ? "USED" : undefined,
         state:
           !isAveraged && isDeeperThanEntry
@@ -253,11 +302,13 @@ export function buildHistoryPositionLevelSequence(
       items.push({
         averagingMultiplier: exitExecution?.allocationPct,
         coveredMarginUsdt: 0,
+        exitMonitoringState: position.lastMonitoringStage,
         isAveraged: exitExecution !== undefined,
         isEntry: false,
         isExit: true,
         level: exitLevel,
         marginUsdt: exitExecution?.marginUsdt,
+        monitoringState: exitExecution?.monitoringState,
         reserveStatus: exitExecution ? "USED" : undefined,
         state: isTargetExit ? "target" : "exit",
       });
@@ -296,6 +347,7 @@ export function buildHistoryPositionLevelSequence(
       isEntry: false,
       level: execution.level,
       marginUsdt: execution.marginUsdt,
+      monitoringState: execution.monitoringState,
       reserveStatus: "USED",
       state: "passed",
     });
@@ -308,11 +360,13 @@ export function buildHistoryPositionLevelSequence(
     items.push({
       averagingMultiplier: exitExecution?.allocationPct,
       coveredMarginUsdt: 0,
+      exitMonitoringState: position.lastMonitoringStage,
       isAveraged: exitExecution !== undefined,
       isEntry: false,
       isExit: true,
       level: exitLevel,
       marginUsdt: exitExecution?.marginUsdt,
+      monitoringState: exitExecution?.monitoringState,
       reserveStatus: exitExecution ? "USED" : undefined,
       state: isTargetExit ? "target" : "exit",
     });
@@ -360,6 +414,15 @@ export default function PositionLevelSequence({
           const averagingMultiplierLabel = formatAveragingMultiplier(
             item.averagingMultiplier,
           );
+          const exitMonitoringState =
+            item.isExit || item.state === "exit"
+              ? item.exitMonitoringState
+              : undefined;
+          const exitStageLabel = exitMonitoringState
+            ? exitMonitoringState.stage === "speedup"
+              ? "Speedup monitoring stage"
+              : "Standard monitoring stage"
+            : null;
           const statusLabel = [
             `Level ${formatLevel(item.level)}`,
             stateLabels[item.state],
@@ -367,6 +430,7 @@ export default function PositionLevelSequence({
             item.isExit && item.state !== "exit" ? "Exit" : null,
             item.isAveraged ? "Averaged" : null,
             reachedWithoutAveraging ? "Not averaged" : null,
+            exitStageLabel,
             reachedWithoutAveraging && driftLabel
               ? `Drift ${driftLabel}`
               : null,
@@ -395,6 +459,40 @@ export default function PositionLevelSequence({
           ]
             .filter(Boolean)
             .join(" ");
+          const chipLabel = `L${formatLevel(item.level)}${chipSuffix ? ` ${chipSuffix}` : ""}`;
+          const chip = (
+            <Chip
+              {...chipProps}
+              aria-label={statusLabel}
+              label={
+                exitMonitoringState ? (
+                  <Box
+                    component="span"
+                    sx={{ alignItems: "center", display: "inline-flex" }}
+                  >
+                    {chipLabel}
+                    {/* PROD:TRADE_HISTORY_EXIT_MONITORING_STAGE */}
+                    <MonitoringStageIcon
+                      context="exit"
+                      level={item.level}
+                      monitoringState={exitMonitoringState}
+                    />
+                  </Box>
+                ) : (
+                  chipLabel
+                )
+              }
+              size="small"
+              sx={{
+                borderStyle:
+                  item.state === "unreserved" ? "dashed" : "solid",
+                fontSize: "0.6rem",
+                fontWeight: 700,
+                height: 18,
+                "& .MuiChip-label": { px: 0.75 },
+              }}
+            />
+          );
 
           return (
             <Box
@@ -407,26 +505,25 @@ export default function PositionLevelSequence({
                   sx={{ color: "text.disabled", fontSize: 14, mx: 0.25 }}
                 />
               )}
-              <Tooltip
-                arrow
-                placement="top"
-                title={buildTooltip(item, targetWasHit, reserveMultiplier)}
-              >
-                <Chip
-                  {...chipProps}
-                  aria-label={statusLabel}
-                  label={`L${formatLevel(item.level)}${chipSuffix ? ` ${chipSuffix}` : ""}`}
-                  size="small"
-                  sx={{
-                    borderStyle:
-                      item.state === "unreserved" ? "dashed" : "solid",
-                    fontSize: "0.6rem",
-                    fontWeight: 700,
-                    height: 18,
-                    "& .MuiChip-label": { px: 0.75 },
-                  }}
+              {item.monitoringState && (
+                // PROD:AVERAGING_MONITORING_STATE_SNAPSHOT
+                <MonitoringStageIcon
+                  context="averaging"
+                  level={item.level}
+                  monitoringState={item.monitoringState}
                 />
-              </Tooltip>
+              )}
+              {exitMonitoringState ? (
+                chip
+              ) : (
+                <Tooltip
+                  arrow
+                  placement="top"
+                  title={buildTooltip(item, targetWasHit, reserveMultiplier)}
+                >
+                  {chip}
+                </Tooltip>
+              )}
             </Box>
           );
         })}
