@@ -23,6 +23,58 @@ export interface SlowTradingCycleExecutionContext {
   storage: SlowTradingStorageData;
 }
 
+/** Sends one combined daily report per active mode after account persistence. */
+async function notifyCombinedDailyPerformance(params: {
+  catalog: SlowTradingStorageData;
+  successfulResults: SlowTradingCycleResult[];
+}): Promise<void> {
+  const successfulModes = new Set(
+    params.successfulResults
+      .filter((result) => !result.skipped)
+      .map((result) => result.mode),
+  );
+  if (successfulModes.size === 0) return;
+
+  const enabledAccounts = params.catalog.runtime.exchangeAccounts.filter(
+    (account) => account.enabled,
+  );
+  const storages = await Promise.all(
+    enabledAccounts.map((account) =>
+      slowTradingStorage.data.load({
+        account: account.slug,
+        modeScope: "active",
+      }),
+    ),
+  );
+
+  for (const mode of successfulModes) {
+    const modeStorages = storages.filter(
+      (storage) => slowTradingStorage.mode.getActive(storage) === mode,
+    );
+    if (modeStorages.length === 0) continue;
+
+    // PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE
+    const stateChanged =
+      await slowTradingNotifications.dailyPerformance.notify({
+        accounts: modeStorages.map((storage) => ({
+          account: storage.account.slug,
+          modeState: storage.modes[mode],
+        })),
+        currentTimeMs: Date.now(),
+        exchangeType: params.catalog.config.exchangeType,
+        mode,
+        notification: params.catalog.runtime.notification,
+      });
+
+    if (!stateChanged) continue;
+    for (const storage of modeStorages) {
+      await slowTradingStorage.mode.saveState(mode, storage.modes[mode], {
+        account: storage.account.slug,
+      });
+    }
+  }
+}
+
 /** Returns symbols with an open account position without requiring market data. */
 function selectOpenPositionSymbols(modeState: SlowTradingModeState): string[] {
   return modeState.tradeSettings.flatMap((tradeSetting) => {
@@ -126,20 +178,23 @@ async function execute(params: {
       )
     : null;
   const results: SlowTradingCycleResult[] = [];
+  const successfulResults: SlowTradingCycleResult[] = [];
 
   // PROD:MULTI_ACCOUNT_SEQUENTIAL_CYCLE
   // PROD:MULTI_ACCOUNT_SEQUENTIAL_ACCOUNT_EXECUTION
   for (const scope of scopes) {
     try {
       // PROD:MULTI_ACCOUNT_PRIVATE_STATE_ISOLATION
-      results.push(
-        await params.executeOne(scope.request, {
-          cycleStartedAt,
-          sharedMarket,
-          sharedPerformanceEntries,
-          storage: scope.storage,
-        }),
-      );
+      const result = await params.executeOne(scope.request, {
+        cycleStartedAt,
+        sharedMarket,
+        sharedPerformanceEntries,
+        storage: scope.storage,
+      });
+      results.push(result);
+      if (scope.storage.account.enabled) {
+        successfulResults.push(result);
+      }
     } catch (error) {
       if (params.request?.account) {
         throw error;
@@ -155,6 +210,8 @@ async function execute(params: {
       });
     }
   }
+
+  await notifyCombinedDailyPerformance({ catalog, successfulResults });
 
   return slowTradingCycleAccounts.results.combine({
     catalog,

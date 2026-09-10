@@ -117,19 +117,30 @@ TC: `PROD:NOTIF_LONG_OPEN_POSITION`
 
 TC: `PROD:NOTIF_MANAGEMENT_ACTION`
 
-- Daily Trade Performance: Sent on the first successful SLOW cycle after a UTC
-  day closes. It reports the immediately previous completed UTC day once per
-  enabled channel and mode, including days with zero closed trades. The report
-  uses the same day-card metrics as Daily PnL Calendar: Trade PnL USD, summed
-  Trade PnL %, trade count, wins, losses, win rate, Balance PnL USD, Balance PnL
-  %, start balance, and end balance. Closed trades are assigned by `closed.t`;
-  the persisted daily balance snapshot is the ending balance and the latest
-  earlier snapshot (or the mode starting balance) is the starting balance.
-  Missing balance data is displayed as `-`. Sandbox subjects are prefixed with
-  `[SANDBOX]`. The compact subject format is
+- Daily Trade Performance: Sent after account cycles have persisted on the
+  first successful SLOW cycle after a UTC day closes. It reports the immediately
+  previous completed UTC day once per enabled channel and mode, including days
+  with zero closed trades. Each report combines every enabled account whose
+  active mode matches the report mode; disabled accounts and accounts in the
+  other mode are excluded. A failure in one account does not remove its already
+  persisted prior-day history when another enabled account completes the mode's
+  cycle successfully.
+
+  The report concatenates the included accounts' closed histories before
+  calculating Trade PnL USD, summed Trade PnL %, trade count, wins, losses, and
+  win rate. It sums their starting balances and uses combined daily balance
+  snapshots for Balance PnL USD, Balance PnL %, start balance, and end balance.
+  Snapshot aggregation carries an account's latest known balance forward only
+  after that account has produced its first snapshot. Closed trades are assigned
+  by `closed.t`; the persisted daily balance snapshot is the ending balance and
+  the latest earlier combined snapshot (or summed starting balance) is the
+  starting balance. Missing balance data is displayed as `-`. Sandbox subjects
+  are prefixed with `[SANDBOX]`. The compact subject format is
   `[SANDBOX][DAILY] 10 Aug UTC | net USD | winning USD losing USD | WR N% (NW / NL)`.
 
 TC: `PROD:NOTIF_DAILY_PERFORMANCE`
+
+TC: `PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE`
 
 - Daily PnL Entry Stop: Sent when the current UTC-day navbar `USD` PnL first
   reaches or falls below `runtime.autoEntryDailyPnlLimitUSDT`. It uses net

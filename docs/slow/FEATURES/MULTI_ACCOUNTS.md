@@ -8,7 +8,7 @@ better to have multi config for each exchange accounts
 
 ## A. Config
 
-### What config are shared (all accounts use same):
+### A.1. Shared configuration
 
 - Seting Dialog > Runtime Tab > Automation
 
@@ -30,7 +30,7 @@ better to have multi config for each exchange accounts
 
 - Seting Dialog > Runtime Tab > Debugging
 
-### What config are belong to each accounts:
+### A.2. Per-account configuration
 
 - Seting Dialog > Trading Tab
 
@@ -40,7 +40,7 @@ We can toggling sanbox and set differen sanbox starting balance each account
 
 ## B. State
 
-### What config are shared (all accounts use same):
+### B.1. Shared state
 
 - trade history
 
@@ -48,7 +48,7 @@ the storage will be the same but introduce type on the position json
 
 position.account // its a account slug
 
-### What state are belong to each accounts:
+### B.2. Per-account state
 
 Every account has isolated live/sandbox state, positions, balances.
 
@@ -191,6 +191,8 @@ No dont over think it. it will never hapens. just combine it
 
 ## E. Persistence and Runtime Contract
 
+### E.1. Account profiles and storage
+
 Accounts are stored as profiles keyed by an immutable slug. The profile owns
 credentials, the enabled flag, Trading-tab configuration, and Sandbox controls:
 
@@ -258,11 +260,13 @@ for each eligible account sequentially
 END CYCLE
 ```
 
+### E.2. Cycle execution
+
 The shared phase owns account-independent public inputs such as volatility,
-market-time klines, price normalization, prices, funding rates, and 24-hour
-volume. Volatility symbols remain sequential inside this single shared phase to
-limit Binance request pressure. The optimization removes duplicate work across
-accounts; it does not replace controlled requests with a parallel burst.
+market-time klines, prices, funding rates, and 24-hour volume. Volatility symbols
+remain sequential inside this single shared phase to limit Binance request
+pressure. The optimization removes duplicate work across accounts; it does not
+replace controlled requests with a parallel burst.
 
 Every enabled account executes in deterministic sequential order after shared
 preparation. A disabled account does not open new positions, but it is still
@@ -285,15 +289,30 @@ simulation memory. The final report combines all closed positions into one
 `positions[]`; every position keeps its account slug and the history table shows
 it. Quick Backtest exposes one starting-balance input per enabled account.
 
+### E.3. Combined dashboard and daily performance
+
 The dashboard always loads all enabled accounts and combines balances, open
 positions, and history. It has no global account selector. Shared Daily PnL uses
 the combined shared history. Any account-specific feature owns a local account
 selector that changes only that feature.
 
+The Daily Trade Performance notification is also combined. After account cycles
+persist, SLOW sends at most one report per enabled channel, UTC day, and active
+mode. The report concatenates closed trades from every enabled account in that
+mode, sums their configured starting balances, and aggregates their daily
+balance snapshots before calculating performance. Disabled accounts are
+excluded. Live and sandbox remain separate reports, so sandbox performance can
+never alter a live report. Delivery state is written to every included account
+to keep the shared report deduplicated on later cycles.
+
+TC: `PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE`
+
 Entry diagnostics also evaluate every enabled account. A missing MAIN or
 COUNTER card groups the shared entry guard with one separately labeled outcome
 for each enabled account, including explicit reasons when that account does not
 enable the requested entry leg.
+
+### E.4. Combined MCP reads
 
 All account-scoped read-only MCP tools follow the same boundary. The
 `slow_balance_read` top-level balance is the sum of every enabled account in the
@@ -307,6 +326,8 @@ the value of this SLOW instance and must not sum account breakdowns a second
 time.
 
 TC: `PROD:MULTI_ACCOUNT_COMBINED_MCP_DATA`
+
+### E.5. Account-specific settings and dashboard controls
 
 The Trading tab edits one account at a time. Its `Editing Account` selector is
 placed directly above the Trading form and changes only the profile being
@@ -350,6 +371,7 @@ these exact TC comments:
 - `PROD:MULTI_ACCOUNT_DELETE_DEPENDENCY_GUARD`
 - `PROD:MULTI_ACCOUNT_WITHDRAWAL_OWNER`
 - `PROD:MULTI_ACCOUNT_COMBINED_DAILY_PNL`
+- `PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE`
 - `PROD:MULTI_ACCOUNT_COMBINED_DASHBOARD`
 - `PROD:MULTI_ACCOUNT_COMBINED_MCP_BALANCE`
 - `PROD:MULTI_ACCOUNT_CONFIG_OWNERSHIP`

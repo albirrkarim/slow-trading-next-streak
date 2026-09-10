@@ -79,11 +79,15 @@ describe("slow specs notification", () => {
       'key: "NOTIF_DAILY_PNL_LIMIT"',
     ]);
     await expectSourceContains("src/lib/slowTrading/cycle/finalize.ts", [
-      "dailyPerformance.notify",
       // PROD:BOUNDED_POST_CYCLE_ASYNC_WORK
       "PROD:BOUNDED_POST_CYCLE_ASYNC_WORK",
       "await slowTradingNotifications.openPositions",
       "await slowTradingStorage.balanceSnapshots.upsert",
+    ]);
+    await expectSourceContains("src/lib/slowTrading/cycle/coordinator.ts", [
+      "dailyPerformance.notify",
+      // PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE
+      "PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE",
     ]);
     await expectSourceContains("src/lib/slowTrading/cycle/entry.ts", [
       // PROD:BOUNDED_POST_CYCLE_ASYNC_WORK
@@ -162,11 +166,10 @@ describe("slow specs notification", () => {
       .mockResolvedValue(undefined);
 
     await slowTrading.notifications.dailyPerformance.notify({
-      account: loaded.account.slug,
+      accounts: [{ account: loaded.account.slug, modeState }],
       currentTimeMs: Date.UTC(2026, 5, 10, 1),
       exchangeType: loaded.config.exchangeType,
       mode: "live",
-      modeState,
       notification: loaded.runtime.notification,
     });
 
@@ -187,11 +190,10 @@ describe("slow specs notification", () => {
     );
 
     await slowTrading.notifications.dailyPerformance.notify({
-      account: loaded.account.slug,
+      accounts: [{ account: loaded.account.slug, modeState }],
       currentTimeMs: Date.UTC(2026, 5, 10, 12),
       exchangeType: loaded.config.exchangeType,
       mode: "live",
-      modeState,
       notification: loaded.runtime.notification,
     });
     expect(centralSpy).toHaveBeenCalledTimes(1);
@@ -203,6 +205,106 @@ describe("slow specs notification", () => {
     expect(
       reloaded.modes.live.dailyPerformanceNotificationState?.telegram,
     ).toBe("2026-06-09");
+  });
+
+  it("combines every enabled account into one daily performance report", async () => {
+    const slowTrading = (await import("@/lib/slowTrading")).default;
+    const trading = (await import("@/lib/trading")).default;
+    const defaults = slowTrading.storage.data.createDefault();
+    const template = defaults.runtime.exchangeAccounts[0]!;
+    await slowTrading.storage.data.save(defaults);
+    await slowTrading.storage.account.saveAccounts(
+      [
+        { ...template, slug: "alpha", name: "Alpha" },
+        { ...template, slug: "beta", name: "Beta" },
+      ],
+      defaults.sharedConfig,
+    );
+    const alpha = await slowTrading.storage.data.load({ account: "alpha" });
+    const beta = await slowTrading.storage.data.load({ account: "beta" });
+    alpha.modes.live.dynamicTradeMemory.startingBalanceUSDT = 100;
+    beta.modes.live.dynamicTradeMemory.startingBalanceUSDT = 50;
+    alpha.modes.live.tradeSettings[0]!.model_memory.positionsSell = [
+      createTestPosition({
+        account: "alpha",
+        executionMode: "live",
+        entryTime: Date.UTC(2026, 5, 9, 1),
+        netPct: 1,
+        netUsdt: 7,
+        closed: {
+          feeUsdt: 0,
+          price: 1.1,
+          reason: "TAKE_PROFIT",
+          t: Date.UTC(2026, 5, 9, 8),
+        },
+      }),
+    ];
+    beta.modes.live.tradeSettings[0]!.model_memory.positionsSell = [
+      createTestPosition({
+        account: "beta",
+        executionMode: "live",
+        entryTime: Date.UTC(2026, 5, 9, 2),
+        netPct: -0.5,
+        netUsdt: -2,
+        closed: {
+          feeUsdt: 0,
+          price: 0.9,
+          reason: "STOP_LOSS",
+          t: Date.UTC(2026, 5, 9, 9),
+        },
+      }),
+    ];
+    await slowTrading.storage.mode.saveState("live", alpha.modes.live, {
+      account: "alpha",
+    });
+    await slowTrading.storage.mode.saveState("live", beta.modes.live, {
+      account: "beta",
+    });
+    for (const snapshot of [
+      { account: "alpha", day: 8, total: 100 },
+      { account: "beta", day: 8, total: 50 },
+      { account: "alpha", day: 9, total: 104 },
+      { account: "beta", day: 9, total: 51 },
+    ]) {
+      await slowTrading.storage.balanceSnapshots.upsert({
+        account: snapshot.account,
+        mode: "live",
+        timestamp: Date.UTC(2026, 5, snapshot.day, 23, 55),
+        total: snapshot.total,
+      });
+    }
+    const centralSpy = vi
+      .spyOn(trading.notif, "central")
+      .mockResolvedValue(undefined);
+
+    // PROD:MULTI_ACCOUNT_COMBINED_DAILY_PERFORMANCE
+    await slowTrading.notifications.dailyPerformance.notify({
+      accounts: [
+        { account: "alpha", modeState: alpha.modes.live },
+        { account: "beta", modeState: beta.modes.live },
+      ],
+      currentTimeMs: Date.UTC(2026, 5, 10, 1),
+      exchangeType: defaults.config.exchangeType,
+      mode: "live",
+      notification: defaults.runtime.notification,
+    });
+
+    expect(centralSpy).toHaveBeenCalledTimes(1);
+    expect(centralSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title:
+          "[DAILY] 9 Jun UTC | +$5.00 | +$7.00 -$2.00 | WR 50% (1W / 1L)",
+        message: expect.stringContaining(
+          "Trade PnL: +$5.00\nTrade PnL %: +0.50%\nTrades: 2\nWins: 1\nLosses: 1\nWin rate: 50.00%\nBalance PnL: +$5.00",
+        ),
+      }),
+    );
+    expect(alpha.modes.live.dailyPerformanceNotificationState?.telegram).toBe(
+      "2026-06-09",
+    );
+    expect(beta.modes.live.dailyPerformanceNotificationState?.telegram).toBe(
+      "2026-06-09",
+    );
   });
 
   it("notifies once per daily PnL stop breach and resets after recovery", async () => {

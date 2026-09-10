@@ -200,8 +200,7 @@ async function execute(
     symbols: symbols.length,
   });
 
-  // H.1 Persist closed trades and mode memory before the daily report reads
-  // archived history. Persist again afterward to retain notification state.
+  // H.1 Persist closed trades and mode memory before combined post-cycle work.
   await profiler.time("cycle.cachePersist", () =>
     slowTradingCache.modeState.persistCaches({
       exchangeType,
@@ -215,16 +214,7 @@ async function execute(
     }),
   );
 
-  // Report the previous fully closed UTC day after its trades are archived.
-  await slowTradingNotifications.dailyPerformance.notify({
-    account: storage.account.slug,
-    currentTimeMs: Date.now(),
-    exchangeType,
-    mode: activeMode,
-    modeState,
-    notification: storage.runtime.notification,
-  });
-
+  // Record and persist the first save's duration in the completed stage run.
   slowTradingStageRun.recordCompleted({
     cycleStartedAt,
     modeState,

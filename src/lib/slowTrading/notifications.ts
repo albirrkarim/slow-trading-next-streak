@@ -277,24 +277,37 @@ export function buildSlowTradingDailyPerformanceNotification(params: {
   };
 }
 
-/** Sends the previous completed UTC day's performance once per enabled channel. */
-export async function notifySlowTradingDailyPerformance(params: {
+export interface SlowTradingDailyPerformanceAccountInput {
   account: string;
+  modeState: SlowTradingModeState;
+}
+
+/** Sends the previous completed UTC day's combined enabled-account performance. */
+export async function notifySlowTradingDailyPerformance(params: {
+  accounts: SlowTradingDailyPerformanceAccountInput[];
   currentTimeMs?: number;
   exchangeType: SlowTradingStorageData["config"]["exchangeType"];
   mode: SlowTradingMode;
-  modeState: SlowTradingModeState;
   notification: DashboardNotificationConfig;
 }): Promise<boolean> {
+  const accounts = Array.from(
+    new Map(
+      params.accounts.map((account) => [account.account, account] as const),
+    ).values(),
+  );
+  if (accounts.length === 0) return false;
+
   const period = slowTradingDailyPerformance.report.getPreviousCompletedUtcDay(
     params.currentTimeMs,
   );
-  const notificationState =
-    params.modeState.dailyPerformanceNotificationState ?? {};
-  params.modeState.dailyPerformanceNotificationState = notificationState;
+  const notificationStates = accounts.map(({ modeState }) => {
+    const state = modeState.dailyPerformanceNotificationState ?? {};
+    modeState.dailyPerformanceNotificationState = state;
+    return state;
+  });
   const pendingChannels = NOTIFICATION_CHANNELS.filter(
     (channel) =>
-      notificationState[channel] !== period.day &&
+      notificationStates.some((state) => state[channel] !== period.day) &&
       Boolean(
         getNotificationTypeConfig(
           params.notification,
@@ -309,18 +322,23 @@ export async function notifySlowTradingDailyPerformance(params: {
   }
 
   try {
-    const [history, balanceSnapshots] = await Promise.all([
-      slowTradingStorage.history.readRange({
-        account: params.account,
-        endTime: period.dayEndMs,
-        mode: params.mode,
-        startTime: period.dayStartMs,
-      }),
-      slowTradingStorage.balanceSnapshots.read({
-        account: params.account,
+    const [historyByAccount, balanceSnapshots] = await Promise.all([
+      Promise.all(
+        accounts.map(({ account }) =>
+          slowTradingStorage.history.readRange({
+            account,
+            endTime: period.dayEndMs,
+            mode: params.mode,
+            startTime: period.dayStartMs,
+          }),
+        ),
+      ),
+      slowTradingStorage.balanceSnapshots.readCombined({
+        accounts: accounts.map(({ account }) => account),
         mode: params.mode,
       }),
     ]);
+    const history = historyByAccount.flat();
     const report = slowTradingDailyPerformance.report.create({
       balanceSnapshots,
       currentTimeMs: params.currentTimeMs,
@@ -330,8 +348,16 @@ export async function notifySlowTradingDailyPerformance(params: {
         netPnlPct: position.pnl.netPct,
         netProfitUSDT: position.pnl.netUsdt,
       })),
-      startingBalanceUSDT:
-        params.modeState.dynamicTradeMemory.startingBalanceUSDT,
+      startingBalanceUSDT: accounts.reduce(
+        (total, { modeState }) =>
+          total +
+          (Number.isFinite(
+            modeState.dynamicTradeMemory.startingBalanceUSDT,
+          )
+            ? modeState.dynamicTradeMemory.startingBalanceUSDT
+            : 0),
+        0,
+      ),
     });
     const content = buildSlowTradingDailyPerformanceNotification({
       exchangeType: params.exchangeType,
@@ -355,7 +381,9 @@ export async function notifySlowTradingDailyPerformance(params: {
           ].join(":"),
           ...content,
         });
-        notificationState[channel] = report.day;
+        for (const state of notificationStates) {
+          state[channel] = report.day;
+        }
         stateChanged = true;
       } catch (error) {
         tradeLog.error(
