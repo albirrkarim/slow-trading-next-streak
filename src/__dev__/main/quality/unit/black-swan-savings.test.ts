@@ -105,6 +105,7 @@ function position(params: {
           level: -2,
           marginUsdt: 40,
           price: 90,
+          vPointPrice: 90,
           t: BASE_T + 61 * MINUTE_MS + MINUTE_MS - 1,
         },
       ]

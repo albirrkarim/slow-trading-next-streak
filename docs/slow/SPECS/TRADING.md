@@ -850,17 +850,34 @@ loss boundaries through `modelConfig.postAverageStopLoss`:
 {
   enabled: true,
   thresholds: [
-    { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: -25 },
-    { minAveragingCount: 2, maxNetPnlPct: -3, maxNetPnlUsdt: 0 },
+    {
+      minAveragingCount: 1,
+      maxNetPnlPct: -5,
+      maxNetPnlUsdt: -25,
+      maxVPointAdverseDriftPct: 0,
+    },
+    {
+      minAveragingCount: 2,
+      maxNetPnlPct: -3,
+      maxNetPnlUsdt: 0,
+      maxVPointAdverseDriftPct: 5,
+    },
   ],
 }
 ```
 
 `maxNetPnlPct` and `maxNetPnlUsdt` are negative net-loss boundaries. A value of
-`0` disables only that boundary, so a tier may use percentage only, USDT only,
-both, or neither. When both are active, reaching either boundary requests the
-exit. For example, `-5%` and `-25 USDT` exits when fee-adjusted net PnL is at
-most `-5%` OR at most `-25 USDT`.
+`0` disables only that boundary. `maxVPointAdverseDriftPct` is a positive
+percentage and `0` disables that boundary. A tier may independently enable any
+combination of the three boundaries. Reaching or crossing any active boundary
+requests the exit.
+
+The adverse-drift boundary is anchored to the exact vPoint that triggered the
+latest completed averaging execution. Every averaging execution persists that
+anchor as `vPointPrice`, separately from its order fill `price`. For LONG,
+adverse drift is `(vPointPrice - currentPrice) / vPointPrice * 100`. For SHORT,
+it is `(currentPrice - vPointPrice) / vPointPrice * 100`. The evaluator must not
+use the currently latest vPoint or the averaging fill price as the anchor.
 
 System selects the configured threshold having the greatest
 `minAveragingCount` less than or equal to the number of completed averaging
@@ -872,14 +889,15 @@ The whole rule defaults to disabled when the configuration is missing or when
 boundaries normalize to `0` and therefore remain disabled.
 
 Production, sandbox, and backtest evaluate the same fee-adjusted net PnL
-percentage and USDT values. A triggered exit is persisted as
+percentage and USDT values and the same direction-aware vPoint adverse drift. A triggered exit is persisted as
 `POST_AVERAGE_STOP_LOSS`. In both-direction mode, it closes only the leg that
 reached the configured boundary.
 
 Dashboard Trading settings and the volatility-point backtest expose the same
 enabled switch and tier rows. Trading Live Preview selects the applicable tier
-for every projected averaging stage, shows both active boundary equivalents,
-and identifies the post-average rule when it is the earliest estimated stop.
+for every projected averaging stage, predicts the USDT loss at all three active
+boundaries, and identifies the post-average rule when it is the earliest
+estimated stop.
 Rail backtests apply the shared back-thinking rule from B.4.2 when this stop and
 another deterministic loss limit are both beyond the current vPoint rail.
 

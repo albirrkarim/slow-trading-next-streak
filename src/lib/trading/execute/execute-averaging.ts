@@ -98,10 +98,7 @@ export async function executeAveraging({
   ];
   if (
     hasPositionHitTargetVolatilityPoint({
-      directional: bothDirection.pair.isLeg(
-        existingPosition,
-        pairPositions,
-      ),
+      directional: bothDirection.pair.isLeg(existingPosition, pairPositions),
       position: existingPosition,
       volatilityPoints,
     })
@@ -145,6 +142,14 @@ export async function executeAveraging({
     };
   }
 
+  const triggerVPointPrice = Number(averagingRecommendation?.p);
+  if (!Number.isFinite(triggerVPointPrice) || triggerVPointPrice <= 0) {
+    return {
+      symbol,
+      message: "[Averaging] Triggering vPoint price is unavailable",
+    };
+  }
+
   const tradingSymbol = symbol.includes("_") ? symbol : symbol + "_USDT";
   const direction = existingPosition.direction ?? "LONG";
   const leverage = existingPosition.exposure.leverage ?? 1;
@@ -185,7 +190,7 @@ export async function executeAveraging({
     position: existingPosition,
     step: nextStep,
     executablePrice: price,
-    rescueAnchorPrice: averagingRecommendation?.p ?? Number.NaN,
+    rescueAnchorPrice: triggerVPointPrice,
     quoteAsset: balanceOverride?.quoteAsset,
     reservedQuoteAsset,
     adaptiveAveraging: resolvedAdaptiveAveraging,
@@ -319,6 +324,7 @@ export async function executeAveraging({
     existingPosition.strategy.averaging.executions.push({
       t: current[0],
       vPointId: triggerVPointId,
+      vPointPrice: triggerVPointPrice,
       level: executedLevel,
       marginUsdt: executedMarginUSDT,
       price,
@@ -448,6 +454,7 @@ export async function executeAveraging({
       existingPosition.strategy.averaging.executions.push({
         t: current[0],
         vPointId: triggerVPointId,
+        vPointPrice: triggerVPointPrice,
         level: executedLevel,
         marginUsdt: liveMarginUSDT,
         price: executedPrice,

@@ -302,6 +302,7 @@ function migrateAveragingExecution(
       ? legacyNotionalUsdt / leverage
       : undefined);
   const price = positiveNumber(value.price);
+  const vPointPrice = optionalPositiveNumber(value.vPointPrice);
   const allocationPct = positiveNumber(value.allocationPct ?? value.pctAlloc);
   if (
     t === undefined ||
@@ -318,6 +319,7 @@ function migrateAveragingExecution(
     level,
     marginUsdt,
     price,
+    vPointPrice,
     allocationPct,
     reservedMarginUsdt: optionalPositiveNumber(value.reservedMarginUsdt),
     adaptiveMultiplier: optionalPositiveNumber(

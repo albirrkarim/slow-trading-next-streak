@@ -326,11 +326,17 @@ function ExitStagePreview({
           Math.abs(postAverageStopLoss.maxNetPnlUsdt),
         )} = -${postAverageStopLoss.usdtEquivalentPct}%`
       : null,
+    postAverageStopLoss?.maxVPointAdverseDriftPct &&
+      postAverageStopLoss.estimatedVPointAdverseDriftLossUsdt !== null
+      ? `${postAverageStopLoss.maxVPointAdverseDriftPct}% adverse vPoint drift = -${formatUsdt(
+          postAverageStopLoss.estimatedVPointAdverseDriftLossUsdt,
+        )}`
+      : null,
   ].filter((part): part is string => Boolean(part));
   const postAverageStopFormula =
     postAverageStopParts.length > 0
       ? postAverageStopParts.join(" OR ")
-      : "Both boundaries disabled for this tier";
+      : "All boundaries disabled for this tier";
   const hasCounterLeg = stage.counterMarginUsdt > 0;
   const isCounterOnly = entryLegs === "COUNTER";
   const activeLegLabel = isCounterOnly ? "COUNTER LEG" : "MAIN LEG";
@@ -440,7 +446,7 @@ function ExitStagePreview({
                   ? "error.dark"
                   : "text.secondary"
               }
-              detail="after this many completed averages, runtime and backtest exit when either active fee-adjusted net PnL boundary is reached; 0 disables that boundary"
+              detail="after this many completed averages, runtime and backtest exit when any active net PnL or adverse vPoint-drift boundary is reached; the preview compares their predicted USDT losses to identify the first stop"
               formula={postAverageStopFormula}
               label={`Post-average stop after ${stage.averagingStepsUsed} average${
                 stage.averagingStepsUsed === 1 ? "" : "s"

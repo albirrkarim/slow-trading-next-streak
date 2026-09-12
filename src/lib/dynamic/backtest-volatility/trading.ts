@@ -610,6 +610,7 @@ export function tryExecuteBacktestAveraging({
   position.strategy.averaging.executions.push({
     t: executionTimeMs,
     vPointId: recommend.id,
+    vPointPrice: recommend.p,
     level: recommend.lvl ?? nextStep.level,
     marginUsdt,
     allocationPct: usedPctAlloc,

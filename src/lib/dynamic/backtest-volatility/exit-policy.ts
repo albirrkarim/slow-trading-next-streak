@@ -296,11 +296,21 @@ export function resolveBacktestExitDecision({
 
   const postAverageLoss = postAverageStopLoss.evaluate({
     config: modelConfig.postAverageStopLoss,
+    currentPrice,
     netPnlPercent: feeAdjustedNetProfitPercent,
     netPnlUsdt: feeAdjustedNetProfitUSDT,
     position,
   });
   const postAverageThreshold = postAverageLoss.threshold;
+  const vPointAdverseDriftExitPrice =
+    postAverageThreshold && postAverageLoss.latestVPointPrice !== undefined
+      ? postAverageStopLoss.drift.resolveExitPrice({
+          direction: position.direction,
+          maxVPointAdverseDriftPct:
+            postAverageThreshold.maxVPointAdverseDriftPct,
+          vPointPrice: postAverageLoss.latestVPointPrice,
+        })
+      : undefined;
   const postAverageCandidates = [
     postAverageLoss.hitPercent && postAverageThreshold
       ? {
@@ -315,10 +325,26 @@ export function resolveBacktestExitDecision({
           targetNetPnlUsdt: postAverageThreshold.maxNetPnlUsdt,
         }
       : undefined,
+    postAverageLoss.hitVPointAdverseDrift &&
+    vPointAdverseDriftExitPrice !== undefined
+      ? {
+          boundary: "vpoint-drift",
+          exitPrice: vPointAdverseDriftExitPrice,
+          targetNetPnlUsdt: calculateBacktestFeeAdjustedNetProfitUSDT(
+            position,
+            vPointAdverseDriftExitPrice,
+            exitFeeRatio,
+          ),
+        }
+      : undefined,
   ].filter(
     (
       candidate,
-    ): candidate is { boundary: string; targetNetPnlUsdt: number } =>
+    ): candidate is {
+      boundary: string;
+      exitPrice?: number;
+      targetNetPnlUsdt: number;
+    } =>
       Boolean(candidate),
   );
   const firstPostAverageCandidate = postAverageCandidates.sort(
@@ -328,14 +354,17 @@ export function resolveBacktestExitDecision({
 
   // BOTH:POST_AVERAGE_STOP_LOSS
   if (postAverageThreshold && firstPostAverageCandidate) {
-    const { boundary, targetNetPnlUsdt } = firstPostAverageCandidate;
+    const { boundary, exitPrice, targetNetPnlUsdt } =
+      firstPostAverageCandidate;
     lossBoundaries.push({
       category: TRADE_MESSAGE.sell.POST_AVERAGE_STOP_LOSS,
-      exitPrice: resolveBacktestFeeAdjustedExitPrice({
-        exitFeeRatio,
-        position,
-        targetNetPnlUsdt,
-      }),
+      exitPrice:
+        exitPrice ??
+        resolveBacktestFeeAdjustedExitPrice({
+          exitFeeRatio,
+          position,
+          targetNetPnlUsdt,
+        }),
       message:
         "BOTH:POST_AVERAGE_STOP_LOSS" +
         ` | averages:${postAverageLoss.completedAveragingCount}` +

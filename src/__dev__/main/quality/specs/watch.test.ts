@@ -213,14 +213,23 @@ describe("slow specs watch", () => {
       const recommendation = generateAveragingRecommendations({
         activePositions: [counter],
         pairPositions: [counter, main],
-        volatilityPointsMap: { SUI: points.filter((item) => item.t <= point.t) },
+        volatilityPointsMap: {
+          SUI: points.filter((item) => item.t <= point.t),
+        },
         config,
         currentTimeMs: point.t,
       }).recommendations[0];
       expect(recommendation?.id).toBe(point.id);
 
       exchangeMocks.getKlines.mockResolvedValueOnce([
-        [point.t, String(point.p), String(point.p), String(point.p), String(point.p), "100"],
+        [
+          point.t,
+          String(point.p),
+          String(point.p),
+          String(point.p),
+          String(point.p),
+          "100",
+        ],
       ]);
       const result = await executeAveraging({
         symbol: "SUI",
@@ -257,8 +266,8 @@ describe("slow specs watch", () => {
 
     // BOTH:AVERAGING_EXECUTION_COUNT_CAP
     expect(counter.strategy.averaging.executions).toMatchObject([
-      { vPointId: "BOTTOM[0]-E", level: 0 },
-      { vPointId: "BOTTOM[-1]-F", level: -1 },
+      { vPointId: "BOTTOM[0]-E", vPointPrice: 9, level: 0 },
+      { vPointId: "BOTTOM[-1]-F", vPointPrice: 8, level: -1 },
     ]);
     expect(counter.strategy.averaging.lastHandledLevel).toBe(-1);
     expect(beyondCap.recommendations).toHaveLength(0);
@@ -267,7 +276,12 @@ describe("slow specs watch", () => {
       config: {
         enabled: true,
         thresholds: [
-          { minAveragingCount: 2, maxNetPnlPct: 0, maxNetPnlUsdt: -5 },
+          {
+            minAveragingCount: 2,
+            maxNetPnlPct: 0,
+            maxNetPnlUsdt: -5,
+            maxVPointAdverseDriftPct: 0,
+          },
         ],
       },
       netPnlPercent: -4,
@@ -368,8 +382,8 @@ describe("slow specs watch", () => {
     // BOTH:AVERAGING_EXECUTION_COUNT_CAP
     // BTEST:AVERAGING_EXECUTION_COUNT_CAP
     expect(counter.strategy.averaging.executions).toMatchObject([
-      { vPointId: "BOTTOM[0]-E", level: 0 },
-      { vPointId: "BOTTOM[-1]-F", level: -1 },
+      { vPointId: "BOTTOM[0]-E", vPointPrice: 9, level: 0 },
+      { vPointId: "BOTTOM[-1]-F", vPointPrice: 8, level: -1 },
     ]);
   });
 
@@ -854,6 +868,7 @@ describe("slow specs watch", () => {
     expect(result.message).not.toContain("AVERAGED: +");
     expect(trigger?.reservedMarginUsdt).toBe(10);
     expect(trigger?.marginUsdt).toBe(10);
+    expect(trigger?.vPointPrice).toBe(10);
     // PROD:AVERAGING_MONITORING_STATE_SNAPSHOT
     expect(trigger?.monitoringState).toEqual({
       lastUpdated: 1_788_423_657_759,

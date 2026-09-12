@@ -221,8 +221,18 @@ describe("TradingSettingsPreview", () => {
         postAverageStopLoss: {
           enabled: true,
           thresholds: [
-            { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: -10 },
-            { minAveragingCount: 2, maxNetPnlPct: 0, maxNetPnlUsdt: -4 },
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct: -5,
+              maxNetPnlUsdt: -10,
+              maxVPointAdverseDriftPct: 1,
+            },
+            {
+              minAveragingCount: 2,
+              maxNetPnlPct: 0,
+              maxNetPnlUsdt: -4,
+              maxVPointAdverseDriftPct: 1,
+            },
           ],
         },
       },
@@ -233,25 +243,29 @@ describe("TradingSettingsPreview", () => {
     expect(preview.exitStages[0].postAverageStopLoss).toBeNull();
     expect(preview.exitStages[1]).toMatchObject({
       firstStopLoss: {
-        estimatedLossUsdt: 2.1,
+        estimatedLossUsdt: 0.780503,
         type: "POST_AVERAGE",
       },
       postAverageStopLoss: {
         estimatedPercentLossUsdt: 2.1,
+        estimatedVPointAdverseDriftLossUsdt: 0.780503,
         maxNetPnlPct: -5,
         maxNetPnlUsdt: -10,
+        maxVPointAdverseDriftPct: 1,
         usdtEquivalentPct: 23.81,
       },
     });
     expect(preview.exitStages[2]).toMatchObject({
       firstStopLoss: {
-        estimatedLossUsdt: 4,
+        estimatedLossUsdt: 2.629734,
         type: "POST_AVERAGE",
       },
       postAverageStopLoss: {
         estimatedPercentLossUsdt: null,
+        estimatedVPointAdverseDriftLossUsdt: 2.629734,
         maxNetPnlPct: 0,
         maxNetPnlUsdt: -4,
+        maxVPointAdverseDriftPct: 1,
         usdtEquivalentPct: 3.17,
       },
     });
@@ -265,12 +279,18 @@ describe("TradingSettingsPreview", () => {
 
     expect(screen.getByText("Post-average stop after 1 average")).toBeDefined();
     expect(
-      screen.getAllByText("-5% = -$2.10 OR -$10.00 = -23.81%"),
+      screen.getAllByText(
+        "-5% = -$2.10 OR -$10.00 = -23.81% OR 1% adverse vPoint drift = -$0.78",
+      ),
     ).toHaveLength(2);
     expect(
       screen.getByText("Post-average stop after 2 averages"),
     ).toBeDefined();
-    expect(screen.getAllByText("-$4.00 = -3.17%")).toHaveLength(2);
+    expect(
+      screen.getAllByText(
+        "-$4.00 = -3.17% OR 1% adverse vPoint drift = -$2.63",
+      ),
+    ).toHaveLength(2);
   });
 
   it("estimates a fixed-margin counter close from each averaging-stage move", () => {
@@ -448,13 +468,13 @@ describe("TradingSettingsPreview", () => {
       screen.getByText("Profit if closed at this stage (4%)"),
     ).toBeDefined();
     expect(screen.getByText("$14.00 x 4% = +$0.56")).toBeDefined();
-    expect(
-      screen.getAllByText("MAIN exits at hard SL"),
-    ).toHaveLength(3);
+    expect(screen.getAllByText("MAIN exits at hard SL")).toHaveLength(3);
     expect(
       within(stopOutcomes[1]).getByText("FIRST STOP OUTCOME"),
     ).toBeDefined();
-    expect(screen.queryByText(/PAIR exits when MAIN hits net USDT stop/)).toBeNull();
+    expect(
+      screen.queryByText(/PAIR exits when MAIN hits net USDT stop/),
+    ).toBeNull();
     expect(
       within(stopOutcomes[0]).getByText("$14.00 x 20% = -$2.80"),
     ).toBeDefined();
@@ -523,9 +543,7 @@ describe("TradingSettingsPreview", () => {
       ),
     ).toBeDefined();
     expect(
-      within(stopOutcomes[0]).getByText(
-        "-$50.00 / $500.00 x 100 = -10%",
-      ),
+      within(stopOutcomes[0]).getByText("-$50.00 / $500.00 x 100 = -10%"),
     ).toBeDefined();
   });
 

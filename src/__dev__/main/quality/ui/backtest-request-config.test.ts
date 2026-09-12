@@ -24,8 +24,18 @@ describe("dynamic backtest request config", () => {
       postAverageStopLoss: {
         enabled: true,
         thresholds: [
-          { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: 0 },
-          { minAveragingCount: 2, maxNetPnlPct: 0, maxNetPnlUsdt: -25 },
+          {
+            minAveragingCount: 1,
+            maxNetPnlPct: -5,
+            maxNetPnlUsdt: 0,
+            maxVPointAdverseDriftPct: 0,
+          },
+          {
+            minAveragingCount: 2,
+            maxNetPnlPct: 0,
+            maxNetPnlUsdt: -25,
+            maxVPointAdverseDriftPct: 0,
+          },
         ],
       },
       safePercentPerMonth: 0,

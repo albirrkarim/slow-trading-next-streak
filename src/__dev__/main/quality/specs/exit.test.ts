@@ -70,6 +70,7 @@ function createAveragedPosition(completedAveragingCount = 1) {
           level: -3 - index,
           marginUsdt: 10,
           price: 95,
+          vPointPrice: 95,
           allocationPct: 2,
         }),
       ),
@@ -227,9 +228,9 @@ describe("slow specs exit", () => {
     expect(first.reason).toContain("BOTH:VOLATILITY_TARGET_EXIT");
     expect(second.action).toBe("HOLD");
     expect(memory.positions).toHaveLength(1);
-    expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
-      "VOLATILITY_TARGET_EXIT",
-    ]);
+    expect(
+      memory.positionsSell?.map((position) => position.closed?.reason),
+    ).toEqual(["VOLATILITY_TARGET_EXIT"]);
   });
 
   it("retries a reached pair target after the exact target cycle was missed", async () => {
@@ -351,16 +352,18 @@ describe("slow specs exit", () => {
       ],
       targetId: "TOP[0]",
     },
-  ])("resolves the documented volatility target for $name", ({ entryLevel, points, targetId }) => {
-    const position = createTestPosition({
-      entryId: `ENTRY[${entryLevel}]`,
-      entryLevel,
-      entryTime: 1,
-    });
-    const state = bothDirection.volatilityTarget.levelZero.resolve({
-      position,
-      volatilityPoints: points as any,
-    });
+  ])(
+    "resolves the documented volatility target for $name",
+    ({ entryLevel, points, targetId }) => {
+      const position = createTestPosition({
+        entryId: `ENTRY[${entryLevel}]`,
+        entryLevel,
+        entryTime: 1,
+      });
+      const state = bothDirection.volatilityTarget.levelZero.resolve({
+        position,
+        volatilityPoints: points as any,
+      });
 
       // BOTH:VOLATILITY_TARGET_EXIT
       // BOTH:VOLATILITY_TARGET_SL_VALUE
@@ -506,9 +509,9 @@ describe("slow specs exit", () => {
     // BOTH:INDEPENDENT_LEG_STOP_LOSS
     // PROD:OPEN_POSITION_BOTH_LEG
     expect(memory.positions).toHaveLength(1);
-    expect(memory.positionsSell?.map((position) => position.closed?.reason)).toEqual([
-      "STOP_LOSS",
-    ]);
+    expect(
+      memory.positionsSell?.map((position) => position.closed?.reason),
+    ).toEqual(["STOP_LOSS"]);
   });
 
   it("manually closes only the requested counter leg", async () => {
@@ -656,9 +659,7 @@ describe("slow specs exit", () => {
       expect(memory.positions).toHaveLength(1);
       expect(
         memory.positionsSell?.map((position) => position.closed?.reason),
-      ).toEqual([
-        "STOP_LOSS_BY_USDT_LOSS",
-      ]);
+      ).toEqual(["STOP_LOSS_BY_USDT_LOSS"]);
     },
   );
 
@@ -1358,8 +1359,18 @@ describe("slow specs exit", () => {
     const config = {
       enabled: true,
       thresholds: [
-        { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: 0 },
-        { minAveragingCount: 3, maxNetPnlPct: -2, maxNetPnlUsdt: -25 },
+        {
+          minAveragingCount: 1,
+          maxNetPnlPct: -5,
+          maxNetPnlUsdt: 0,
+          maxVPointAdverseDriftPct: 0,
+        },
+        {
+          minAveragingCount: 3,
+          maxNetPnlPct: -2,
+          maxNetPnlUsdt: -25,
+          maxVPointAdverseDriftPct: 0,
+        },
       ],
     };
 
@@ -1425,7 +1436,14 @@ describe("slow specs exit", () => {
       const result = postAverageStopLoss.evaluate({
         config: {
           enabled: true,
-          thresholds: [{ minAveragingCount: 1, maxNetPnlPct, maxNetPnlUsdt }],
+          thresholds: [
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct,
+              maxNetPnlUsdt,
+              maxVPointAdverseDriftPct: 0,
+            },
+          ],
         },
         netPnlPercent,
         netPnlUsdt,
@@ -1439,14 +1457,102 @@ describe("slow specs exit", () => {
     },
   );
 
+  it.each([
+    { currentPrice: 95, direction: "LONG" as const },
+    { currentPrice: 105, direction: "SHORT" as const },
+  ])(
+    "exits $direction at equality on the latest averaging vPoint adverse drift",
+    ({ currentPrice, direction }) => {
+      const position = createAveragedPosition(2);
+      position.direction = direction;
+      position.strategy.averaging.executions![0].vPointPrice = 120;
+      position.strategy.averaging.executions![1].vPointPrice = 100;
+      const result = postAverageStopLoss.evaluate({
+        config: {
+          enabled: true,
+          thresholds: [
+            {
+              minAveragingCount: 2,
+              maxNetPnlPct: 0,
+              maxNetPnlUsdt: 0,
+              maxVPointAdverseDriftPct: 5,
+            },
+          ],
+        },
+        currentPrice,
+        netPnlPercent: 10,
+        netPnlUsdt: 10,
+        position,
+      });
+
+      // BOTH:POST_AVERAGE_STOP_LOSS
+      expect(result.latestVPointPrice).toBe(100);
+      expect(result.vPointAdverseDriftPct).toBeCloseTo(5);
+      expect(result.hitVPointAdverseDrift).toBe(true);
+      expect(result.shouldExit).toBe(true);
+    },
+  );
+
+  it("does not exit before the adverse vPoint-drift boundary", () => {
+    const position = createAveragedPosition(1);
+    position.strategy.averaging.executions![0].vPointPrice = 100;
+    const result = postAverageStopLoss.evaluate({
+      config: {
+        enabled: true,
+        thresholds: [
+          {
+            minAveragingCount: 1,
+            maxNetPnlPct: 0,
+            maxNetPnlUsdt: 0,
+            maxVPointAdverseDriftPct: 5,
+          },
+        ],
+      },
+      currentPrice: 95.01,
+      netPnlPercent: -100,
+      netPnlUsdt: -100,
+      position,
+    });
+
+    // BOTH:POST_AVERAGE_STOP_LOSS
+    expect(result.vPointAdverseDriftPct).toBeCloseTo(4.99);
+    expect(result.hitVPointAdverseDrift).toBe(false);
+    expect(result.shouldExit).toBe(false);
+  });
+
+  it("defaults and normalizes the adverse vPoint-drift boundary to zero", () => {
+    const defaults = postAverageStopLoss.config.createDefault();
+    const normalized = postAverageStopLoss.config.normalize({
+      enabled: true,
+      thresholds: [
+        {
+          minAveragingCount: 1,
+          maxNetPnlPct: 0,
+          maxNetPnlUsdt: 0,
+          maxVPointAdverseDriftPct: -5,
+        },
+      ],
+    });
+
+    // BOTH:POST_AVERAGE_STOP_LOSS
+    expect(defaults.thresholds[0].maxVPointAdverseDriftPct).toBe(0);
+    expect(normalized.thresholds[0].maxVPointAdverseDriftPct).toBe(0);
+  });
+
   it("treats zero post-average loss boundaries as independently disabled", () => {
     const result = postAverageStopLoss.evaluate({
       config: {
         enabled: true,
         thresholds: [
-          { minAveragingCount: 1, maxNetPnlPct: 0, maxNetPnlUsdt: 0 },
+          {
+            minAveragingCount: 1,
+            maxNetPnlPct: 0,
+            maxNetPnlUsdt: 0,
+            maxVPointAdverseDriftPct: 0,
+          },
         ],
       },
+      currentPrice: 1,
       netPnlPercent: -100,
       netPnlUsdt: -100,
       position: createAveragedPosition(1),
@@ -1455,6 +1561,7 @@ describe("slow specs exit", () => {
     // BOTH:POST_AVERAGE_STOP_LOSS
     expect(result.hitPercent).toBe(false);
     expect(result.hitUsdt).toBe(false);
+    expect(result.hitVPointAdverseDrift).toBe(false);
     expect(result.shouldExit).toBe(false);
   });
 
@@ -1468,7 +1575,12 @@ describe("slow specs exit", () => {
       config: {
         enabled: true,
         thresholds: [
-          { minAveragingCount: 1, maxNetPnlPct: -1, maxNetPnlUsdt: -1 },
+          {
+            minAveragingCount: 1,
+            maxNetPnlPct: -1,
+            maxNetPnlUsdt: -1,
+            maxVPointAdverseDriftPct: 0,
+          },
         ],
       },
       netPnlPercent: -100,
@@ -1538,7 +1650,12 @@ describe("slow specs exit", () => {
         postAverageStopLoss: {
           enabled: true,
           thresholds: [
-            { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: 0 },
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct: -5,
+              maxNetPnlUsdt: 0,
+              maxVPointAdverseDriftPct: 0,
+            },
           ],
         },
       },
@@ -1580,7 +1697,12 @@ describe("slow specs exit", () => {
         postAverageStopLoss: {
           enabled: true,
           thresholds: [
-            { minAveragingCount: 2, maxNetPnlPct: -2, maxNetPnlUsdt: 0 },
+            {
+              minAveragingCount: 2,
+              maxNetPnlPct: -2,
+              maxNetPnlUsdt: 0,
+              maxVPointAdverseDriftPct: 0,
+            },
           ],
         },
       },
@@ -1601,6 +1723,40 @@ describe("slow specs exit", () => {
     expect(exit.message).toContain("backthinkNetPnlUsdt:-7.96");
   });
 
+  it("back-thinks the exact adverse vPoint-drift boundary", () => {
+    const position = createAveragedPosition(1);
+    position.strategy.averaging.executions![0].vPointPrice = 100;
+    const exit = resolveBacktestExitDecision({
+      position,
+      currentPrice: 90,
+      forceSell: false,
+      globalLiquidation: false,
+      modelConfig: {
+        takeProfitPercent: 100,
+        stopLossPercent: 90,
+        stopLossUSDT: 0,
+        postAverageRescueExit: { enabled: false, thresholds: [] },
+        postAverageStopLoss: {
+          enabled: true,
+          thresholds: [
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct: -20,
+              maxNetPnlUsdt: 0,
+              maxVPointAdverseDriftPct: 5,
+            },
+          ],
+        },
+      },
+    });
+
+    // BTEST:VPOINT_RAIL_BACKTHINK_LOSS_BOUNDARY
+    // BOTH:POST_AVERAGE_STOP_LOSS
+    expect(exit.category).toBe(TRADE_MESSAGE.sell.POST_AVERAGE_STOP_LOSS);
+    expect(exit.exitPrice).toBeCloseTo(95);
+    expect(exit.message).toContain("boundary:vpoint-drift");
+  });
+
   it("applies the post-average USDT stop in production", async () => {
     const memory = createRescueMemory(1);
     const exit = await dynamicExit({
@@ -1613,7 +1769,12 @@ describe("slow specs exit", () => {
         postAverageStopLoss: {
           enabled: true,
           thresholds: [
-            { minAveragingCount: 1, maxNetPnlPct: 0, maxNetPnlUsdt: -5 },
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct: 0,
+              maxNetPnlUsdt: -5,
+              maxVPointAdverseDriftPct: 0,
+            },
           ],
         },
       },
@@ -1628,6 +1789,39 @@ describe("slow specs exit", () => {
     expect(memory.positionsSell?.[0].closed?.reason).toBe(
       "POST_AVERAGE_STOP_LOSS",
     );
+  });
+
+  it("applies the latest averaging vPoint adverse drift in production", async () => {
+    const memory = createRescueMemory(1);
+    memory.positions![0].strategy.averaging.executions![0].vPointPrice = 100;
+    const exit = await dynamicExit({
+      symbol: "SUI",
+      current: buildKline(3, 95),
+      config: {
+        ...rescueExitConfig,
+        stopLossUSDT: 0,
+        postAverageRescueExit: { enabled: false, thresholds: [] },
+        postAverageStopLoss: {
+          enabled: true,
+          thresholds: [
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct: 0,
+              maxNetPnlUsdt: 0,
+              maxVPointAdverseDriftPct: 5,
+            },
+          ],
+        },
+      },
+      memory,
+      exchangeType: "tokocrypto",
+      tradingMode: TradingMode.SPOT,
+    });
+
+    // BOTH:POST_AVERAGE_STOP_LOSS
+    expect(exit.action).toBe("SELL");
+    expect(exit.category).toBe(TRADE_MESSAGE.sell.POST_AVERAGE_STOP_LOSS);
+    expect(exit.reason).toContain("Trigger vpoint-drift");
   });
 
   it("keeps the other production leg independent after a post-average stop", async () => {
@@ -1656,7 +1850,12 @@ describe("slow specs exit", () => {
       postAverageStopLoss: {
         enabled: true,
         thresholds: [
-          { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: 0 },
+          {
+            minAveragingCount: 1,
+            maxNetPnlPct: -5,
+            maxNetPnlUsdt: 0,
+            maxVPointAdverseDriftPct: 0,
+          },
         ],
       },
     };
@@ -1684,8 +1883,9 @@ describe("slow specs exit", () => {
     // BOTH:INDEPENDENT_LEG_STOP_LOSS
     expect(mainExit.category).toBe(TRADE_MESSAGE.sell.POST_AVERAGE_STOP_LOSS);
     expect(counterExit.action).toBe("SELL");
-    expect(memory.positionsSell?.map((position) => position.closed?.reason))
-      .toEqual(["POST_AVERAGE_STOP_LOSS", "VOLATILITY_TARGET_EXIT"]);
+    expect(
+      memory.positionsSell?.map((position) => position.closed?.reason),
+    ).toEqual(["POST_AVERAGE_STOP_LOSS", "VOLATILITY_TARGET_EXIT"]);
   });
 
   it("applies custom post-average rescue thresholds in backtest", () => {
@@ -1985,8 +2185,7 @@ describe("slow specs exit", () => {
       useStopLossPlus: true,
       stopLossPlusTrigger: 1,
     };
-    const activationPrice =
-      100 * (1 + VOLATILITY_THRESHOLD / 100) + 0.2;
+    const activationPrice = 100 * (1 + VOLATILITY_THRESHOLD / 100) + 0.2;
 
     const activation = await dynamicExit({
       symbol: "SUI",

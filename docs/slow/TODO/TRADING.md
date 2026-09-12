@@ -64,8 +64,12 @@ the default value is 0 (mean disabled)
    the position net-PnL percentage boundary, position net-PnL USDT boundary, or
    another existing stop-loss rule.
 
-I’ll preserve the existing PnL boundaries, add the new setting to both production/sandbox and backtest—including settings, backtest rail handling, preview, `vPointPrice` persistence, and `BOTH:POST_AVERAGE_STOP_LOSS` tests.
+5. What is the threshold field name?
 
-4. Is `maxVPointAdverseDriftPct` the desired configuration field name? It would live in every threshold row alongside `maxNetPnlPct` and `maxNetPnlUsdt`.
+   Use `maxVPointAdverseDriftPct`. It is stored on each post-average stop-loss
+   threshold row and defaults to `0`, which disables only this boundary.
 
-yes
+The implementation preserves the existing PnL boundaries and adds this setting
+to production, sandbox, and backtest, including settings, backtest rail
+handling, Trading Live Preview, `vPointPrice` persistence, and
+`BOTH:POST_AVERAGE_STOP_LOSS` tests.

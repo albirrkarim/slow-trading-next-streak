@@ -308,6 +308,7 @@ describe("slow specs runtime", () => {
         level: -2,
         marginUsdt: 10,
         price: 100,
+        vPointPrice: 100,
         allocationPct: 2,
       },
     ];
@@ -386,6 +387,7 @@ describe("slow specs runtime", () => {
         level: -2,
         marginUsdt: 10,
         price: 100,
+        vPointPrice: 100,
         allocationPct: 2,
       },
     ];
@@ -404,6 +406,7 @@ describe("slow specs runtime", () => {
         level: 2,
         marginUsdt: 10,
         price: 100,
+        vPointPrice: 100,
         allocationPct: 2,
       },
     ];
@@ -854,8 +857,12 @@ describe("slow specs runtime", () => {
     // PROD:OPEN_POSITION_BOTH_LEG
     expect(result).toMatchObject({ adjustedCount: 1, closedCount: 1 });
     expect(memory.positions).toHaveLength(1);
-    expect(memory.positions?.find((position) => position.role === "MAIN")?.closed).toBeUndefined();
-    expect(memory.positions?.find((position) => position.role === "COUNTER")).toBeUndefined();
+    expect(
+      memory.positions?.find((position) => position.role === "MAIN")?.closed,
+    ).toBeUndefined();
+    expect(
+      memory.positions?.find((position) => position.role === "COUNTER"),
+    ).toBeUndefined();
     expect(memory.positionsSell).toHaveLength(1);
     expect(memory.pendingReentries).toMatchObject([
       {

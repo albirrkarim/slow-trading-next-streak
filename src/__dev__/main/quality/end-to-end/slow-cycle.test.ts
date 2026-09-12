@@ -519,6 +519,7 @@ describe("slow end-to-end cycle", () => {
         level: -3,
         marginUsdt: 10,
         price: 100,
+        vPointPrice: 100,
         t: e2eSignal.t,
       },
     ];

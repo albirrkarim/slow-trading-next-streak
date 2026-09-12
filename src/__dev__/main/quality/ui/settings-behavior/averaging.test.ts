@@ -101,6 +101,7 @@ describe("settings behavior: averaging", () => {
         level: -6,
         marginUsdt: 20,
         price: 80,
+        vPointPrice: 80,
         allocationPct: 2,
       },
     ];

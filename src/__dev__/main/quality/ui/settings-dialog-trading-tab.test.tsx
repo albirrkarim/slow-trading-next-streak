@@ -517,7 +517,12 @@ describe("SettingsDialogTradingTab", () => {
         postAverageStopLoss: {
           enabled: true,
           thresholds: [
-            { minAveragingCount: 1, maxNetPnlPct: 0, maxNetPnlUsdt: 0 },
+            {
+              minAveragingCount: 1,
+              maxNetPnlPct: 0,
+              maxNetPnlUsdt: 0,
+              maxVPointAdverseDriftPct: 0,
+            },
           ],
         },
       },
@@ -544,7 +549,12 @@ describe("SettingsDialogTradingTab", () => {
     ).toEqual({
       enabled: true,
       thresholds: [
-        { minAveragingCount: 1, maxNetPnlPct: -5, maxNetPnlUsdt: 0 },
+        {
+          minAveragingCount: 1,
+          maxNetPnlPct: -5,
+          maxNetPnlUsdt: 0,
+          maxVPointAdverseDriftPct: 0,
+        },
       ],
     });
 
@@ -558,7 +568,31 @@ describe("SettingsDialogTradingTab", () => {
     ).toEqual({
       enabled: true,
       thresholds: [
-        { minAveragingCount: 1, maxNetPnlPct: 0, maxNetPnlUsdt: -25 },
+        {
+          minAveragingCount: 1,
+          maxNetPnlPct: 0,
+          maxNetPnlUsdt: -25,
+          maxVPointAdverseDriftPct: 0,
+        },
+      ],
+    });
+
+    fireEvent.change(screen.getByLabelText("Adverse vPoint Drift (%)"), {
+      target: { value: "5" },
+    });
+
+    const updateVPointDrift = setConfigDraft.mock.calls.at(-1)?.[0];
+    expect(
+      updateVPointDrift(postAverageConfigDraft).modelConfig.postAverageStopLoss,
+    ).toEqual({
+      enabled: true,
+      thresholds: [
+        {
+          minAveragingCount: 1,
+          maxNetPnlPct: 0,
+          maxNetPnlUsdt: 0,
+          maxVPointAdverseDriftPct: 5,
+        },
       ],
     });
   });

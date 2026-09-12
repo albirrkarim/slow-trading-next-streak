@@ -76,6 +76,7 @@ describe("CurrencyChart", () => {
             level: 3,
             marginUsdt: 12,
             price: 2.15,
+            vPointPrice: 2.15,
             t: averagingTime,
           },
         ],
@@ -117,7 +118,8 @@ describe("CurrencyChart", () => {
       expect(chartMocks.candlestickSeries.createPriceLine).toHaveBeenCalled();
     });
 
-    const markers = chartMocks.markerPrimitive.setMarkers.mock.calls.at(-1)?.[0];
+    const markers =
+      chartMocks.markerPrimitive.setMarkers.mock.calls.at(-1)?.[0];
 
     // BTEST:BACKTEST_TRADE_CHART_AVERAGING
     expect(markers).toEqual(

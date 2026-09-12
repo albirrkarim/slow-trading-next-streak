@@ -43,6 +43,8 @@ export interface PostAverageStopLossThreshold {
   maxNetPnlPct: number;
   /** Negative fee-aware net PnL USDT; zero disables this dimension. */
   maxNetPnlUsdt: number;
+  /** Positive adverse drift from the latest averaging vPoint; zero disables it. */
+  maxVPointAdverseDriftPct: number;
 }
 
 /** Configures tiered post-average stop loss boundaries for all trading flows. */
@@ -331,6 +333,8 @@ export interface PositionAveragingExecution {
   t: number;
   /** Confirmed volatility point that triggered this averaging fill. */
   vPointId?: string;
+  /** Price of the exact volatility point that triggered this averaging fill. */
+  vPointPrice?: number;
   level: number;
   marginUsdt: number;
   price: number;

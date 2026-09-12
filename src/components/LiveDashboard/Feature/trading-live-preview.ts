@@ -4,7 +4,8 @@ import type {
   EntryLegs,
   OpenDirection,
 } from "@/lib/dynamic";
-import type { TradingMode } from "@/lib/exchange/types";
+import { getFeeCalculator } from "@/lib/exchange/fees";
+import type { ExchangeType, TradingMode } from "@/lib/exchange/types";
 import slowTradingClient, {
   type SlowTradingDashboardState,
 } from "@/lib/slowTrading/client";
@@ -17,6 +18,7 @@ export interface TradingLivePreviewConfig {
   enableWatchLogic?: boolean;
   entryLegs?: EntryLegs;
   exactLeverage?: number;
+  exchangeType?: ExchangeType;
   maxEntryMargin?: number;
   maxEntryMarginPct?: number;
   maxOpenPositions?: number;
@@ -43,8 +45,12 @@ export interface TradingLivePreviewFirstStopLoss {
 
 export interface TradingLivePreviewPostAverageStopLoss {
   estimatedPercentLossUsdt: number | null;
+  estimatedVPointAdverseDriftLossUsdt: number | null;
   maxNetPnlPct: number;
   maxNetPnlUsdt: number;
+  maxVPointAdverseDriftPct: number;
+  projectedVPointAdverseDriftExitPrice: number | null;
+  projectedVPointPrice: number | null;
   usdtEquivalentPct: number | null;
 }
 
@@ -112,6 +118,61 @@ export interface TradingLivePreviewData {
 const NORMALIZED_ENTRY_PRICE = 100;
 const MAX_SIMULATED_ADVERSE_PCT = 99;
 const PROJECTED_PROFIT_EPSILON = 1e-9;
+
+/** Estimates fee-aware position loss at a projected averaging vPoint drift. */
+function estimateVPointAdverseDriftLoss(params: {
+  entryFeeRatio: number;
+  exitFeeRatio: number;
+  leverage: number;
+  marginPartsUsdt: number[];
+  maxVPointAdverseDriftPct: number;
+  volatilityThresholdPct: number;
+}) {
+  const {
+    leverage,
+    marginPartsUsdt,
+    maxVPointAdverseDriftPct,
+    volatilityThresholdPct,
+  } = params;
+  if (
+    marginPartsUsdt.length < 2 ||
+    maxVPointAdverseDriftPct <= 0 ||
+    volatilityThresholdPct <= 0
+  ) {
+    return null;
+  }
+
+  let quantity = (marginPartsUsdt[0] * leverage) / NORMALIZED_ENTRY_PRICE;
+  let totalEntryNotionalUsdt = marginPartsUsdt[0] * leverage;
+  let projectedVPointPrice = NORMALIZED_ENTRY_PRICE;
+
+  for (let index = 1; index < marginPartsUsdt.length; index += 1) {
+    projectedVPointPrice =
+      NORMALIZED_ENTRY_PRICE *
+      Math.max(0.01, 1 - (index * volatilityThresholdPct) / 100);
+    const addedNotionalUsdt = marginPartsUsdt[index] * leverage;
+    quantity += addedNotionalUsdt / projectedVPointPrice;
+    totalEntryNotionalUsdt += addedNotionalUsdt;
+  }
+
+  const averageEntryPrice = totalEntryNotionalUsdt / quantity;
+  const projectedExitPrice =
+    projectedVPointPrice * (1 - maxVPointAdverseDriftPct / 100);
+  const grossPnlUsdt =
+    (projectedExitPrice - averageEntryPrice) * quantity;
+  const netPnlUsdt =
+    grossPnlUsdt -
+    totalEntryNotionalUsdt * params.entryFeeRatio -
+    projectedExitPrice * quantity * params.exitFeeRatio;
+
+  return {
+    estimatedLossUsdt: slowTradingClient.watchReserve.money.roundUsdt(
+      Math.max(0, -netPnlUsdt),
+    ),
+    projectedExitPrice: Number(projectedExitPrice.toFixed(8)),
+    projectedVPointPrice: Number(projectedVPointPrice.toFixed(8)),
+  };
+}
 
 /** Resolves the first unconditional PnL stop using the live exit check order. */
 function resolveFirstStopLoss(params: {
@@ -426,6 +487,12 @@ export function buildTradingLivePreview(params: {
     0,
     Number(dashboardState.globalConfig?.volatilityThresholdPct) || 0,
   );
+  const feeCalculator = getFeeCalculator(config.exchangeType ?? "tokocrypto");
+  const orderType = config.modelConfig.orderType ?? "taker";
+  const entryFeeRatio =
+    feeCalculator.getTotalFeePercent({ side: "buy", type: orderType }) / 100;
+  const exitFeeRatio =
+    feeCalculator.getTotalFeePercent({ side: "sell", type: orderType }) / 100;
   const configuredMinimumProjectedProfitPct = Number(
     config.adaptiveAveraging?.minProjectedProfitPct,
   );
@@ -517,12 +584,30 @@ export function buildTradingLivePreview(params: {
       (postAverageThreshold?.maxNetPnlUsdt ?? 0) < 0
         ? Math.abs(postAverageThreshold?.maxNetPnlUsdt ?? 0)
         : null;
-    const postAverageFirstLossUsdt =
-      postAveragePercentLossUsdt === null
-        ? postAverageUsdtLossUsdt
-        : postAverageUsdtLossUsdt === null
-          ? postAveragePercentLossUsdt
-          : Math.min(postAveragePercentLossUsdt, postAverageUsdtLossUsdt);
+    const vPointAdverseDriftEstimate = postAverageThreshold
+      ? estimateVPointAdverseDriftLoss({
+          entryFeeRatio,
+          exitFeeRatio,
+          leverage,
+          marginPartsUsdt: marginParts.slice(0, index + 1),
+          maxVPointAdverseDriftPct:
+            postAverageThreshold.maxVPointAdverseDriftPct,
+          volatilityThresholdPct,
+        })
+      : null;
+    const postAverageFirstLossUsdt = [
+      postAveragePercentLossUsdt,
+      postAverageUsdtLossUsdt,
+      vPointAdverseDriftEstimate?.estimatedLossUsdt ?? null,
+    ].reduce<number | null>(
+      (smallest, lossUsdt) =>
+        lossUsdt === null
+          ? smallest
+          : smallest === null
+            ? lossUsdt
+            : Math.min(smallest, lossUsdt),
+      null,
+    );
     const firstStopLoss = resolveFirstStopLoss({
       estimatedHardStopLossUsdt: estimatedLossUsdt,
       netUsdtStopLossUsdt: stopLossUSDT,
@@ -546,8 +631,16 @@ export function buildTradingLivePreview(params: {
       postAverageStopLoss: postAverageThreshold
         ? {
             estimatedPercentLossUsdt: postAveragePercentLossUsdt,
+            estimatedVPointAdverseDriftLossUsdt:
+              vPointAdverseDriftEstimate?.estimatedLossUsdt ?? null,
             maxNetPnlPct: postAverageThreshold.maxNetPnlPct,
             maxNetPnlUsdt: postAverageThreshold.maxNetPnlUsdt,
+            maxVPointAdverseDriftPct:
+              postAverageThreshold.maxVPointAdverseDriftPct,
+            projectedVPointAdverseDriftExitPrice:
+              vPointAdverseDriftEstimate?.projectedExitPrice ?? null,
+            projectedVPointPrice:
+              vPointAdverseDriftEstimate?.projectedVPointPrice ?? null,
             usdtEquivalentPct:
               postAverageUsdtLossUsdt === null || estimatedNotionalUsdt <= 0
                 ? null

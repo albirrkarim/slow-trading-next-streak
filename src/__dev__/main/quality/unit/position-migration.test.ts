@@ -262,6 +262,7 @@ describe("position storage migration", () => {
             level: -2,
             marginUsdt: 80,
             price: 80,
+            vPointPrice: 80,
             allocationPct: 5,
           },
         ],

@@ -332,6 +332,8 @@ function applyAveraging(params: {
         : undefined,
     reservedMarginUsdt: step.marginUsdt,
     t: params.t,
+    vPointId: params.point.id,
+    vPointPrice: params.point.p,
   };
   params.position.strategy.averaging.executions ??= [];
   params.position.strategy.averaging.executions.push(execution);

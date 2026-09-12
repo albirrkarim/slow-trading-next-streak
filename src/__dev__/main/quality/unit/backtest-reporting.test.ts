@@ -219,8 +219,22 @@ describe("backtest canonical position reporting", () => {
         reservedRemainingMarginUsdt: 0,
         steps: [],
         executions: [
-          { t: 2, level: 1, marginUsdt: 18.36, price: 96, allocationPct: 3 },
-          { t: 3, level: 2, marginUsdt: 55.12, price: 92, allocationPct: 3 },
+          {
+            t: 2,
+            level: 1,
+            marginUsdt: 18.36,
+            price: 96,
+            vPointPrice: 96,
+            allocationPct: 3,
+          },
+          {
+            t: 3,
+            level: 2,
+            marginUsdt: 55.12,
+            price: 92,
+            vPointPrice: 92,
+            allocationPct: 3,
+          },
         ],
       },
       entryLevel: 0,
@@ -283,7 +297,12 @@ describe("backtest canonical position reporting", () => {
           postAverageStopLoss: {
             enabled: true,
             thresholds: [
-              { minAveragingCount: 2, maxNetPnlPct: -2, maxNetPnlUsdt: 0 },
+              {
+                minAveragingCount: 2,
+                maxNetPnlPct: -2,
+                maxNetPnlUsdt: 0,
+                maxVPointAdverseDriftPct: 0,
+              },
             ],
           },
           stopLossPercent: 15,

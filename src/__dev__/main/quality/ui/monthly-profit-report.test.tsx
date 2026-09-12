@@ -76,6 +76,7 @@ describe("MonthlyProfitReport", () => {
             level: 3,
             marginUsdt: 12,
             price: 2.15,
+            vPointPrice: 2.15,
             t: averagingTime,
           },
         ],

@@ -72,6 +72,7 @@ describe("slow quick backtest report helpers", () => {
                 level: -4,
                 marginUsdt: 50,
                 price: 9,
+                vPointPrice: 9,
                 allocationPct: 2,
               },
             ],
@@ -216,6 +217,7 @@ describe("slow quick backtest report helpers", () => {
             level: -1,
             marginUsdt: 30,
             price: 80,
+            vPointPrice: 80,
             allocationPct: 3,
           },
           {
@@ -223,6 +225,7 @@ describe("slow quick backtest report helpers", () => {
             level: -2,
             marginUsdt: 60,
             price: 60,
+            vPointPrice: 60,
             allocationPct: 3,
           },
         ],
@@ -626,10 +629,7 @@ describe("slow quick backtest report helpers", () => {
     // BOTH:STOP_LOSS_BY_USDT_LOSS
     expect(
       result.tradeHistory.map((position) => position.closed?.reason),
-    ).toEqual([
-      "STOP_LOSS_BY_USDT_LOSS",
-      "VOLATILITY_TARGET_EXIT",
-    ]);
+    ).toEqual(["STOP_LOSS_BY_USDT_LOSS", "VOLATILITY_TARGET_EXIT"]);
   });
 
   it("blocks new quick entries during the final four days", async () => {

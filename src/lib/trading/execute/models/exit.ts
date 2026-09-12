@@ -215,10 +215,7 @@ export async function dynamicExit({
   // C. EXIT LOGIC (Stop Loss / Trailing Stop) =================================================================================
   const positions = memory.positions as Position[];
   const activePositions = positions.filter((position) => !position.closed);
-  const allPairPositions = [
-    ...positions,
-    ...(memory.positionsSell ?? []),
-  ];
+  const allPairPositions = [...positions, ...(memory.positionsSell ?? [])];
   const hasPair = activePositions.some((position) =>
     bothDirection.pair.isLeg(position, allPairPositions),
   );
@@ -455,6 +452,7 @@ export async function dynamicExit({
 
   const postAverageLoss = postAverageStopLoss.evaluate({
     config: config.postAverageStopLoss,
+    currentPrice: price,
     netPnlPercent: netGain * 100,
     netPnlUsdt: netProfitUSDT,
     position: lastPosition,
@@ -471,9 +469,17 @@ export async function dynamicExit({
       } averaging execution(s)` +
       ` | Net PnL ${(netGain * 100).toFixed(2)}% / ${netProfitUSDT.toFixed(2)} USDT` +
       ` | Threshold ${threshold.maxNetPnlPct}% / ${threshold.maxNetPnlUsdt} USDT` +
+      ` / ${threshold.maxVPointAdverseDriftPct}% adverse vPoint drift` +
+      ` | VPoint ${postAverageLoss.latestVPointPrice ?? "unavailable"}` +
+      ` / drift ${postAverageLoss.vPointAdverseDriftPct?.toFixed(2) ?? "unavailable"}%` +
       ` | Trigger ${postAverageLoss.hitPercent ? "pct" : ""}${
         postAverageLoss.hitPercent && postAverageLoss.hitUsdt ? "+" : ""
-      }${postAverageLoss.hitUsdt ? "usdt" : ""}`;
+      }${postAverageLoss.hitUsdt ? "usdt" : ""}${
+        (postAverageLoss.hitPercent || postAverageLoss.hitUsdt) &&
+        postAverageLoss.hitVPointAdverseDrift
+          ? "+"
+          : ""
+      }${postAverageLoss.hitVPointAdverseDrift ? "vpoint-drift" : ""}`;
 
     sellPosition({
       closeReason: "POST_AVERAGE_STOP_LOSS",
