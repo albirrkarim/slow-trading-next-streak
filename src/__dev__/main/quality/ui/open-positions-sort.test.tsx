@@ -2,7 +2,8 @@
  * @vitest-environment jsdom
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import moment from "moment-timezone";
 import { describe, expect, it, vi } from "vitest";
 
 import OpenPositions from "@/components/LiveDashboard/Feature/OpenPositions";
@@ -31,7 +32,9 @@ function renderedSymbols() {
 }
 
 describe("OpenPositions PnL sorting", () => {
-  it("shows the shared guard and every enabled account decision", () => {
+  it("collapses ready details into the Ready chip tooltip", async () => {
+    const sharedReason = "Shared entry guards passed.";
+
     render(
       <OpenPositions
         availableTags={[]}
@@ -41,7 +44,7 @@ describe("OpenPositions PnL sorting", () => {
         entryDiagnostics={[
           {
             code: "SHARED_ENTRY_GUARDS_READY",
-            reason: "Shared entry guards passed.",
+            reason: sharedReason,
             source: { scope: "shared" },
             status: "ready",
             symbol: "AAVE",
@@ -87,11 +90,174 @@ describe("OpenPositions PnL sorting", () => {
     );
 
     expect(screen.getAllByText("Shared guard")).toHaveLength(2);
+    expect(screen.queryByText(sharedReason)).toBeNull();
+    expect(screen.queryByText("SHARED_ENTRY_GUARDS_READY")).toBeNull();
     expect(
       screen.getByText("Outside Main's configured range 0-2."),
     ).toBeTruthy();
     expect(
       screen.getByText("Outside Second's configured range 2-5."),
+    ).toBeTruthy();
+
+    const mainCard = screen
+      .getByRole("button", { name: "Collapse Main details" })
+      .parentElement?.parentElement?.parentElement;
+    expect(mainCard).not.toBeNull();
+    const readyChip = within(mainCard!).getByText("Ready");
+
+    // PROD:MULTI_ACCOUNT_ENTRY_DIAGNOSTICS
+    fireEvent.mouseOver(readyChip);
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText(sharedReason)).toBeTruthy();
+    expect(
+      within(tooltip).getByText("SHARED_ENTRY_GUARDS_READY"),
+    ).toBeTruthy();
+  });
+
+  it("collapses a disabled account leg into a tooltip chip", async () => {
+    const reason =
+      "Blocked because Second is configured to open MAIN only, not COUNTER.";
+
+    render(
+      <OpenPositions
+        availableTags={[]}
+        coinDescriptions={{}}
+        coinTags={{}}
+        config={{ openDirection: "BOTH", symbols: ["AAVE"] } as any}
+        entryDiagnostics={[
+          {
+            code: "SHARED_ENTRY_GUARDS_READY",
+            reason: "Shared entry guards passed.",
+            source: { scope: "shared" },
+            status: "ready",
+            symbol: "AAVE",
+          },
+          {
+            code: "ACCOUNT_ENTRY_LEG_DISABLED",
+            reason,
+            role: "COUNTER",
+            source: {
+              accountName: "Second",
+              accountSlug: "binance-2",
+              scope: "account",
+            },
+            status: "blocked",
+            symbol: "AAVE",
+          },
+        ]}
+        entryDiagnosticsGeneratedAt={Date.UTC(2026, 8, 15, 6, 34, 24)}
+        captureEntryLastRunAt={Date.UTC(2026, 8, 15, 6, 30, 49)}
+        exchangeType={"binance" as any}
+        mode="sandbox"
+        onCoinDescriptionChange={vi.fn()}
+        onCoinTagsChange={vi.fn()}
+        positions={[]}
+        spendableQuoteAsset={0}
+        tagColors={{}}
+        tagDescriptions={{}}
+        volatilityMap={{}}
+        volume24hBySymbol={{}}
+      />,
+    );
+
+    const counterCard = screen
+      .getByRole("button", { name: "Collapse Counter details" })
+      .parentElement?.parentElement?.parentElement;
+    expect(counterCard).not.toBeNull();
+    const counter = within(counterCard!);
+    const disabledChip = counter.getByText("Disabled");
+
+    // PROD:MULTI_ACCOUNT_ENTRY_DIAGNOSTICS
+    expect(counter.getByText("Second")).toBeTruthy();
+    expect(counter.queryByText(reason)).toBeNull();
+    expect(
+      counter.queryByText(/Ready after the last Capture Entry pass/),
+    ).toBeNull();
+    expect(counter.queryByText(/Decision checked/)).toBeNull();
+    expect(counter.queryByText(/Capture Entry completed/)).toBeNull();
+    fireEvent.mouseOver(disabledChip);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(reason);
+  });
+
+  it("shows the next Capture Entry timing when an account is ready", () => {
+    const currentTimeMs = Date.now();
+    const captureEntryLastRunAt = currentTimeMs - 4 * 60 * 1000;
+    const nextRunAt = captureEntryLastRunAt + 5 * 60 * 1000;
+
+    render(
+      <OpenPositions
+        availableTags={[]}
+        captureEntryIntervalMinutes={5}
+        captureEntryLastRunAt={captureEntryLastRunAt}
+        coinDescriptions={{}}
+        coinTags={{}}
+        config={{ openDirection: "BOTH", symbols: ["AAVE"] } as any}
+        entryDiagnostics={[
+          {
+            code: "SHARED_ENTRY_GUARDS_READY",
+            reason: "Shared entry guards passed.",
+            source: { scope: "shared" },
+            status: "ready",
+            symbol: "AAVE",
+          },
+          {
+            code: "READY",
+            reason: "Main is ready.",
+            role: "COUNTER",
+            source: {
+              accountName: "Main",
+              accountSlug: "binance-1",
+              scope: "account",
+            },
+            status: "ready",
+            symbol: "AAVE",
+          },
+          {
+            code: "ACCOUNT_ENTRY_LEG_DISABLED",
+            reason: "Second opens MAIN only.",
+            role: "COUNTER",
+            source: {
+              accountName: "Second",
+              accountSlug: "binance-2",
+              scope: "account",
+            },
+            status: "blocked",
+            symbol: "AAVE",
+          },
+        ]}
+        entryDiagnosticsGeneratedAt={currentTimeMs - 30_000}
+        exchangeType={"binance" as any}
+        mode="sandbox"
+        onCoinDescriptionChange={vi.fn()}
+        onCoinTagsChange={vi.fn()}
+        positions={[]}
+        spendableQuoteAsset={0}
+        tagColors={{}}
+        tagDescriptions={{}}
+        volatilityMap={{}}
+        volume24hBySymbol={{}}
+      />,
+    );
+
+    const counterCard = screen
+      .getByRole("button", { name: "Collapse Counter details" })
+      .parentElement?.parentElement?.parentElement;
+    expect(counterCard).not.toBeNull();
+    const counter = within(counterCard!);
+
+    // PROD:MULTI_ACCOUNT_ENTRY_DIAGNOSTICS
+    expect(counter.getByText("1/2 ready")).toBeTruthy();
+    expect(
+      counter.getByText(/Ready after the last Capture Entry pass/),
+    ).toBeTruthy();
+    expect(counter.getByText(/Decision checked/)).toBeTruthy();
+    expect(counter.getByText(/Capture Entry completed/)).toBeTruthy();
+    expect(
+      counter.getByText(
+        `Next Capture Entry cycle in 1 minute at ${moment(nextRunAt)
+          .tz("Asia/Jakarta")
+          .format("HH:mm")} WIB.`,
+      ),
     ).toBeTruthy();
   });
 
@@ -138,7 +304,8 @@ describe("OpenPositions PnL sorting", () => {
     expect(screen.queryByText(/See Entry Decisions/)).toBeNull();
   });
 
-  it("treats a legacy retained closed leg as a missing diagnostic slot", () => {
+  it("treats a legacy retained closed leg as a missing diagnostic slot", async () => {
+    const reason = "COUNTER is waiting for an unused confirmed vPoint";
     const closedCounter = createTestPosition({
       direction: "SHORT",
       role: "COUNTER",
@@ -161,7 +328,7 @@ describe("OpenPositions PnL sorting", () => {
         entryDiagnostics={[
           {
             code: "STREAK_REENTRY_WAITING",
-            reason: "COUNTER is waiting for an unused confirmed vPoint",
+            reason,
             role: "COUNTER",
             status: "ready",
             symbol: "APT",
@@ -183,9 +350,7 @@ describe("OpenPositions PnL sorting", () => {
     );
 
     expect(screen.queryByTestId("open-position")).toBeNull();
-    expect(document.body.textContent).toContain(
-      "COUNTER is waiting for an unused confirmed vPoint",
-    );
+    expect(screen.queryByText(reason)).toBeNull();
     expect(document.body.textContent).toContain(
       "Ready after the last Capture Entry pass",
     );
@@ -193,6 +358,13 @@ describe("OpenPositions PnL sorting", () => {
     expect(document.body.textContent).toContain(
       "Capture Entry completed 30 Aug 13:40:09",
     );
+
+    const readyRow = screen.getByText("Shared guard").parentElement;
+    expect(readyRow).not.toBeNull();
+    fireEvent.mouseOver(within(readyRow!).getByText("Ready"));
+    const tooltip = await screen.findByRole("tooltip");
+    expect(within(tooltip).getByText(reason)).toBeTruthy();
+    expect(within(tooltip).getByText("STREAK_REENTRY_WAITING")).toBeTruthy();
   });
 
   it("closes both legs from the pair net-PnL card", () => {

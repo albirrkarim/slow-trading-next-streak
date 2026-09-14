@@ -618,18 +618,27 @@ The dashboard shows an `Entry Decisions` section immediately below VPoints
 Frequency. It evaluates every configured coin, including explicit blocked
 states when no confirmed vPoint exists or the latest point is outside the
 configured entry range. Each row identifies the coin, optional role and level,
-and whether it is ready or blocked, followed by the server-generated reason
-used by the entry decision flow. The browser does not reimplement or translate
-decision reasons. Diagnostics evaluate every enabled account. In BOTH mode, a
+and whether it is ready or blocked. A ready row is compact and moves its
+server-generated reason and diagnostic code into the `Ready` chip tooltip.
+Blocked rows continue to show their reason and code directly. The browser does
+not reimplement or translate decision reasons. Diagnostics evaluate every enabled account. In BOTH mode, a
 missing MAIN or COUNTER card shows one shared runner/automatic-entry guard and
 one role-specific decision for every enabled account, labeled with the account
 name. The card is expanded by default and never redirects the user to `Entry
 Decisions` to discover a reason. An account whose `entryLegs` excludes that
-role receives an explicit account-level blocked reason.
-The missing-role card also shows the diagnostic generation time and the latest
-completed Capture Entry stage time, both including seconds. A ready diagnostic
+role is shown as a compact `Disabled` chip whose tooltip contains the explicit
+account-level explanation. A missing-role card containing a disabled account
+leg omits the ready-after-Capture-Entry note and decision/Capture Entry times
+when no account is ready. When at least one account is ready, the card shows
+those details even if another account leg is disabled.
+When timing is not suppressed, the missing-role card also shows the diagnostic
+generation time and the latest completed Capture Entry stage time, both
+including seconds. A ready diagnostic
 generated after the last Capture Entry pass explicitly says that execution has
-not checked that state yet. Diagnostics refresh after every newly observed
+not checked that state yet. It also estimates the next Capture Entry cycle from
+the last completion and configured stage interval, displaying the remaining
+whole minutes and scheduled time in WIB. Diagnostics refresh after every newly
+observed
 Capture Entry completion, while the navbar stage report retains that pass's
 actual per-symbol execution or blocking message.
 

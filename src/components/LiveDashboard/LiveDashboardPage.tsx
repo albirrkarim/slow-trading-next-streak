@@ -864,6 +864,9 @@ export default function DynamicTradeHistoryPage({
                   entryDiagnosticsGeneratedAt={entryDiagnostics.generatedAt}
                   entryDiagnosticsError={entryDiagnostics.error}
                   entryDiagnosticsLoading={entryDiagnostics.loading}
+                  captureEntryIntervalMinutes={
+                    dashboardState.runtime.captureEntryStageIntervalMinutes
+                  }
                   captureEntryLastRunAt={captureEntryLastRunAt}
                   positions={dashboardState?.openPositions ?? []}
                   spendableQuoteAsset={
@@ -928,6 +931,9 @@ export default function DynamicTradeHistoryPage({
                     entryDiagnosticsGeneratedAt={entryDiagnostics.generatedAt}
                     entryDiagnosticsError={entryDiagnostics.error}
                     entryDiagnosticsLoading={entryDiagnostics.loading}
+                    captureEntryIntervalMinutes={
+                      dashboardState.runtime.captureEntryStageIntervalMinutes
+                    }
                     captureEntryLastRunAt={captureEntryLastRunAt}
                     positions={dashboardState?.openPositions ?? []}
                     spendableQuoteAsset={

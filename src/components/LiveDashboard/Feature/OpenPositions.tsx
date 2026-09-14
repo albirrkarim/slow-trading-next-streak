@@ -23,7 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import moment from "moment-timezone";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import HeaderMetrics from "@/components/ui/HeaderMetrics";
 import openPositionPnlContribution from "./open-position-pnl-contribution";
@@ -42,6 +42,7 @@ interface OpenPositionsProps {
   entryDiagnosticsGeneratedAt?: number;
   entryDiagnosticsError?: string;
   entryDiagnosticsLoading?: boolean;
+  captureEntryIntervalMinutes?: number;
   captureEntryLastRunAt?: number;
   positions: SlowTradingHistoryPosition[];
   spendableQuoteAsset: number;
@@ -282,6 +283,16 @@ export default function OpenPositions({
 }
 
 function PairedOpenPositions(props: OpenPositionsProps) {
+  const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const intervalId = window.setInterval(
+      () => setCurrentTimeMs(Date.now()),
+      30_000,
+    );
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   // Open-position UI never renders archived/legacy retained closed legs.
   const activePositions = props.positions.filter((position) => !position.closed);
   const configuredPairs = new Map<
@@ -335,7 +346,9 @@ function PairedOpenPositions(props: OpenPositionsProps) {
     if (!position) {
       return (
         <MissingPositionDecision
+          captureEntryIntervalMinutes={props.captureEntryIntervalMinutes}
           captureEntryLastRunAt={props.captureEntryLastRunAt}
+          currentTimeMs={currentTimeMs}
           diagnostics={props.entryDiagnostics}
           error={props.entryDiagnosticsError}
           generatedAt={props.entryDiagnosticsGeneratedAt}
