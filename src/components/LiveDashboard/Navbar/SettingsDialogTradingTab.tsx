@@ -4,11 +4,13 @@ import { useState } from "react";
 import CodeRoundedIcon from "@mui/icons-material/CodeRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import {
+  Divider,
   Grid,
   MenuItem,
   Stack,
   ToggleButton,
   ToggleButtonGroup,
+  Typography,
 } from "@mui/material";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
 import lateEntryVPointDrift from "@/lib/trading/execute/late-entry-vpoint-drift";
@@ -80,6 +82,11 @@ function TradingAccountSettings({
       />
       <SettingsGroup title="Entry">
         <Grid container spacing={2}>
+          <Grid size={12}>
+            <Typography color="text.secondary" variant="subtitle2">
+              Entry selection &amp; capacity
+            </Typography>
+          </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
             <SettingsInfoField
               disabled={configDraft.openDirection !== "BOTH"}
@@ -108,12 +115,50 @@ function TradingAccountSettings({
           </Grid>
 
           <Grid size={{ xs: 12, md: 6 }}>
+            <SettingsInfoField
+              label="Max Open Positions"
+              type="number"
+              size="small"
+              fullWidth
+              value={configDraft.maxOpenPositions ?? 0}
+              onChange={(event) =>
+                setConfigDraft((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        maxOpenPositions: Math.max(
+                          0,
+                          Math.floor(Number(event.target.value) || 0),
+                        ),
+                      }
+                    : prev,
+                )
+              }
+              slotProps={{
+                htmlInput: {
+                  step: "1",
+                  inputMode: "numeric",
+                  min: 0,
+                },
+              }}
+              info="Maximum number of positions that may be open at once in the active mode. Set 0 to disable this guard."
+            />
+          </Grid>
+
+          <Grid size={12}>
+            <Divider sx={{ mb: 1 }} />
+            <Typography color="text.secondary" variant="subtitle2">
+              vPoint price guard
+            </Typography>
+          </Grid>
+
+          <Grid size={{ xs: 12, md: 6 }}>
             <SettingsCheckbox
               checked={
                 configDraft.lateEntryVPointPriceDriftEnabled !== false
               }
               info="When ON, production and sandbox entries are blocked after current price moves too far from the source vPoint. ONE WAY checks favorable drift; BOTH requires the symmetric vPoint entry zone. This setting belongs only to the selected account."
-              label="Late Entry vPoint Price Drift Guard"
+              label="Late Entry vPoint Drift Guard"
               onChange={(checked) =>
                 setConfigDraft((prev) =>
                   prev
@@ -162,56 +207,11 @@ function TradingAccountSettings({
             />
           </Grid>
 
-          <Grid size={{ xs: 12, md: 6 }}>
-            <SettingsInfoField
-              label="Max Open Positions"
-              type="number"
-              size="small"
-              fullWidth
-              value={configDraft.maxOpenPositions ?? 0}
-              onChange={(event) =>
-                setConfigDraft((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        maxOpenPositions: Math.max(
-                          0,
-                          Math.floor(Number(event.target.value) || 0),
-                        ),
-                      }
-                    : prev,
-                )
-              }
-              slotProps={{
-                htmlInput: {
-                  step: "1",
-                  inputMode: "numeric",
-                  min: 0,
-                },
-              }}
-              info="Maximum number of positions that may be open at once in the active mode. Set 0 to disable this guard."
-            />
-          </Grid>
-
-          <Grid size={{ xs: 12, md: 6 }}>
-            <SettingsInfoField
-              label="Max Entry 24h Vol %"
-              type="number"
-              size="small"
-              fullWidth
-              value={configDraft.maxEntryBased24HourVolPct ?? 0.2}
-              onChange={(event) =>
-                setConfigDraft((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        maxEntryBased24HourVolPct: Number(event.target.value),
-                      }
-                    : prev,
-                )
-              }
-              info="Liquidity cap for entry sizing. Example: 24h quote volume 1,000,000 and value 0.2 means SLOW sizes entry + reserves inside a temporary 2,000 USDT budget. The real spendable balance above that stays untouched. Set 0 to disable."
-            />
+          <Grid size={12}>
+            <Divider sx={{ mb: 1 }} />
+            <Typography color="text.secondary" variant="subtitle2">
+              Entry sizing limits
+            </Typography>
           </Grid>
 
           <Grid size={{ xs: 12, md: 6 }}>
@@ -254,6 +254,34 @@ function TradingAccountSettings({
               }
               info="Hard USDT cap for one entry margin. Example: engine wants 80 USDT but this is 50, so SLOW uses at most 50. Set 0 to use engine calculation."
             />
+          </Grid>
+
+          <Grid size={{ xs: 12, md: 6 }}>
+            <SettingsInfoField
+              label="Max Entry 24h Vol %"
+              type="number"
+              size="small"
+              fullWidth
+              value={configDraft.maxEntryBased24HourVolPct ?? 0.2}
+              onChange={(event) =>
+                setConfigDraft((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        maxEntryBased24HourVolPct: Number(event.target.value),
+                      }
+                    : prev,
+                )
+              }
+              info="Liquidity cap for entry sizing. Example: 24h quote volume 1,000,000 and value 0.2 means SLOW sizes entry + reserves inside a temporary 2,000 USDT budget. The real spendable balance above that stays untouched. Set 0 to disable."
+            />
+          </Grid>
+
+          <Grid size={12}>
+            <Divider sx={{ mb: 1 }} />
+            <Typography color="text.secondary" variant="subtitle2">
+              Eligible vPoint levels
+            </Typography>
           </Grid>
 
           <Grid size={{ xs: 12, md: 6 }}>
@@ -316,6 +344,13 @@ function TradingAccountSettings({
               }}
               info="Maximum absolute vPoint level decision.v20 may enter. The limit is inclusive. Default 5; minimum 0. For example, a range of 0 to 3 allows L0, L1, L-1, L2, L-2, L3, and L-3, but blocks L4 and L-4."
             />
+          </Grid>
+
+          <Grid size={12}>
+            <Divider sx={{ mb: 1 }} />
+            <Typography color="text.secondary" variant="subtitle2">
+              Futures leverage
+            </Typography>
           </Grid>
 
           <Grid size={{ xs: 12, md: 6 }}>

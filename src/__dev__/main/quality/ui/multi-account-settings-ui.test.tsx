@@ -354,7 +354,7 @@ describe("multi-account settings UI", () => {
 
     render(<Harness />);
 
-    const guardName = "Late Entry vPoint Price Drift Guard";
+    const guardName = "Late Entry vPoint Drift Guard";
     expect(
       (screen.getByRole("checkbox", { name: guardName }) as HTMLInputElement)
         .checked,
