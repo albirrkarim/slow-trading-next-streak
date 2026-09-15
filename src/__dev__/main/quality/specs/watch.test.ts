@@ -243,6 +243,9 @@ describe("slow specs watch", () => {
         averagingRescueProjectionGuardEnabled: false,
       });
       expect(result.tradingDetail?.action).toBe("BUY");
+      // BOTH:AVERAGING_CONSUMES_VOLATILITY_POINT
+      expect((point as any)["usedBybinance-1"]).toBe(true);
+      expect(point.used).toBeUndefined();
 
       if (index === 0) {
         const samePointRetry = generateAveragingRecommendations({

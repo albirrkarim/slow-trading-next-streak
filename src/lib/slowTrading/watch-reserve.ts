@@ -9,7 +9,6 @@ import type {
   Position,
   PositionAveragingState,
   PositionReserveStep,
-  PositionRole,
 } from "@/lib/trading/models";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
 import bothDirection from "@/lib/trading/both-direction";
@@ -300,6 +299,11 @@ type VolatilityPointOwner = {
   };
 };
 
+/** Builds the persisted entry-usage marker for one exchange account. */
+export function getEntryVolatilityPointUsageKey(accountSlug: string): string {
+  return `usedBy${String(accountSlug || "").trim()}`;
+}
+
 function findEntrySignalVolatilityPoint(params: {
   entrySignal: Pick<VolatilityPoint, "id" | "symbol">;
   modelMemory?: VolatilityPointOwner;
@@ -324,9 +328,9 @@ function findEntrySignalVolatilityPoint(params: {
  * Checks whether the source volatility point for an entry signal is already used.
  */
 export function isEntrySignalVolatilityPointUsed(params: {
+  accountSlug: string;
   entrySignal: Pick<VolatilityPoint, "id" | "symbol">;
   modelMemory?: VolatilityPointOwner;
-  roles?: PositionRole[];
   volatilityPoints?: VolatilityPoint[];
 }): boolean {
   // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
@@ -335,14 +339,12 @@ export function isEntrySignalVolatilityPointUsed(params: {
     return false;
   }
 
-  if (!params.roles?.length) {
-    return point.used === true;
-  }
-
-  return params.roles.some((role) =>
-    role === "COUNTER"
-      ? point.used === true || point.usedByCounter === true
-      : point.used === true || point.usedByMain === true,
+  const accountSlug = String(params.accountSlug || "").trim();
+  return Boolean(
+    accountSlug &&
+      (point as VolatilityPoint & Record<string, unknown>)[
+        getEntryVolatilityPointUsageKey(accountSlug)
+      ] === true,
   );
 }
 
@@ -419,9 +421,9 @@ export function hasPositionHitTargetVolatilityPoint(params: {
  * Marks an entry signal's source volatility point as used after entry succeeds.
  */
 export function markEntrySignalVolatilityPointUsed(params: {
+  accountSlug: string;
   entrySignal: Pick<VolatilityPoint, "id" | "symbol">;
   modelMemory?: VolatilityPointOwner;
-  roles?: PositionRole[];
   volatilityPoints?: VolatilityPoint[];
 }): boolean {
   // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
@@ -430,23 +432,33 @@ export function markEntrySignalVolatilityPointUsed(params: {
     return false;
   }
 
-  if (!params.roles?.length) {
-    point.used = true;
-    return true;
-  }
+  const accountSlug = String(params.accountSlug || "").trim();
+  if (!accountSlug) return false;
 
-  for (const role of params.roles) {
-    if (role === "COUNTER") {
-      point.usedByCounter = true;
-    } else {
-      point.usedByMain = true;
+  Object.assign(point, {
+    [getEntryVolatilityPointUsageKey(accountSlug)]: true,
+  });
+  return true;
+}
+
+/** Marks an entry point as consumed by one production account. */
+export function markAccountEntryVolatilityPointUsed(params: {
+  accountSlug: string;
+  entrySignal: Pick<VolatilityPoint, "id" | "symbol">;
+  modelMemory?: VolatilityPointOwner;
+  volatilityPoints?: VolatilityPoint[];
+}): boolean {
+  return markEntrySignalVolatilityPointUsed(params);
+}
+
+/** Removes deprecated and account-scoped entry markers from one point. */
+export function resetEntryVolatilityPointUsage(point: VolatilityPoint): void {
+  delete point.used;
+  for (const key of Object.keys(point)) {
+    if (key.startsWith("usedBy")) {
+      delete (point as VolatilityPoint & Record<string, unknown>)[key];
     }
   }
-
-  if (point.usedByMain && point.usedByCounter) {
-    point.used = true;
-  }
-  return true;
 }
 
 /**
@@ -1246,9 +1258,12 @@ const slowTradingWatchReserve = {
     getSpendableQuoteAssetValue,
   },
   volatilityPoint: {
+    getUsageKey: getEntryVolatilityPointUsageKey,
     isActionableAveragingLevel: isActionableAveragingVolatilityLevel,
+    markAccountUsed: markAccountEntryVolatilityPointUsed,
     isUsed: isEntrySignalVolatilityPointUsed,
     markUsed: markEntrySignalVolatilityPointUsed,
+    resetUsage: resetEntryVolatilityPointUsage,
   },
   averaging: {
     calculateProjectedProfitPct: calculateProjectedAveragingProfitPct,

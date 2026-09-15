@@ -7,6 +7,7 @@ import type {
   TradingModelMemory,
 } from "@/lib/trading/models";
 import bothDirection from "./both-direction";
+import { getEntryVolatilityPointUsageKey } from "@/lib/slowTrading/watch-reserve";
 
 export interface StreakBreakReentryDecision {
   direction: PositionDirection;
@@ -18,17 +19,15 @@ export interface StreakBreakReentryDecision {
   survivor: Position;
 }
 
-function isPointUsedByRole(
+function isPointUsedByAccount(
   point: VolatilityPoint,
-  role: PositionRole,
+  accountSlug: string,
 ): boolean {
-  if (point.used === true) {
-    return true;
-  }
-
-  return role === "COUNTER"
-    ? point.usedByCounter === true
-    : point.usedByMain === true;
+  return (
+    (point as VolatilityPoint & Record<string, unknown>)[
+      getEntryVolatilityPointUsageKey(accountSlug)
+    ] === true
+  );
 }
 
 function fromClosedPosition(
@@ -145,6 +144,7 @@ function normalizeMemory(memory: TradingModelMemory) {
 
 /** Resolves whether one missing role may re-enter from the latest vPoint. */
 function resolveReentry(params: {
+  accountSlug: string;
   positions: Position[];
   pendingReentries?: PositionPendingReentry[];
   volatilityPoints: VolatilityPoint[];
@@ -206,7 +206,7 @@ function resolveReentry(params: {
     .filter(
       (candidate) =>
         (!target.targetPoint || candidate.t >= target.targetPoint.t) &&
-        !isPointUsedByRole(candidate, role),
+        !isPointUsedByAccount(candidate, params.accountSlug),
     )
     .at(-1);
   if (!point) {
@@ -245,7 +245,7 @@ const streakBreak = {
     resolve: resolveReentry,
   },
   usage: {
-    isPointUsedByRole,
+    isPointUsedByAccount,
   },
 } as const;
 

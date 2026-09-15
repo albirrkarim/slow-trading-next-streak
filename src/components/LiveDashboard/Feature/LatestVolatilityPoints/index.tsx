@@ -45,7 +45,7 @@ export {
   buildConfiguredCoinTagComposition,
   buildConfiguredCoinTagCompositionGroups,
 } from "./CoinTagComposition";
-export { simplifyId } from "./utils";
+export { isVolatilityPointUsedByAccount, simplifyId } from "./utils";
 export { formatMarketCapUpdatedAt } from "./LatestVolatilityPointRow";
 export {
   describeFundingRatePayer,
@@ -187,9 +187,9 @@ const COLUMNS: LatestVolatilityPointColumn[] = [
   {
     help: {
       meaning:
-        "The latest volatility-point level, its age, and whether that exact point has already been used for an entry. Positive levels are TOP points, negative levels are BOTTOM points, and a larger absolute value is a more extreme level.",
+        "The latest volatility-point level, its age, and whether that exact point has been used for entry by each enabled account. Positive levels are TOP points, negative levels are BOTTOM points, and a larger absolute value is a more extreme level.",
       source:
-        "The latest loaded volatility-point record for the coin, including its persisted used flag.",
+        "The latest loaded volatility-point record for the coin, including persisted usedBy<account slug> markers.",
     },
     key: "level",
     label: "Last level",

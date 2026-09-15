@@ -4,7 +4,6 @@ import dynamic from "@/lib/dynamic";
 import { getExchange, TradingMode } from "@/lib/exchange";
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
 import { tradeLog } from "@/lib/trading/helper/log";
-import bothDirection from "@/lib/trading/both-direction";
 import type { Position } from "@/lib/trading/models";
 import slowTradingBalance from "../balance";
 import slowTradingExchangeSync from "../exchange-sync";
@@ -293,8 +292,8 @@ async function executeSlowTradingAccountCycle(
       entrySignals = slowTradingSignals.filter.unusedVolatilityPointId(
         executionModeState,
         entrySignals,
+        storage.account.slug,
         modelMemoryMap,
-        bothDirection.entry.resolveRoles(storage.config),
       );
 
       const volatilityPointsMap =

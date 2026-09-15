@@ -3,9 +3,11 @@
 import { Chip, Tooltip } from "@mui/material";
 
 export default function VolatilityPointUsageChip({
+  accountSlug,
   symbol,
   used,
 }: {
+  accountSlug: string;
   symbol: string;
   used?: boolean;
 }) {
@@ -13,8 +15,8 @@ export default function VolatilityPointUsageChip({
   const isUsed = used === true;
   const label = isUsed ? "Used" : "Unused";
   const description = isUsed
-    ? "This latest volatility point has already been used for an entry."
-    : "This latest volatility point has not been used for an entry."
+    ? `This latest volatility point has already been used by ${accountSlug}.`
+    : `This latest volatility point has not been used by ${accountSlug}.`;
 
   return (
     <Tooltip arrow placement="top" title={description}>

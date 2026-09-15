@@ -234,6 +234,7 @@ async function execute(runtime: SlowTradingCycleRuntime): Promise<void> {
       const reservedBefore = slowTradingBalance.reserve.getOpen(modelMemory);
       const report = await profiler.time("cycle.averagingExecution", () =>
         trading.execution.averaging({
+          accountSlug: storage.account.slug,
           symbol: trade.symbol ?? "",
           modelConfig,
           modelMemory,
@@ -293,6 +294,7 @@ async function execute(runtime: SlowTradingCycleRuntime): Promise<void> {
 
       const modelMemory = modelMemoryMap[symbol];
       const decision = streakBreak.reentry.resolve({
+        accountSlug: storage.account.slug,
         positions: modelMemory?.positions ?? [],
         pendingReentries: modelMemory?.pendingReentries,
         volatilityPoints: volatilityPointsMap[symbol] ?? [],
@@ -399,10 +401,10 @@ async function execute(runtime: SlowTradingCycleRuntime): Promise<void> {
         );
 
         if (report.tradingDetail?.action === "BUY") {
-          slowTradingWatchReserve.volatilityPoint.markUsed({
+          slowTradingWatchReserve.volatilityPoint.markAccountUsed({
+            accountSlug: storage.account.slug,
             entrySignal,
             modelMemory,
-            roles: [decision.role],
           });
           dynamicTradeMemory.quoteAsset = slowTradingWatchReserve.money.roundUsdt(
             (dynamicTradeMemory.quoteAsset ?? 0) +

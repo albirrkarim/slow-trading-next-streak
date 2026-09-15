@@ -2,7 +2,6 @@ import brain from "@/lib/brain";
 import dynamic from "@/lib/dynamic";
 import trading from "@/lib/trading";
 import blackSwan from "@/lib/trading/black-swan";
-import bothDirection from "@/lib/trading/both-direction";
 import { tradeLog } from "@/lib/trading/helper/log";
 import slowTradingAutoRemoveSymbols from "../auto-remove-symbols";
 import slowTradingBalance from "../balance";
@@ -188,6 +187,7 @@ async function execute(runtime: SlowTradingCycleRuntime): Promise<void> {
         slowTradingShared.entrySignals.addSkipped(skippedEntrySignals, {
           symbol,
           reason: slowTradingSignals.forcedEntry.getSkipReason({
+            accountSlug: storage.account.slug,
             symbol,
             configuredSymbols: storage.config.symbols,
             minAbsLevelToEntry: storage.config.minAbsLevelToEntry,
@@ -310,10 +310,10 @@ async function execute(runtime: SlowTradingCycleRuntime): Promise<void> {
         );
 
         if (report.tradingDetail?.action === "BUY") {
-          slowTradingWatchReserve.volatilityPoint.markUsed({
+          slowTradingWatchReserve.volatilityPoint.markAccountUsed({
+            accountSlug: storage.account.slug,
             entrySignal,
             modelMemory: entryModelMemory,
-            roles: bothDirection.entry.resolveRoles(storage.config),
           });
 
           dynamicTradeMemory.quoteAsset =

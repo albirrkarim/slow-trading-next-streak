@@ -191,6 +191,7 @@ export function tryOpenBacktestEntry({
 }): boolean {
   const symbol = recommend.symbol ?? "";
   const modelMemory = modelMemoryMap[symbol];
+  const accountSlug = getCurrentExchangeAccountSlug();
   if (!symbol || !modelMemory) {
     return false;
   }
@@ -225,11 +226,9 @@ export function tryOpenBacktestEntry({
 
   if (
     isEntrySignalVolatilityPointUsed({
+      accountSlug,
       entrySignal: recommend,
       modelMemory,
-      roles: pairLeg
-        ? [pairLeg.role]
-        : bothDirection.entry.resolveRoles(config),
     })
   ) {
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
@@ -401,11 +400,9 @@ export function tryOpenBacktestEntry({
     ),
   );
   markEntrySignalVolatilityPointUsed({
+    accountSlug,
     entrySignal: recommend,
     modelMemory,
-    roles: pairLeg
-      ? [pairLeg.role]
-      : bothDirection.entry.resolveRoles(config),
   });
 
   tradeLog.log("\n\n");
@@ -429,6 +426,7 @@ export function tryOpenBacktestStreakReentry(
   }
 
   const decision = streakBreak.reentry.resolve({
+    accountSlug: getCurrentExchangeAccountSlug(),
     positions: modelMemory.positions ?? [],
     pendingReentries: modelMemory.pendingReentries,
     volatilityPoints: params.volatilityPoints,
@@ -470,6 +468,7 @@ export function tryExecuteBacktestAveraging({
 }): boolean {
   const symbol = recommend.symbol ?? "";
   const modelMemory = modelMemoryMap[symbol];
+  const accountSlug = getCurrentExchangeAccountSlug();
   const position = modelMemory?.positions?.find((candidate) => {
     if (candidate.closed) return false;
     const entryLevel = candidate.opened.vPoint.lvl;
@@ -634,6 +633,13 @@ export function tryExecuteBacktestAveraging({
     usedAt: executionTimeMs,
     usedMarginUsdt: marginUsdt,
     usedPctAlloc,
+  });
+  // BOTH:AVERAGING_CONSUMES_VOLATILITY_POINT
+  markEntrySignalVolatilityPointUsed({
+    accountSlug,
+    entrySignal: recommend,
+    modelMemory,
+    volatilityPoints,
   });
 
   const reservedAfter = getReservedRemainingUsdt(position.strategy.averaging);

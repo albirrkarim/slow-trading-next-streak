@@ -12,6 +12,7 @@ import {
   UnifiedOrderType,
 } from "@/lib/exchange";
 import { resolveMarketTypeForTradingMode } from "@/lib/exchange/utils";
+import { getCurrentExchangeAccountSlug } from "@/lib/exchange/account-context";
 import type {
   TradingModelConfig,
   TradingModelMemory,
@@ -29,11 +30,14 @@ import {
   getNextWatchStep,
   hasPositionHitTargetVolatilityPoint,
   isActionableAveragingVolatilityLevel,
+  markEntrySignalVolatilityPointUsed,
   markReservedWatchStepUsed,
   resolveAveragingRescueProjection,
 } from "../../slowTrading/watch-reserve";
 
 interface ExecuteAveragingProps {
+  /** Account that consumes the triggering vPoint in live and sandbox modes. */
+  accountSlug?: string;
   symbol: string;
   modelConfig: TradingModelConfig;
   modelMemory: TradingModelMemory;
@@ -57,6 +61,7 @@ interface ExecuteAveragingProps {
  * when Max Next Averaging Levels allows them and balance is available.
  */
 export async function executeAveraging({
+  accountSlug = getCurrentExchangeAccountSlug(),
   symbol,
   modelConfig,
   modelMemory,
@@ -351,6 +356,15 @@ export async function executeAveraging({
       usedMarginUsdt: executedMarginUSDT,
       usedPctAlloc,
     });
+    if (averagingRecommendation) {
+      // BOTH:AVERAGING_CONSUMES_VOLATILITY_POINT
+      markEntrySignalVolatilityPointUsed({
+        accountSlug,
+        entrySignal: averagingRecommendation,
+        modelMemory,
+        volatilityPoints,
+      });
+    }
 
     success = true;
     message =
@@ -481,6 +495,15 @@ export async function executeAveraging({
         usedMarginUsdt: liveMarginUSDT,
         usedPctAlloc,
       });
+      if (averagingRecommendation) {
+        // BOTH:AVERAGING_CONSUMES_VOLATILITY_POINT
+        markEntrySignalVolatilityPointUsed({
+          accountSlug,
+          entrySignal: averagingRecommendation,
+          modelMemory,
+          volatilityPoints,
+        });
+      }
 
       message =
         `${TRADE_MESSAGE.buy.ADD_POSITION} | ${symbol} ${direction} | ` +

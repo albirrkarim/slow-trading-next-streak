@@ -91,6 +91,7 @@ describe("streak-break pair lifecycle", () => {
     streakBreak.pending.reconcileClosed({ memory, position: counter });
 
     const waiting = streakBreak.reentry.resolve({
+      accountSlug: "account-1",
       positions: memory.positions,
       pendingReentries: memory.pendingReentries,
       volatilityPoints: [point("BOTTOM-B", "B", -1, 2)],
@@ -102,6 +103,7 @@ describe("streak-break pair lifecycle", () => {
     });
 
     const ready = streakBreak.reentry.resolve({
+      accountSlug: "account-1",
       positions: memory.positions,
       pendingReentries: memory.pendingReentries,
       volatilityPoints: [
@@ -149,6 +151,7 @@ describe("streak-break pair lifecycle", () => {
     const newestAnchor = point("TOP-C", "T", 2, 3);
 
     const decision = streakBreak.reentry.resolve({
+      accountSlug: "account-1",
       positions: memory.positions,
       pendingReentries: memory.pendingReentries,
       volatilityPoints: [blockedAnchor, newestAnchor],
@@ -161,9 +164,10 @@ describe("streak-break pair lifecycle", () => {
       status: "READY",
     });
 
-    newestAnchor.usedByCounter = true;
+    (newestAnchor as any)["usedByaccount-1"] = true;
     expect(
       streakBreak.reentry.resolve({
+        accountSlug: "account-1",
         positions: memory.positions,
         pendingReentries: memory.pendingReentries,
         volatilityPoints: [blockedAnchor, newestAnchor],

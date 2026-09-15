@@ -416,20 +416,24 @@ it entry on vPoint.id = "1ef" then it exit. but the system is entry again becaus
 Guard:
 
 - Before entry, check the current volatility point itself.
-- In one-way mode, `vPoint.used === true` blocks another entry from that point.
-- In BOTH mode, entry use is tracked independently with `usedByMain` and
-  `usedByCounter`. Averaging does not consume either entry flag.
-- A fresh atomic pair marks both role flags after both orders succeed. A
-  missing-role re-entry marks only that role's flag after its order succeeds.
-- `used` remains the legacy/one-way flag and may also be set once both BOTH
-  role flags are true.
-- The dashboard `Reset used vPoints` action clears `used`, `usedByMain`, and
-  `usedByCounter` together in each selected symbol's persisted volatility file.
-- Only successful entry can mark it used. Signal preview/building should not consume the volatility point.
-- The used flag is persisted through the per-symbol volatility cache JSON, so the next SLOW cycle still knows the point has been consumed.
+- Production and backtest check `vPoint["usedBy" + account.slug]`. The same
+  volatility-point id may be consumed once by each account, while live and
+  sandbox share the marker for the same account.
+- The deprecated point-wide `vPoint.used` marker must not block or record SLOW
+  entry usage. Production removes it before evaluating entry signals.
+- A successful fresh entry, missing-role re-entry, or averaging execution marks
+  the source point with `vPoint["usedBy" + account.slug] = true`.
+- Rejected or skipped executions and signal/diagnostic previews must not consume
+  the volatility point.
+- Production persists account usage through the per-symbol volatility cache
+  JSON. Backtest keeps it only in simulation memory.
+- The dashboard `Reset used vPoints` action clears the deprecated marker and
+  every `usedBy<account.slug>` marker in each selected symbol's cache.
 - Production must not use `item.model_memory.positionsSell` for this guard because `positionsSell` is deprecated for production closed-trade history. It may still exist for legacy/backtest flows only.
 
 TC: `BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID`
+TC: `PROD:MULTI_ACCOUNT_ENTRY_VPOINT_USAGE`
+TC: `BOTH:AVERAGING_CONSUMES_VOLATILITY_POINT`
 
 ### B.3.4 it should not entry when theres no spendable balance. left for current trade signal.
 

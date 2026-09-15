@@ -637,24 +637,31 @@ describe("slow specs entry", () => {
     expect(runtime.modelMemoryMap.AAVE.positions).toHaveLength(1);
   });
 
-  it("filters entry signals whose volatility point is already used", () => {
+  it("filters entry signals by account-scoped volatility usage", () => {
     const modeState = createModeState();
+    const usedByAccount = createEntryRecommendation({ id: "entry-1" }) as any;
+    usedByAccount["usedByaccount-1"] = true;
     modeState.tradeSettings[0].model_memory.volatility = {
       symbol: "SUI",
       lastVolatility: [
-        createEntryRecommendation({ id: "entry-1", used: true }),
+        usedByAccount,
         createEntryRecommendation({ id: "entry-2", t: 2, used: false }),
+        createEntryRecommendation({ id: "legacy", t: 3, used: true }),
       ],
     } as any;
 
-    const filtered =
-      slowTrading.signals.filterSignalsWithUnusedVolatilityPointId(modeState, [
+    const filtered = slowTrading.signals.filterSignalsWithUnusedVolatilityPointId(
+      modeState,
+      [
         createEntryRecommendation({ id: "entry-1" }),
         createEntryRecommendation({ id: "entry-2", t: 2 }),
-      ]);
+        createEntryRecommendation({ id: "legacy", t: 3 }),
+      ],
+      "account-1",
+    );
 
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
-    expect(filtered.map((item) => item.id)).toEqual(["entry-2"]);
+    expect(filtered.map((item) => item.id)).toEqual(["entry-2", "legacy"]);
   });
 
   it("filters entry signals using the configured minimum actionable level", () => {
@@ -730,11 +737,11 @@ describe("slow specs entry", () => {
   it("does not reopen a closed backtest trade on the same volatility point id", () => {
     const runtime = createRuntime();
     const config = createBacktestConfig();
+    const usedPoint = createEntryRecommendation({ id: "entry-1" }) as any;
+    usedPoint["usedBybinance-1"] = true;
     runtime.modelMemoryMap.SUI.volatility = {
       symbol: "SUI",
-      lastVolatility: [
-        createEntryRecommendation({ id: "entry-1", used: true }),
-      ],
+      lastVolatility: [usedPoint],
     } as any;
 
     const didOpen = tryOpenBacktestEntry({
@@ -767,40 +774,40 @@ describe("slow specs entry", () => {
 
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
     expect(didOpen).toBe(true);
-    expect(volatilityPoint.used).toBe(true);
+    expect((volatilityPoint as any)["usedBybinance-1"]).toBe(true);
+    expect(volatilityPoint.used).toBeUndefined();
   });
 
-  it("tracks BOTH entry usage independently for MAIN and COUNTER", () => {
-    const point = createEntryRecommendation({ id: "entry-role" });
+  it("tracks entry usage independently for each account", () => {
+    const point = createEntryRecommendation({ id: "entry-account" });
     const volatilityPoints = [point] as any;
 
     slowTrading.watchReserve.volatilityPoint.markUsed({
+      accountSlug: "account-1",
       entrySignal: point,
-      roles: ["COUNTER"],
       volatilityPoints,
     });
 
-    // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
-    expect(point.used).not.toBe(true);
-    expect(point.usedByMain).not.toBe(true);
-    expect(point.usedByCounter).toBe(true);
+    // PROD:MULTI_ACCOUNT_ENTRY_VPOINT_USAGE
+    expect(point.used).toBeUndefined();
+    expect((point as any)["usedByaccount-1"]).toBe(true);
     expect(
       slowTrading.watchReserve.volatilityPoint.isUsed({
+        accountSlug: "account-1",
         entrySignal: point,
-        roles: ["MAIN"],
-        volatilityPoints,
-      }),
-    ).toBe(false);
-    expect(
-      slowTrading.watchReserve.volatilityPoint.isUsed({
-        entrySignal: point,
-        roles: ["COUNTER"],
         volatilityPoints,
       }),
     ).toBe(true);
+    expect(
+      slowTrading.watchReserve.volatilityPoint.isUsed({
+        accountSlug: "account-2",
+        entrySignal: point,
+        volatilityPoints,
+      }),
+    ).toBe(false);
   });
 
-  it("marks both role flags only after a successful BOTH backtest entry", () => {
+  it("marks the account after a successful BOTH backtest entry", () => {
     const runtime = createRuntime();
     const volatilityPoint = createEntryRecommendation({ id: "entry-pair" });
     runtime.modelMemoryMap.SUI.volatility = {
@@ -821,11 +828,8 @@ describe("slow specs entry", () => {
 
     // BOTH:ENTRY_ONLY_IN_UNIQUE_VOLATILITY_POINT_ID
     expect(didOpen).toBe(true);
-    expect(volatilityPoint).toMatchObject({
-      used: true,
-      usedByCounter: true,
-      usedByMain: true,
-    });
+    expect((volatilityPoint as any)["usedBybinance-1"]).toBe(true);
+    expect(volatilityPoint.used).toBeUndefined();
   });
 
   it("blocks unreserved watch spending when only reserved balance remains", () => {

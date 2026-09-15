@@ -12,6 +12,7 @@ import {
   formatVolume24h,
   getMissingVolatilitySymbols,
   isLowVolume24h,
+  isVolatilityPointUsedByAccount,
   matchesLatestVolatilitySymbolSearch,
 } from "@/components/LiveDashboard/Feature/LatestVolatilityPoints";
 import {
@@ -78,6 +79,17 @@ describe("latest volatility point volume", () => {
       ),
       source: expect.stringContaining("Binance USD-M"),
     });
+  });
+
+  it("reads latest-point usage independently for each account", () => {
+    const point = {
+      id: "entry-1",
+      "usedBybinance-1": true,
+    } as any;
+
+    // PROD:MULTI_ACCOUNT_ENTRY_VPOINT_USAGE
+    expect(isVolatilityPointUsedByAccount(point, "binance-1")).toBe(true);
+    expect(isVolatilityPointUsedByAccount(point, "binance-2")).toBe(false);
   });
 
   it("explains funding impact for the current open-position direction", () => {

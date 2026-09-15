@@ -45,12 +45,26 @@ import slowTradingCycleSharedMarket, {
 } from "./cycle/shared-market";
 import binanceRequestCoordinator from "@/lib/exchange/platform/binance/request-coordinator";
 
-/** Returns the role-specific vPoint usage required by a fresh entry. */
+/** Returns the configured roles required by a fresh entry. */
 function resolveFreshEntryRoles(params: {
   entryLegs?: DynamicTradeConfig["entryLegs"];
   openDirection?: DynamicTradeConfig["openDirection"];
 }): PositionRole[] | undefined {
   return bothDirection.entry.resolveRoles(params);
+}
+
+/** Removes the deprecated point-wide marker before production evaluation. */
+function clearDeprecatedVolatilityUsage(
+  modelMemoryMap: Record<string, any>,
+): void {
+  // PROD:MULTI_ACCOUNT_ENTRY_VPOINT_USAGE
+  for (const modelMemory of Object.values(modelMemoryMap)) {
+    for (const point of modelMemory.volatility?.lastVolatility ?? []) {
+      delete point.used;
+      delete (point as Record<string, unknown>).usedByMain;
+      delete (point as Record<string, unknown>).usedByCounter;
+    }
+  }
 }
 
 /**
@@ -85,6 +99,7 @@ export function filterSignalsWithoutOpenPositions(
  * Explains why a forced manual entry did not produce an executable signal.
  */
 export function getForcedEntrySkipReason(params: {
+  accountSlug: string;
   symbol: string;
   configuredSymbols: string[];
   minAbsLevelToEntry?: number;
@@ -102,6 +117,7 @@ export function getForcedEntrySkipReason(params: {
  * Returns the shared pre-execution block reason used by manual and diagnostic flows.
  */
 export function getEntryPreExecutionBlockReason(params: {
+  accountSlug: string;
   symbol: string;
   configuredSymbols: string[];
   minAbsLevelToEntry?: number;
@@ -169,6 +185,7 @@ export function getEntryPreExecutionBlockReason(params: {
 
   if (
     slowTradingWatchReserve.volatilityPoint.isUsed({
+      accountSlug: params.accountSlug,
       entrySignal: latestVolatility,
       modelMemory,
     })
@@ -189,8 +206,8 @@ export function getEntryPreExecutionBlockReason(params: {
 export function filterSignalsWithUnusedVolatilityPointId(
   modeState: SlowTradingModeState,
   entrySignals: EntryRecommendation[],
+  accountSlug: string,
   modelMemoryMap?: Record<string, any>,
-  roles?: PositionRole[],
 ): EntryRecommendation[] {
   return entrySignals.filter((item) => {
     const symbol = String(item.symbol || "")
@@ -210,9 +227,9 @@ export function filterSignalsWithUnusedVolatilityPointId(
       )?.model_memory;
 
     return !slowTradingWatchReserve.volatilityPoint.isUsed({
+      accountSlug,
       entrySignal: item,
       modelMemory,
-      roles,
     });
   });
 }
@@ -322,6 +339,8 @@ export async function buildSlowTradingSignals(params?: {
         );
       }
 
+      clearDeprecatedVolatilityUsage(modelMemoryMap);
+
       for (const symbol of forcedEntrySymbols) {
         if (modelMemoryMap[symbol]) {
           modelMemoryMap[symbol].justBuy = true;
@@ -353,8 +372,8 @@ export async function buildSlowTradingSignals(params?: {
         entrySignals = filterSignalsWithUnusedVolatilityPointId(
           modeState,
           entrySignals,
+          storage.account.slug,
           modelMemoryMap,
-          resolveFreshEntryRoles(storage.config),
         );
         const volatilityPointsMap = Object.fromEntries(
           Object.entries(modelMemoryMap).map(([symbol, modelMemory]) => [
@@ -492,8 +511,8 @@ export async function buildSlowTradingSignals(params?: {
       entrySignals = filterSignalsWithUnusedVolatilityPointId(
         modeState,
         entrySignals,
+        storage.account.slug,
         modelMemoryMap,
-        resolveFreshEntryRoles(storage.config),
       );
 
       return {
@@ -595,6 +614,7 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
       const symbol = rawSymbol.toUpperCase();
       const modelMemory = modelMemoryMap[symbol];
       const decision = streakBreak.reentry.resolve({
+        accountSlug: storage.account.slug,
         positions: modelMemory?.positions ?? [],
         pendingReentries: modelMemory?.pendingReentries,
         volatilityPoints: volatilityPointsMap[symbol] ?? [],
@@ -801,6 +821,7 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
       status = "blocked";
     } else {
       const preExecutionReason = getEntryPreExecutionBlockReason({
+        accountSlug: storage.account.slug,
         symbol,
         configuredSymbols: storage.config.symbols,
         minAbsLevelToEntry: storage.config.minAbsLevelToEntry,

@@ -10,9 +10,12 @@ import type {
   SlowEntrySequenceCount,
   SlowTradingDashboardState,
 } from "@/lib/slowTrading";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import {
   Box,
+  Chip,
   IconButton,
   TableCell,
   TableRow,
@@ -28,8 +31,11 @@ import ManualEntryDialog from "../ManualEntryDialog";
 import { calculateSlowWorkerCapacity } from "../worker-capacity";
 import LatestVolatilityPointChartDialog from "./LatestVolatilityPointChartDialog";
 import type { VolatilityPointLabelFrequency } from "./types";
-import { simplifyId, VPOINT_LEVEL_COLOR_MAP } from "./utils";
-import VolatilityPointUsageChip from "./VolatilityPointUsageChip";
+import {
+  isVolatilityPointUsedByAccount,
+  simplifyId,
+  VPOINT_LEVEL_COLOR_MAP,
+} from "./utils";
 import VolatilityPointLabelFrequencyBar from "./VolatilityPointLabelFrequencyBar";
 import FundingRateCell from "./FundingRateCell";
 import {
@@ -184,6 +190,9 @@ export default function LatestVolatilityPointRow({
   const marketCapColor = getMarketCapRiskColor(marketCapUSD);
   const priceColor = getPriceRiskColor(point.p);
   const railColor = point.l === "B" ? red[500] : green[500];
+  const enabledAccounts = dashboardState.accountSummaries.filter(
+    (account) => account.enabled,
+  );
 
   return (
     <TableRow
@@ -325,7 +334,45 @@ export default function LatestVolatilityPointRow({
             {moment(point.t).fromNow()}
           </Typography>
         </Tooltip>
-        <VolatilityPointUsageChip symbol={symbol} used={point.used} />
+        {enabledAccounts.length > 0 && (
+          <Box
+            aria-label="Account vPoint usage"
+            role="group"
+            sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.75 }}
+          >
+            {enabledAccounts.map((account) => {
+              const used = isVolatilityPointUsedByAccount(
+                point,
+                account.slug,
+              );
+              const status = used ? "used" : "unused";
+
+              return (
+                <Tooltip
+                  arrow
+                  key={account.slug}
+                  title={`${account.name} (${account.slug}): this vPoint is ${status} for entry.`}
+                >
+                  <Chip
+                    aria-label={`${account.name}: ${status}`}
+                    color={used ? "success" : "default"}
+                    icon={
+                      used ? (
+                        <CheckCircleOutlineIcon fontSize="small" />
+                      ) : (
+                        <RadioButtonUncheckedIcon fontSize="small" />
+                      )
+                    }
+                    label={`${account.name} · ${status}`}
+                    size="small"
+                    sx={{ fontSize: "0.7rem", height: 24 }}
+                    variant={used ? "filled" : "outlined"}
+                  />
+                </Tooltip>
+              );
+            })}
+          </Box>
+        )}
       </TableCell>
 
       <TableCell>

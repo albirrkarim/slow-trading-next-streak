@@ -19,17 +19,12 @@ interface VolatilityPointRuntimeAddOn<T = any> {
   symbol?: string;
 
   /**
-   * used in backtest based on volatility
+   * Deprecated point-wide usage marker. SLOW entry uses runtime
+   * `usedBy<accountSlug>` properties instead.
    *
    * [EXCLUDE FROM DATASET]
    */
   used?: boolean;
-
-  /** Whether this point successfully opened the MAIN role in BOTH mode. */
-  usedByMain?: boolean;
-
-  /** Whether this point successfully opened the COUNTER role in BOTH mode. */
-  usedByCounter?: boolean;
 
   /**
    * Delta in ms between v point before and the current v point
@@ -116,13 +111,16 @@ export interface VolatilityPoint<
   lvl: number;
 }
 
-/** Clears every persisted entry-consumption flag from a volatility point. */
+/** Clears every deprecated or account-scoped entry-consumption marker. */
 export function resetVolatilityPointEntryUsage(
   point: VolatilityPoint,
 ): void {
   delete point.used;
-  delete point.usedByMain;
-  delete point.usedByCounter;
+  for (const key of Object.keys(point)) {
+    if (key.startsWith("usedBy")) {
+      delete (point as VolatilityPoint & Record<string, unknown>)[key];
+    }
+  }
 }
 
 /**
