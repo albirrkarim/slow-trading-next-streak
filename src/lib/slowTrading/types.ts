@@ -447,6 +447,7 @@ export interface SlowTradingAccountTradingConfig extends Pick<
   | "exactLeverage"
   | "exitSidewaysToFreeWorkersForStrongCandidates"
   | "lateEntryVPointPriceDriftEnabled"
+  | "lateEntryVPointMaxPriceDriftPct"
   | "maxEntryBased24HourVolPct"
   | "maxEntryMargin"
   | "maxEntryMarginPct"
@@ -462,6 +463,8 @@ export interface SlowTradingAccountTradingConfig extends Pick<
   entryLegs: NonNullable<DynamicTradeConfig["entryLegs"]>;
   /** Whether production entries enforce the vPoint price-drift guard. */
   lateEntryVPointPriceDriftEnabled?: boolean;
+  /** Maximum late-entry drift in percentage points; omitted for the volatility-threshold default. */
+  lateEntryVPointMaxPriceDriftPct?: number;
   /** User-authored reminder describing this account's trading strategy. */
   notes: string;
   modelConfig: SlowTradingAccountModelConfig;

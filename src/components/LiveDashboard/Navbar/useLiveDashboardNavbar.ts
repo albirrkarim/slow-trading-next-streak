@@ -171,6 +171,8 @@ export function useLiveDashboardNavbar({
           openDirection: configDraft.openDirection ?? "ONE_WAY",
           lateEntryVPointPriceDriftEnabled:
             configDraft.lateEntryVPointPriceDriftEnabled !== false,
+          lateEntryVPointMaxPriceDriftPct:
+            configDraft.lateEntryVPointMaxPriceDriftPct,
           symbols: symbolsParsed,
           modelConfig: configDraft.modelConfig,
           enableWatchLogic: configDraft.enableWatchLogic,

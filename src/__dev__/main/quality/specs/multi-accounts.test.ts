@@ -61,6 +61,7 @@ describe("SLOW multi-account specs", () => {
 
     expect(template.trading.entryLegs).toBe("BOTH");
     expect(template.trading.lateEntryVPointPriceDriftEnabled).toBe(true);
+    expect(template.trading.lateEntryVPointMaxPriceDriftPct).toBeUndefined();
     await slowTrading.storage.account.saveAccounts(
       [
         {
@@ -69,6 +70,7 @@ describe("SLOW multi-account specs", () => {
             ...template.trading,
             entryLegs: "COUNTER",
             lateEntryVPointPriceDriftEnabled: false,
+            lateEntryVPointMaxPriceDriftPct: 0.75,
           },
         },
       ],
@@ -82,6 +84,7 @@ describe("SLOW multi-account specs", () => {
     expect(accounts[0].trading.entryLegs).toBe("COUNTER");
     // PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT
     expect(accounts[0].trading.lateEntryVPointPriceDriftEnabled).toBe(false);
+    expect(accounts[0].trading.lateEntryVPointMaxPriceDriftPct).toBe(0.75);
   });
 
   it("keeps live and sandbox memory isolated by account slug", async () => {

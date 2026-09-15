@@ -150,6 +150,85 @@ describe("production late entry vPoint drift guard", () => {
     expect(blocked.reason).toContain("maximum 0.50%");
   });
 
+  it("uses a configured limit at the boundary for one-way and both-direction entries", () => {
+    // PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT
+    expect(lateEntryVPointDrift.resolveMaxProfitDriftPct(2, 0.75)).toBe(0.75);
+    expect(lateEntryVPointDrift.resolveMaxProfitDriftPct(5, 0.75)).toBe(0.75);
+    expect(
+      lateEntryVPointDrift.evaluateEntry(
+        {
+          bothDirection: true,
+          currentPrice: 99.25,
+          direction: "SHORT",
+          maxPriceDriftPct: 0.75,
+          vPointPrice: 100,
+        },
+        2,
+      ).blocked,
+    ).toBe(false);
+    const pairBlocked = lateEntryVPointDrift.evaluateEntry(
+      {
+        bothDirection: true,
+        currentPrice: 99.24,
+        direction: "SHORT",
+        maxPriceDriftPct: 0.75,
+        vPointPrice: 100,
+      },
+      2,
+    );
+    expect(pairBlocked.blocked).toBe(true);
+    expect(pairBlocked.reason).toContain("±0.75%");
+    expect(
+      lateEntryVPointDrift.evaluateEntry(
+        {
+          bothDirection: false,
+          currentPrice: 100.76,
+          direction: "SHORT",
+          maxPriceDriftPct: 0.75,
+          vPointPrice: 100,
+        },
+        2,
+      ).blocked,
+    ).toBe(false);
+    expect(
+      lateEntryVPointDrift.evaluateEntry(
+        {
+          bothDirection: false,
+          currentPrice: 100.76,
+          direction: "LONG",
+          maxPriceDriftPct: 0.75,
+          vPointPrice: 100,
+        },
+        2,
+      ).blocked,
+    ).toBe(true);
+  });
+
+  it("uses the account limit during final live and sandbox entry execution", async () => {
+    for (const executionMode of ["live", "sandbox"] as const) {
+      const signal = createSignal();
+      const result = await executeEntry({
+        balanceOverride: { baseAsset: 0, quoteAsset: 1_000 },
+        current: createKline(99.24),
+        dynamicTradeConfig: {
+          lateEntryVPointMaxPriceDriftPct: 0.75,
+        } as any,
+        entrySignal: signal,
+        exchangeType: "binance",
+        executionMode,
+        investAmount: 100,
+        modelConfig: {} as any,
+        modelMemory: createMemory(signal),
+        simulate: executionMode === "sandbox",
+        tradingMode: TradingMode.FUTURES,
+      });
+
+      // PROD:LATE_ENTRY_VPOINT_PRICE_DRIFT_PCT
+      expect(result.message).toContain("maximum 0.75%");
+      expect(entryMocks.dynamicEntry).not.toHaveBeenCalled();
+    }
+  });
+
   it("blocks both-direction drift outside the symmetric entry zone", () => {
     expect(
       lateEntryVPointDrift.evaluateZone(

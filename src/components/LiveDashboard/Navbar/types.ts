@@ -61,6 +61,7 @@ export interface ConfigDraft {
   openDirection?: OpenDirection;
   entryLegs?: EntryLegs;
   lateEntryVPointPriceDriftEnabled?: boolean;
+  lateEntryVPointMaxPriceDriftPct?: number;
   symbolsText: string;
   modelConfig: TradingModelConfig;
   runnerEnabled: boolean;

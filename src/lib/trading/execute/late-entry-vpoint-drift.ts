@@ -18,12 +18,22 @@ interface LateEntryVPointZoneParams {
 interface LateEntryEvaluationParams extends LateEntryVPointDriftParams {
   bothDirection: boolean;
   enabled?: boolean;
+  maxPriceDriftPct?: number;
 }
 
-/** Resolves the allowed profitable drift for the active volatility mode. */
+/** Resolves the account limit, falling back to the active volatility mode. */
 function resolveMaxProfitDriftPct(
   volatilityThreshold = VOLATILITY_THRESHOLD,
+  configuredMaxPriceDriftPct?: number,
 ): number {
+  if (
+    typeof configuredMaxPriceDriftPct === "number" &&
+    Number.isFinite(configuredMaxPriceDriftPct) &&
+    configuredMaxPriceDriftPct > 0
+  ) {
+    return configuredMaxPriceDriftPct;
+  }
+
   return volatilityThreshold < LOW_VOLATILITY_THRESHOLD_CUTOFF
     ? LOW_VOLATILITY_MAX_PROFIT_DRIFT_PCT
     : DEFAULT_MAX_PROFIT_DRIFT_PCT;
@@ -59,9 +69,10 @@ function calculateProfitDriftPct({
 function evaluate(
   params: LateEntryVPointDriftParams,
   volatilityThreshold = VOLATILITY_THRESHOLD,
+  maxPriceDriftPct?: number,
 ) {
   const maxProfitDriftPct =
-    resolveMaxProfitDriftPct(volatilityThreshold);
+    resolveMaxProfitDriftPct(volatilityThreshold, maxPriceDriftPct);
   const profitDriftPct = calculateProfitDriftPct(params);
   const blocked =
     profitDriftPct !== undefined && profitDriftPct > maxProfitDriftPct;
@@ -83,8 +94,12 @@ function evaluate(
 function evaluateZone(
   params: LateEntryVPointZoneParams,
   volatilityThreshold = VOLATILITY_THRESHOLD,
+  maxPriceDriftPct?: number,
 ) {
-  const maxDriftPct = resolveMaxProfitDriftPct(volatilityThreshold);
+  const maxDriftPct = resolveMaxProfitDriftPct(
+    volatilityThreshold,
+    maxPriceDriftPct,
+  );
   const driftPct =
     Number.isFinite(params.currentPrice) &&
     Number.isFinite(params.vPointPrice) &&
@@ -115,8 +130,8 @@ function evaluateEntry(
   }
 
   return params.bothDirection
-    ? evaluateZone(params, volatilityThreshold)
-    : evaluate(params, volatilityThreshold);
+    ? evaluateZone(params, volatilityThreshold, params.maxPriceDriftPct)
+    : evaluate(params, volatilityThreshold, params.maxPriceDriftPct);
 }
 
 const lateEntryVPointDrift = {

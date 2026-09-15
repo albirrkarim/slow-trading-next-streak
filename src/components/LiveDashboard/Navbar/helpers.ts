@@ -163,6 +163,8 @@ export function makeConfigDraft(state: DashboardState): ConfigDraft {
     entryLegs: state.config.entryLegs ?? "BOTH",
     lateEntryVPointPriceDriftEnabled:
       state.config.lateEntryVPointPriceDriftEnabled !== false,
+    lateEntryVPointMaxPriceDriftPct:
+      state.config.lateEntryVPointMaxPriceDriftPct,
     symbolsText: state.config.symbols.join(", "),
     modelConfig: cloneModelConfig(
       state.config.modelConfig ??
@@ -280,6 +282,8 @@ export function applyAccountProfileToConfigDraft(
     entryLegs: trading.entryLegs,
     lateEntryVPointPriceDriftEnabled:
       trading.lateEntryVPointPriceDriftEnabled !== false,
+    lateEntryVPointMaxPriceDriftPct:
+      trading.lateEntryVPointMaxPriceDriftPct,
     exactLeverage: trading.exactLeverage,
     exitSidewaysToFreeWorkersForStrongCandidates:
       trading.exitSidewaysToFreeWorkersForStrongCandidates,

@@ -885,6 +885,8 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
             direction,
             enabled:
               storage.config.lateEntryVPointPriceDriftEnabled !== false,
+            maxPriceDriftPct:
+              storage.config.lateEntryVPointMaxPriceDriftPct,
             vPointPrice: entrySignal.p,
           });
 
@@ -1017,6 +1019,10 @@ export async function buildSlowTradingEntryDiagnostics(params?: {
             bothDirection: true,
             currentPrice,
             direction: decision.direction,
+            enabled:
+              storage.config.lateEntryVPointPriceDriftEnabled !== false,
+            maxPriceDriftPct:
+              storage.config.lateEntryVPointMaxPriceDriftPct,
             vPointPrice: point.p,
           });
           if (lateEntryGuard.blocked) {

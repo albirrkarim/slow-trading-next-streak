@@ -563,6 +563,13 @@ check skip this guard for that account only. Other enabled accounts retain
 their own setting. This remains production/runtime behavior and applies to
 both live and sandbox entries; backtest is unchanged.
 
+Each account may also set `trading.lateEntryVPointMaxPriceDriftPct` as a
+positive percentage-point value. Entry decisions, missing-position diagnostics,
+and final live/sandbox execution must use the same account value. When omitted,
+the volatility-threshold default below remains in effect. A value of `0.75`
+means ±0.75% for BOTH and at most 0.75% favorable drift for ONE_WAY. Disabling
+the guard still bypasses the configured limit.
+
 For `ONE_WAY`, only drift in the recommended position's profit direction is
 blocked. Adverse drift remains allowed.
 
@@ -571,7 +578,8 @@ adverse. The current price must therefore remain inside a symmetric entry zone
 around the source vPoint price. Absolute drift outside the allowed percentage
 blocks the complete pair; SLOW must not open only one leg.
 
-The maximum drift depends on `VOLATILITY_THRESHOLD`:
+Without an account override, the maximum drift depends on
+`VOLATILITY_THRESHOLD`:
 
 - When `VOLATILITY_THRESHOLD < 5`, block drift greater than `0.5%`.
 - When `VOLATILITY_THRESHOLD >= 5`, block drift greater than `1%`.

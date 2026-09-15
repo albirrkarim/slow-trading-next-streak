@@ -9,6 +9,7 @@ const BOOLEAN_KEYS = [
 
 const NUMBER_KEYS = [
   "exactLeverage",
+  "lateEntryVPointMaxPriceDriftPct",
   "maxEntryBased24HourVolPct",
   "maxEntryMargin",
   "maxEntryMarginPct",
@@ -95,6 +96,13 @@ function parse(raw: string): SlowTradingAccountTradingConfig {
     if (value !== undefined) {
       requireFiniteNumber(value, key);
     }
+  }
+
+  if (
+    parsed.lateEntryVPointMaxPriceDriftPct !== undefined &&
+    (parsed.lateEntryVPointMaxPriceDriftPct as number) <= 0
+  ) {
+    throw new Error('"lateEntryVPointMaxPriceDriftPct" must be greater than 0.');
   }
 
   if (parsed.adaptiveAveraging !== undefined) {

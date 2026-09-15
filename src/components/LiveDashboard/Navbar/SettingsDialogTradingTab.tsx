@@ -11,6 +11,7 @@ import {
   ToggleButtonGroup,
 } from "@mui/material";
 import adaptiveAveraging from "@/lib/trading/adaptive-averaging";
+import lateEntryVPointDrift from "@/lib/trading/execute/late-entry-vpoint-drift";
 import type { SlowTradingAccountTradingConfig } from "@/lib/slowTrading";
 
 import ExitStrategyReference from "./ExitStrategyReference";
@@ -33,8 +34,9 @@ interface SettingsDialogTradingTabProps {
 
 function TradingAccountSettings({
   configDraft,
+  dashboardState,
   setConfigDraft,
-}: Pick<SettingsDialogTradingTabProps, "configDraft" | "setConfigDraft">) {
+}: SettingsDialogTradingTabProps) {
   const averagingEnabled = configDraft.enableWatchLogic ?? false;
   const selectedAccount = configDraft.exchangeAccounts.find(
     (account) => account.slug === configDraft.exchangeAccountSlug,
@@ -120,6 +122,41 @@ function TradingAccountSettings({
                         lateEntryVPointPriceDriftEnabled: checked,
                       }
                     : prev,
+                )
+              }
+            />
+          </Grid>
+
+          <Grid size={{ xs: 12, md: 6 }}>
+            <SettingsInfoField
+              disabled={configDraft.lateEntryVPointPriceDriftEnabled === false}
+              fullWidth
+              info="Maximum allowed price difference from the source vPoint, in percent. ONE WAY checks favorable drift; BOTH checks both directions. Clear the value to restore the volatility-threshold default (0.5% below threshold 5, otherwise 1%). This value belongs to the selected account."
+              label="Max Late Entry vPoint Price Drift (%)"
+              onChange={(event) => {
+                if (event.target.value === "") {
+                  setConfigDraft((prev) =>
+                    prev
+                      ? { ...prev, lateEntryVPointMaxPriceDriftPct: undefined }
+                      : prev,
+                  );
+                  return;
+                }
+                const value = Number(event.target.value);
+                if (!Number.isFinite(value) || value <= 0) return;
+                setConfigDraft((prev) =>
+                  prev
+                    ? { ...prev, lateEntryVPointMaxPriceDriftPct: value }
+                    : prev,
+                );
+              }}
+              size="small"
+              slotProps={{ htmlInput: { min: "0.01", step: "0.01" } }}
+              type="number"
+              value={
+                configDraft.lateEntryVPointMaxPriceDriftPct ??
+                lateEntryVPointDrift.resolveMaxProfitDriftPct(
+                  dashboardState.globalConfig?.volatilityThresholdPct,
                 )
               }
             />
@@ -673,6 +710,7 @@ export default function SettingsDialogTradingTab({
           ) : (
             <TradingAccountSettings
               configDraft={configDraft}
+              dashboardState={dashboardState}
               setConfigDraft={setSelectedAccountDraft}
             />
           )}

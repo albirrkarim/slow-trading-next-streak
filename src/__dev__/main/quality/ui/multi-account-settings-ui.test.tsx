@@ -331,6 +331,11 @@ describe("multi-account settings UI", () => {
       true;
     state.runtime.exchangeAccounts[1].trading.lateEntryVPointPriceDriftEnabled =
       false;
+    state.runtime.exchangeAccounts[0].trading.lateEntryVPointMaxPriceDriftPct =
+      0.75;
+    state.runtime.exchangeAccounts[1].trading.lateEntryVPointMaxPriceDriftPct =
+      1.25;
+    state.config.lateEntryVPointMaxPriceDriftPct = 0.75;
 
     function Harness() {
       const [draft, setDraft] = useState<ConfigDraft | null>(
@@ -354,6 +359,11 @@ describe("multi-account settings UI", () => {
       (screen.getByRole("checkbox", { name: guardName }) as HTMLInputElement)
         .checked,
     ).toBe(true);
+    const limitName = "Max Late Entry vPoint Price Drift (%)";
+    expect(
+      (screen.getByRole("spinbutton", { name: limitName }) as HTMLInputElement)
+        .value,
+    ).toBe("0.75");
 
     await user.click(screen.getByRole("combobox", { name: "Editing Account" }));
     await user.click(screen.getByRole("option", { name: "Beta" }));
@@ -361,12 +371,20 @@ describe("multi-account settings UI", () => {
       (screen.getByRole("checkbox", { name: guardName }) as HTMLInputElement)
         .checked,
     ).toBe(false);
+    expect(
+      (screen.getByRole("spinbutton", { name: limitName }) as HTMLInputElement)
+        .value,
+    ).toBe("1.25");
 
     await user.click(screen.getByRole("checkbox", { name: guardName }));
     expect(
       (screen.getByRole("checkbox", { name: guardName }) as HTMLInputElement)
         .checked,
     ).toBe(true);
+    expect(
+      (screen.getByRole("spinbutton", { name: limitName }) as HTMLInputElement)
+        .value,
+    ).toBe("1.25");
 
     await user.click(screen.getByRole("combobox", { name: "Editing Account" }));
     await user.click(screen.getByRole("option", { name: "Alpha" }));
@@ -375,6 +393,10 @@ describe("multi-account settings UI", () => {
       (screen.getByRole("checkbox", { name: guardName }) as HTMLInputElement)
         .checked,
     ).toBe(true);
+    expect(
+      (screen.getByRole("spinbutton", { name: limitName }) as HTMLInputElement)
+        .value,
+    ).toBe("0.75");
   });
 
   it("scopes the Trading preview balance and positions to the edited account", async () => {

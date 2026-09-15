@@ -352,6 +352,7 @@ export async function executeEntry({
     currentPrice: price,
     direction,
     enabled: dynamicTradeConfig.lateEntryVPointPriceDriftEnabled !== false,
+    maxPriceDriftPct: dynamicTradeConfig.lateEntryVPointMaxPriceDriftPct,
     vPointPrice: entrySignal.p,
   });
 

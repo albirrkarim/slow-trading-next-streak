@@ -56,6 +56,15 @@ function fromEffectiveConfig(
     notes: typeof notes === "string" ? notes : "",
   } as SlowTradingAccountTradingConfig;
 
+  if (
+    typeof config.lateEntryVPointMaxPriceDriftPct === "number" &&
+    Number.isFinite(config.lateEntryVPointMaxPriceDriftPct) &&
+    config.lateEntryVPointMaxPriceDriftPct > 0
+  ) {
+    trading.lateEntryVPointMaxPriceDriftPct =
+      config.lateEntryVPointMaxPriceDriftPct;
+  }
+
   for (const key of TRADING_CONFIG_KEYS) {
     const value = config[key];
     if (value !== undefined) {
