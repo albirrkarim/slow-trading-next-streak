@@ -414,6 +414,76 @@ describe("OpenPositions PnL sorting", () => {
     );
   });
 
+  it("shows one symbol card and one missing-role decision across accounts", () => {
+    const onExitBoth = vi.fn().mockResolvedValue(undefined);
+    const firstZro = {
+      ...createTestPosition({ role: "MAIN", symbol: "ZRO", netUsdt: -0.88 }),
+      account: "binance-1",
+      mode: "sandbox" as const,
+    };
+    const secondZro = {
+      ...createTestPosition({ role: "MAIN", symbol: "ZRO", netUsdt: -2.35 }),
+      account: "binance-2",
+      mode: "sandbox" as const,
+    };
+    const waitingReason = "Latest vPoint was already used for COUNTER entry";
+
+    render(
+      <OpenPositions
+        availableTags={[]}
+        coinDescriptions={{}}
+        coinTags={{}}
+        config={{ openDirection: "BOTH", symbols: ["ZRO", "AAVE"] } as any}
+        entryDiagnostics={[
+          {
+            code: "STREAK_REENTRY_WAITING",
+            reason: waitingReason,
+            role: "COUNTER",
+            source: {
+              accountName: "First",
+              accountSlug: "binance-1",
+              scope: "account",
+            },
+            status: "blocked",
+            symbol: "ZRO",
+          },
+        ]}
+        exchangeType={"binance" as any}
+        mode="sandbox"
+        onCoinDescriptionChange={vi.fn()}
+        onCoinTagsChange={vi.fn()}
+        onExitBoth={onExitBoth}
+        positions={[
+          firstZro,
+          {
+            ...createTestPosition({ role: "MAIN", symbol: "AAVE" }),
+            mode: "sandbox" as const,
+          },
+          secondZro,
+        ]}
+        spendableQuoteAsset={0}
+        tagColors={{}}
+        tagDescriptions={{}}
+        volatilityMap={{}}
+        volume24hBySymbol={{}}
+      />,
+    );
+
+    expect(screen.getByText("Open Position (2 symbols)")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Expand ZRO position" })).toHaveLength(1);
+    expect(screen.getAllByText(waitingReason)).toHaveLength(1);
+    expect(screen.getByText("Total across 2 accounts")).toBeTruthy();
+    expect(screen.getByText("Entry status across accounts")).toBeTruthy();
+    expect(screen.getByText("binance-1")).toBeTruthy();
+    expect(screen.getByText("binance-2")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand ZRO position" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Both · binance-1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Both · binance-2" }));
+    expect(onExitBoth).toHaveBeenCalledWith(firstZro);
+    expect(onExitBoth).toHaveBeenCalledWith(secondZro);
+  });
+
   it("starts worst-first and toggles to best-first", () => {
     render(
       <OpenPositions

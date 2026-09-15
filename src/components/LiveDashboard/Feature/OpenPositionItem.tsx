@@ -65,6 +65,7 @@ interface OpenPositionItemProps {
   title?: React.ReactNode;
   volatilityPoints: VolatilityPoint[];
   volume24h?: number;
+  withAccountChip?: boolean;
   withCoinInfo?: boolean;
   withOpenedAge?: boolean;
 }
@@ -191,6 +192,7 @@ export default function OpenPositionItem({
   title,
   volatilityPoints,
   volume24h,
+  withAccountChip = true,
   withCoinInfo = true,
   withOpenedAge = true,
 }: OpenPositionItemProps) {
@@ -277,7 +279,9 @@ export default function OpenPositionItem({
             {position.closed && (
               <Chip color="default" label="Closed" size="small" />
             )}
-            <Chip label={position.account} size="small" variant="outlined" />
+            {withAccountChip && (
+              <Chip label={position.account} size="small" variant="outlined" />
+            )}
 
             {isSpeedupStage && (
               // PROD:SPEEDUP_STAGE

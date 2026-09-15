@@ -16,6 +16,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Divider,
   Grid,
   IconButton,
   Stack,
@@ -23,7 +24,7 @@ import {
   Typography,
 } from "@mui/material";
 import moment from "moment-timezone";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import HeaderMetrics from "@/components/ui/HeaderMetrics";
 import openPositionPnlContribution from "./open-position-pnl-contribution";
@@ -62,6 +63,105 @@ interface OpenPositionsProps {
 }
 
 type PnlSortOrder = "best" | "worst";
+type PairedPosition = {
+  account: string;
+  symbol: string;
+  main?: SlowTradingHistoryPosition;
+  counter?: SlowTradingHistoryPosition;
+};
+
+/** Groups account-specific pairs under one visible symbol without losing account order. */
+function groupPairsBySymbol(pairs: PairedPosition[]) {
+  const groups = new Map<string, PairedPosition[]>();
+  for (const pair of pairs) {
+    const accountPairs = groups.get(pair.symbol) ?? [];
+    accountPairs.push(pair);
+    groups.set(pair.symbol, accountPairs);
+  }
+  return Array.from(groups, ([symbol, accountPairs]) => ({
+    symbol,
+    accountPairs,
+  }));
+}
+
+/** Chooses an active leg for shared coin details and account-scoped pair actions. */
+function getPairCoinPosition(pair: PairedPosition) {
+  return (
+    [pair.main, pair.counter].find((position) => position && !position.closed) ??
+    pair.main ??
+    pair.counter
+  );
+}
+
+function PairedAccountRow({
+  multipleAccounts,
+  pair,
+  renderPosition,
+}: {
+  multipleAccounts: boolean;
+  pair: PairedPosition;
+  renderPosition: (
+    title: string,
+    role: PositionRole,
+    symbol: string,
+    position?: SlowTradingHistoryPosition,
+    withAccountChip?: boolean,
+  ) => ReactNode;
+}) {
+  const pairPosition = getPairCoinPosition(pair);
+  const pairNetUsdt =
+    (pair.main?.pnl.netUsdt ?? 0) + (pair.counter?.pnl.netUsdt ?? 0);
+
+  return (
+    <Box>
+      {multipleAccounts && (
+        <Stack alignItems="center" direction="row" gap={1} sx={{ mb: 0.75 }}>
+          <Chip
+            label={pair.account || "Entry status"}
+            size="small"
+            variant="outlined"
+          />
+          <Typography
+            color={pairNetUsdt >= 0 ? "success.main" : "error.main"}
+            sx={{ fontVariantNumeric: "tabular-nums" }}
+            variant="body2"
+          >
+            ${pairNetUsdt.toFixed(2)}
+          </Typography>
+          {pairPosition?.opened.t && (
+            <Typography color="text.secondary" variant="caption">
+              {moment(pairPosition.opened.t).fromNow()}
+            </Typography>
+          )}
+        </Stack>
+      )}
+      <Grid container spacing={1}>
+        {pair.main && (
+          <Grid size={{ xs: 12, md: pair.counter ? 6 : 12 }}>
+            {renderPosition(
+              "Main",
+              "MAIN",
+              pair.symbol,
+              pair.main,
+              !multipleAccounts,
+            )}
+          </Grid>
+        )}
+        {pair.counter && (
+          <Grid size={{ xs: 12, md: pair.main ? 6 : 12 }}>
+            {renderPosition(
+              "Counter",
+              "COUNTER",
+              pair.symbol,
+              pair.counter,
+              !multipleAccounts,
+            )}
+          </Grid>
+        )}
+      </Grid>
+    </Box>
+  );
+}
 
 /** Gets the dashboard volatility points for a position symbol. */
 function getPositionVolatilityPoints(
@@ -295,15 +395,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
 
   // Open-position UI never renders archived/legacy retained closed legs.
   const activePositions = props.positions.filter((position) => !position.closed);
-  const configuredPairs = new Map<
-    string,
-    {
-      account: string;
-      symbol: string;
-      main?: SlowTradingHistoryPosition;
-      counter?: SlowTradingHistoryPosition;
-    }
-  >(
+  const configuredPairs = new Map<string, PairedPosition>(
     (props.config.symbols ?? []).map((rawSymbol) => {
       const symbol = rawSymbol.trim().toUpperCase();
       return [
@@ -333,6 +425,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
       return map;
     }, configuredPairs),
   ).map(([, pair]) => pair);
+  const symbolGroups = groupPairsBySymbol(pairs);
 
   const totalAbsolutePnlUsdt = openPositionPnlContribution.totalAbsolute(
     activePositions,
@@ -342,6 +435,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
     role: PositionRole,
     symbol: string,
     position?: SlowTradingHistoryPosition,
+    withAccountChip = true,
   ) => {
     if (!position) {
       return (
@@ -388,6 +482,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
         volume24h={
           props.volume24hBySymbol[position.symbol.trim().toUpperCase()]
         }
+        withAccountChip={withAccountChip}
         withCoinInfo={false}
         withOpenedAge={false}
       />
@@ -399,7 +494,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
       defaultExpanded
       title={
         <Typography variant="body1" sx={{ fontWeight: "bold" }}>
-          Open Position ({pairs.length})
+          Open Position ({symbolGroups.length} symbols)
         </Typography>
       }
       titleRight={
@@ -415,27 +510,35 @@ function PairedOpenPositions(props: OpenPositionsProps) {
       {(expanded) =>
         expanded && (
           <Stack gap={1.5} mt={1}>
-            {pairs.map((pair) => {
-              const netUsdt =
-                (pair.main?.pnl.netUsdt ?? 0) +
-                (pair.counter?.pnl.netUsdt ?? 0);
-              const hasExitPendingForPair =
-                props.exitingPosition?.account === pair.account &&
-                props.exitingPosition.symbol === pair.symbol;
-              const isExitingPair =
-                hasExitPendingForPair && !props.exitingPosition?.role;
-              const coinPosition =
-                [pair.main, pair.counter].find(
-                  (position) => position && !position.closed,
-                ) ??
-                pair.main ??
-                pair.counter;
+            {symbolGroups.map(({ symbol, accountPairs }) => {
+              const netUsdt = accountPairs.reduce(
+                (total, pair) =>
+                  total +
+                  (pair.main?.pnl.netUsdt ?? 0) +
+                  (pair.counter?.pnl.netUsdt ?? 0),
+                0,
+              );
+              const coinPosition = accountPairs
+                .map(getPairCoinPosition)
+                .find((position) => position && !position.closed);
+              const multipleAccounts = accountPairs.length > 1;
+              const hasOpenPair = accountPairs.some(
+                (pair) => pair.main || pair.counter,
+              );
+              const hasMissingMain = accountPairs.some((pair) => !pair.main);
+              const hasMissingCounter = accountPairs.some(
+                (pair) => !pair.counter,
+              );
 
               return (
                 <HeaderMetrics
-                  key={`${pair.account}:${pair.symbol}`}
-                  rememberExpand={`open-position-${pair.account}-${pair.symbol}`}
-                  toggleLabel={`${pair.symbol} position`}
+                  key={symbol}
+                  rememberExpand={
+                    multipleAccounts
+                      ? `open-position-${symbol}`
+                      : `open-position-${accountPairs[0].account}-${symbol}`
+                  }
+                  toggleLabel={`${symbol} position`}
                   sx={{
                     bgcolor: "background.paper",
                     p: 1,
@@ -444,80 +547,75 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                   title={
                     <Box
                       sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
+                        display: "grid",
+                        gap: 1.5,
+                        gridTemplateColumns: {
+                          xs: "minmax(0, 1fr)",
+                          lg: "minmax(140px, 1fr) minmax(0, 2fr)",
+                        },
                       }}
                     >
-                      <Box sx={{ mr: 2 }}>
-                        <Typography fontWeight={800}>
-                          {pair.symbol}
-                          <Typography
-                            color={netUsdt >= 0 ? "success.main" : "error.main"}
-                            sx={{
-                              fontVariantNumeric: "tabular-nums",
-                              ml: 1,
-                              display: {
-                                lg: "inline",
-                                md: "none",
-                                sm: "none",
-                                xs: "none",
-                              },
-                            }}
-                            variant="body1"
-                            component="span"
-                          >
-                            ${netUsdt.toFixed(2)}
-                          </Typography>
-                        </Typography>
-
+                      <Box>
+                        <Typography fontWeight={800}>{symbol}</Typography>
                         <Typography
                           color={netUsdt >= 0 ? "success.main" : "error.main"}
-                          sx={{
-                            fontVariantNumeric: "tabular-nums",
-                            display: {
-                              lg: "none",
-                              md: "block",
-                              sm: "block",
-                              xs: "block",
-                            },
-                          }}
+                          sx={{ fontVariantNumeric: "tabular-nums" }}
                           variant="body1"
                         >
                           ${netUsdt.toFixed(2)}
                         </Typography>
-
                         <Typography color="text.secondary" variant="caption">
-                          {coinPosition?.opened.t
+                          {multipleAccounts
+                            ? `Total across ${accountPairs.length} accounts`
+                            : coinPosition?.opened.t
                             ? moment(coinPosition.opened.t).fromNow()
                             : "-"}
                         </Typography>
                       </Box>
-                      <Grid
-                        container
-                        spacing={1}
-                        sx={{
-                          minWidth: {
-                            xl: "1000px",
-                          },
-                        }}
+                      <Stack
+                        divider={multipleAccounts ? <Divider flexItem /> : undefined}
+                        gap={multipleAccounts ? 1 : 0}
+                        sx={{ minWidth: 0 }}
                       >
-                        <Grid size={{ xs: 12, sm: 12, md: 6, lg: 6 }}>
-                          {renderPosition(
-                            "Main",
-                            "MAIN",
-                            pair.symbol,
-                            pair.main,
-                          )}
-                        </Grid>
-                        <Grid size={{ xs: 12, sm: 12, md: 6, lg: 6 }}>
-                          {renderPosition(
-                            "Counter",
-                            "COUNTER",
-                            pair.symbol,
-                            pair.counter,
-                          )}
-                        </Grid>
-                      </Grid>
+                        {accountPairs
+                          .filter((pair) => pair.main || pair.counter)
+                          .map((pair) => (
+                            <PairedAccountRow
+                              key={`${pair.account}:${pair.symbol}`}
+                              multipleAccounts={multipleAccounts}
+                              pair={pair}
+                              renderPosition={renderPosition}
+                            />
+                          ))}
+                        {(hasMissingMain || hasMissingCounter) && (
+                          <Box>
+                            {hasOpenPair && !multipleAccounts && (
+                              <Divider sx={{ mb: 1 }} />
+                            )}
+                            {multipleAccounts && (
+                              <Typography
+                                color="text.secondary"
+                                sx={{ display: "block", mb: 0.5 }}
+                                variant="caption"
+                              >
+                                Entry status across accounts
+                              </Typography>
+                            )}
+                            <Grid container spacing={1}>
+                              {hasMissingMain && (
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                  {renderPosition("Main", "MAIN", symbol)}
+                                </Grid>
+                              )}
+                              {hasMissingCounter && (
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                  {renderPosition("Counter", "COUNTER", symbol)}
+                                </Grid>
+                              )}
+                            </Grid>
+                          </Box>
+                        )}
+                      </Stack>
                     </Box>
                   }
                 >
@@ -527,26 +625,47 @@ function PairedOpenPositions(props: OpenPositionsProps) {
                         {coinPosition && (
                           <OpenPositionCoinInfo
                             actions={
-                              <Button
-                                color="error"
-                                disabled={
-                                  !props.onExitBoth || hasExitPendingForPair
-                                }
-                                onClick={() =>
-                                  coinPosition &&
-                                  void props.onExitBoth?.(coinPosition)
-                                }
-                                size="small"
-                                sx={{ textTransform: "none" }}
-                                title={`Close both ${pair.symbol} legs`}
-                                variant="outlined"
-                              >
-                                {isExitingPair ? (
-                                  <CircularProgress color="inherit" size={16} />
-                                ) : (
-                                  "Close Both"
-                                )}
-                              </Button>
+                              <Stack direction="row" flexWrap="wrap" gap={1}>
+                                {accountPairs.map((pair) => {
+                                  const pairPosition = getPairCoinPosition(pair);
+                                  if (!pairPosition) return null;
+                                  const hasExitPendingForPair =
+                                    props.exitingPosition?.account ===
+                                      pair.account &&
+                                    props.exitingPosition.symbol === symbol;
+                                  const isExitingPair =
+                                    hasExitPendingForPair &&
+                                    !props.exitingPosition?.role;
+                                  return (
+                                    <Button
+                                      key={pair.account}
+                                      color="error"
+                                      disabled={
+                                        !props.onExitBoth ||
+                                        hasExitPendingForPair
+                                      }
+                                      onClick={() =>
+                                        void props.onExitBoth?.(pairPosition)
+                                      }
+                                      size="small"
+                                      sx={{ textTransform: "none" }}
+                                      title={`Close both ${symbol} legs on ${pair.account}`}
+                                      variant="outlined"
+                                    >
+                                      {isExitingPair ? (
+                                        <CircularProgress
+                                          color="inherit"
+                                          size={16}
+                                        />
+                                      ) : multipleAccounts ? (
+                                        `Close Both · ${pair.account}`
+                                      ) : (
+                                        "Close Both"
+                                      )}
+                                    </Button>
+                                  );
+                                })}
+                              </Stack>
                             }
                             availableTags={props.availableTags}
                             coinDescription={
@@ -575,7 +694,7 @@ function PairedOpenPositions(props: OpenPositionsProps) {
               );
             })}
 
-            {pairs.length === 0 && (
+            {symbolGroups.length === 0 && (
               <Typography color="text.secondary">No open positions</Typography>
             )}
           </Stack>
